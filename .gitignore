@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+*.tsbuildinfo
+.DS_Store
+.kalibra-dev/
+packages/demo/fixtures/audio/
+*.log

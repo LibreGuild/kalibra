@@ -1,0 +1,25 @@
+{
+  "name": "kalibra-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "tsx watch packages/cli/src/main.ts serve --dev",
+    "dev:web": "npm run dev -w @kalibra/web",
+    "build": "npm run build -w @kalibra/web && npm run build -w kalibra && npm run build -w @kalibra/desktop",
+    "typecheck": "tsc -p packages/core && tsc -p packages/server && tsc -p packages/cli && tsc -p packages/web && tsc -p packages/demo && tsc -p packages/desktop",
+    "test": "vitest run",
+    "demo": "tsx packages/demo/src/main.ts",
+    "desktop": "npm run build && npm run start -w @kalibra/desktop"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
