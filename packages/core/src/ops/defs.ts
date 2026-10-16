@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { CHECK_TYPES } from '../checks/index.js';
 import { LAYERS } from '../checks/types.js';
-import { createLlmClient, listModels, PROVIDERS } from '../providers/index.js';
+import { createLlmClient, inferModelKind, listModels, PROVIDERS } from '../providers/index.js';
+import { encodeWav } from '../audio/wav.js';
 import { defineOp, type OpDef } from '../registry.js';
 import { ConnectionSpec, TargetSpec, type DefKind } from '../specs.js';
 import { executeTarget, parseCurl } from '../targets/index.js';
@@ -186,15 +187,46 @@ export const defOpsAll = [
   defineOp({
     name: 'test_connection',
     title: 'Test a connection',
-    description: 'Sends a tiny prompt through a connection and reports latency and the reply. Works with unsaved specs.',
+    description:
+      'Makes one small call through a connection and reports latency. Text models get a tiny prompt, image models draw a small test image, speech models say one sentence, transcription models transcribe a short clip. Works with unsaved specs.',
     category: 'connections',
     readOnly: true,
-    input: z.object({ id: z.string().optional(), spec: z.record(z.string(), z.unknown()).optional(), model: z.string().default('') }),
+    input: z.object({
+      id: z.string().optional(),
+      spec: z.record(z.string(), z.unknown()).optional(),
+      model: z.string().default(''),
+      kind: z.enum(['auto', 'text', 'image', 'speech', 'transcription']).default('auto'),
+    }),
     handler: async ({ engine }, i) => {
       const spec = ConnectionSpec.parse(i.spec ?? engine.repos.defs.get('connection', i.id ?? '').spec);
       const client = createLlmClient(() => spec, engine.secrets);
-      const res = await client.text({ connectionId: 'test', model: i.model || spec.defaultModel, prompt: 'Reply with exactly: OK', maxOutputTokens: 16 });
-      return { ok: true, reply: res.text.trim(), latencyMs: res.latencyMs, model: res.model };
+      const kind =
+        i.kind !== 'auto'
+          ? i.kind
+          : i.model
+            ? inferModelKind(i.model)
+            : spec.defaultModel
+              ? inferModelKind(spec.defaultModel)
+              : spec.imageModel ? 'image' : spec.speechModel ? 'speech' : spec.transcriptionModel ? 'transcription' : 'text';
+      const model = i.model || (kind === 'image' ? spec.imageModel : kind === 'speech' ? spec.speechModel : kind === 'transcription' ? spec.transcriptionModel : '') || spec.defaultModel;
+      const base = { connectionId: 'test', model };
+      if (kind === 'image') {
+        const r = await client.image({ ...base, prompt: 'A simple flat icon of a balance scale, centered, plain light background', options: spec.provider === 'openai' ? { quality: 'low' } : undefined });
+        const file = await engine.blobs.put(Buffer.from(r.images[0].data), { mime: r.images[0].mime, name: 'connection-test.png' });
+        return { ok: true, kind, model: r.model, latencyMs: r.latencyMs, file };
+      }
+      if (kind === 'speech') {
+        const r = await client.speech({ ...base, text: 'Kalibra connection test. One, two, three.' });
+        const file = await engine.blobs.put(Buffer.from(r.audio.data), { mime: r.audio.mime, name: 'connection-test.wav' });
+        return { ok: true, kind, model: r.model, latencyMs: r.latencyMs, file };
+      }
+      if (kind === 'transcription') {
+        const silence = encodeWav([new Float32Array(16000)], 16000);
+        const r = await client.transcribe({ ...base, audio: { data: silence, mime: 'audio/wav' } });
+        return { ok: true, kind, model: r.model, latencyMs: r.latencyMs, reply: r.text || '(silence transcribed as empty text)' };
+      }
+      const res = await client.text({ ...base, prompt: 'Reply with exactly: OK', maxOutputTokens: 512 });
+      return { ok: true, kind, reply: res.text.trim() || '(empty reply — the model may have spent its budget thinking)', latencyMs: res.latencyMs, model: res.model };
     },
   }),
 

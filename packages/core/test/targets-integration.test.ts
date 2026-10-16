@@ -43,6 +43,9 @@ function ctxFor(row: Record<string, unknown>, vars: Record<string, string>): Tar
     llm: {
       text: async () => ({ text: 'stub', latencyMs: 1, model: 'stub' }),
       json: async () => ({ value: {} as any, latencyMs: 1, model: 'stub' }),
+      image: async () => ({ images: [], latencyMs: 1, model: 'stub' }),
+      speech: async () => ({ audio: { data: new Uint8Array(), mime: 'audio/wav' }, latencyMs: 1, model: 'stub' }),
+      transcribe: async () => ({ text: '', latencyMs: 1, model: 'stub' }),
     },
     signal: new AbortController().signal,
     log: () => undefined,

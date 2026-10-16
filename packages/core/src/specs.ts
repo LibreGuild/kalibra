@@ -235,7 +235,10 @@ export const ConnectionSpec = z.object({
   baseUrl: z.string().default(''),
   apiKeySecret: z.string().default('').describe('Name of the secret holding the API key'),
   headers: z.array(KV).default([]),
-  defaultModel: z.string().default(''),
+  defaultModel: z.string().default('').describe('Text / chat model used for judges and generation'),
+  imageModel: z.string().default('').describe('Image generation model, e.g. gpt-image-2'),
+  speechModel: z.string().default('').describe('Text-to-speech model, e.g. gpt-4o-mini-tts'),
+  transcriptionModel: z.string().default('').describe('Speech-to-text model, e.g. gpt-4o-transcribe'),
   models: z.array(z.string()).default([]),
   options: z.record(z.string(), z.unknown()).default({}).describe('Provider-specific settings (region, project, resource, auth mode, ...)'),
 });

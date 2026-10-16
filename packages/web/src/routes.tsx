@@ -8,6 +8,8 @@ import { RunsPage, RunDetailPage, ComparePage } from './pages/runs';
 import { ConnectionsPage } from './pages/connections';
 import { AgentsPage } from './pages/agents';
 import { SettingsPage } from './pages/settings';
+import { DocsPage } from './pages/docs';
+import { CalibratePage } from './pages/calibrate';
 
 export const router = createBrowserRouter([
   {
@@ -24,9 +26,12 @@ export const router = createBrowserRouter([
       { path: 'runs', element: <RunsPage /> },
       { path: 'runs/:id', element: <RunDetailPage /> },
       { path: 'runs/:id/compare', element: <ComparePage /> },
+      { path: 'runs/:id/calibrate', element: <CalibratePage /> },
       { path: 'connections', element: <ConnectionsPage /> },
       { path: 'agents', element: <AgentsPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: 'docs', element: <DocsPage /> },
+      { path: 'docs/:slug', element: <DocsPage /> },
     ],
   },
 ]);
