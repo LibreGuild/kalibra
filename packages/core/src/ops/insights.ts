@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Engine } from '../engine.js';
 import { defineOp } from '../registry.js';
 import { wilson } from '../runner/summary.js';
-import { percentile } from '../util.js';
+import { invalid, percentile } from '../util.js';
 
 /*
  * Insights: where a run fails (breakdowns by tag / column / row status) and how quality moves
@@ -108,6 +108,7 @@ export const insightOps = [
     handler: ({ engine }, i) => {
       const { runs, datasets } = engine.repos;
       const run = runs.get(i.runId);
+      if (i.by === 'column' && !i.column) throw invalid('Pick a column to split by');
       const results = runs.allLite(run.id);
       const rowMeta = new Map<string, { tags: string[]; status: string }>();
       if (run.datasetVersionId) for (const r of datasets.versionRows(run.datasetVersionId)) rowMeta.set(r.id, { tags: r.tags, status: r.status });
@@ -155,8 +156,7 @@ export const insightOps = [
           for (const t of new Set(tags)) add(t, r);
         } else if (i.by === 'status') add(meta?.status ?? '(unknown)', r);
         else {
-          if (!i.column) throw new Error('Pick a column to split by');
-          for (const k of new Set(valueKey(r.input?.[i.column]))) add(k, r);
+          for (const k of new Set(valueKey(r.input?.[i.column!]))) add(k, r);
         }
       }
 

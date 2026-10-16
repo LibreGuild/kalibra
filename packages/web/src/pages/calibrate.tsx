@@ -21,7 +21,9 @@ const STRATEGIES: { value: Strategy; label: string; hint: string }[] = [
   { value: 'disagreements', label: 'Disagreements', hint: 'Revisit rows where you and the check differ' },
 ];
 
-const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+/** Keys belong to the focused control: a text field, or an open dropdown/menu/dialog (typeahead). */
+const isTyping = (el: EventTarget | null) =>
+  el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || !!el.closest('[role="listbox"],[role="menu"],[role="dialog"]'));
 
 export function CalibratePage() {
   const { id: runId = '' } = useParams();
@@ -102,7 +104,8 @@ export function CalibratePage() {
   const label = useCallback(
     async (value: 'pass' | 'fail') => {
       if (!item || busy) return;
-      if (advanceTimer.current) finishAdvance();
+      // Still showing feedback for the last label: this press only moves on, it doesn't label that row again.
+      if (advanceTimer.current) return finishAdvance();
       setBusy(true);
       try {
         await op('label_result', { resultId: item.resultId, checkId, label: value, note });

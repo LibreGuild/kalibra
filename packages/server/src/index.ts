@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { KalibraError, LOCAL_USER, type Actor, type Engine, type EngineEvent } from '@kalibra/core';
 
 /*
@@ -65,8 +65,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (host !== '127.0.0.1' && host !== 'localhost') return true; // server mode: handled by a reverse proxy / auth layer
     const hosts = allowedHosts();
     if (!req.headers.host || !hosts.has(req.headers.host)) return false;
+    // "null" comes from sandboxed iframes and file:// pages, which any website can create.
     const origin = req.headers.origin;
-    if (origin && origin !== 'null') {
+    if (origin !== undefined) {
       try {
         if (!hosts.has(new URL(origin).host)) return false;
       } catch {
@@ -148,12 +149,20 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         'content-type': info.mime,
         'accept-ranges': 'bytes',
         'cache-control': 'private, max-age=31536000, immutable',
+        // Files come from datasets, bundles and model output: opened directly (e.g. an SVG or HTML file),
+        // they must not run script with this origin's access to the API.
+        'content-security-policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+        'x-content-type-options': 'nosniff',
       };
       if (url.searchParams.has('download')) headers['content-disposition'] = `attachment; filename="${encodeURIComponent(info.name ?? info.hash)}"`;
       const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
-      if (range) {
+      if (range && (range[1] || range[2])) {
         const start = range[1] ? Number(range[1]) : Math.max(0, info.size - Number(range[2]));
         const end = range[1] && range[2] ? Math.min(Number(range[2]), info.size - 1) : info.size - 1;
+        if (start > end || start >= info.size) {
+          res.writeHead(416, { 'content-range': `bytes */${info.size}` });
+          return res.end();
+        }
         res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${info.size}`, 'content-length': end - start + 1 });
         if (req.method === 'HEAD') return res.end();
         return engine.blobs.stream(info.hash, { start, end }).pipe(res);
@@ -170,7 +179,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (!opts.staticDir) return send(res, 404, { error: { code: 'not_found', message: 'UI not built. Run the web dev server or build the UI.' } });
     const root = resolve(opts.staticDir);
     let file = normalize(join(root, decodeURIComponent(url.pathname)));
-    if (!file.startsWith(root)) return send(res, 403, { error: { code: 'forbidden', message: 'Bad path' } });
+    if (file !== root && !file.startsWith(root + sep)) return send(res, 403, { error: { code: 'forbidden', message: 'Bad path' } });
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
     const isAsset = file.includes(`${root}/assets/`);
     res.writeHead(200, {
@@ -191,7 +200,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`,
     port,
     token: opts.token,
-    close: () => new Promise((r) => server.close(() => r())),
+    close: () =>
+      new Promise((r) => {
+        server.close(() => r());
+        // Live event streams never end on their own and would keep close() waiting forever.
+        server.closeAllConnections();
+      }),
   };
 }
 

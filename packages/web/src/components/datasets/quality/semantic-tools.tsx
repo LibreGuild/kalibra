@@ -63,7 +63,7 @@ export function LocalModelStatus({ compact }: { compact?: boolean }) {
             </Button>
           ) : (
             s?.local !== 'downloading' &&
-            !jobId && (
+            (!jobId || jobDone) && (
               <Button size="sm" variant={compact ? 'secondary' : 'primary'} icon={<Download className="size-3.5" />} onClick={download}>
                 Download (~{s?.downloadMb ?? 110} MB)
               </Button>

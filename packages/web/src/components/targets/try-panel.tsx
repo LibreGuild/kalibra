@@ -44,7 +44,12 @@ const KEY_METRICS: [string, string, string][] = [
 
 const LS_KEY = 'kalibra.try';
 
+/** Keyed by target, so moving to another target starts from that target's remembered inputs. */
 export function TryPanel({ spec, targetId }: { spec: TargetSpec; targetId: string }) {
+  return <TryPanelInner key={targetId} spec={spec} targetId={targetId} />;
+}
+
+function TryPanelInner({ spec, targetId }: { spec: TargetSpec; targetId: string }) {
   const saved = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem(`${LS_KEY}.${targetId}`) ?? '{}');

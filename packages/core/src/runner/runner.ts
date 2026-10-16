@@ -39,7 +39,13 @@ export class Runner {
     if (this.active.has(runId)) return;
     const ac = new AbortController();
     this.active.set(runId, ac);
-    void this.execute(runId, ac.signal).finally(() => this.active.delete(runId));
+    void this.execute(runId, ac.signal)
+      .catch((e: any) => {
+        // Only storage failing gets here. When the engine closed its database mid-run (app quit),
+        // the run is still "running" on disk; recover() marks it "interrupted" (resumable) next start.
+        if (!/not open/i.test(e?.message ?? '')) console.error(`Run ${runId} stopped: ${e?.message ?? e}`);
+      })
+      .finally(() => this.active.delete(runId));
   }
 
   cancel(runId: string) {
@@ -75,7 +81,13 @@ export class Runner {
         while (!signal.aborted) {
           const item = queue[next++];
           if (!item) return;
-          await this.processItem(run, item, target, suite, vars, signal);
+          try {
+            await this.processItem(run, item, target, suite, vars, signal);
+          } catch (e: any) {
+            // One bad row (an unexpected throw, an unstorable output) must not fail the run while
+            // the other workers keep going.
+            if (!signal.aborted) this.saveCrash(run.id, item.id, e);
+          }
           if (Date.now() - lastEmit > 200) {
             lastEmit = Date.now();
             this.emitProgress(run.id);
@@ -140,7 +152,8 @@ export class Runner {
 
     runs.saveResult(run.id, item.id, {
       status: call.ok ? 'done' : 'error',
-      passed: evaluated.passed,
+      // A call that got no response can't pass, even when every check happens to accept empty output.
+      passed: call.ok && evaluated.passed,
       score: evaluated.score,
       request: call.request,
       response: trimResponse(call.response),
@@ -152,6 +165,26 @@ export class Runner {
       attempts,
     });
     this.engine.events.emit({ type: 'result.updated', runId: run.id, resultId: item.id });
+  }
+
+  private saveCrash(runId: string, resultId: string, e: any) {
+    const message = `Unexpected error: ${e?.message ?? String(e)}`;
+    try {
+      this.engine.repos.runs.saveResult(runId, resultId, {
+        status: 'error',
+        passed: false,
+        score: null,
+        outputs: {},
+        checks: [],
+        metrics: {},
+        error: message,
+        logs: [{ at: Date.now(), level: 'error', message: e?.stack ?? message }],
+        attempts: 0,
+      });
+      this.engine.events.emit({ type: 'result.updated', runId, resultId });
+    } catch {
+      // Storage itself is failing; the row stays "running" and is retried when the run resumes.
+    }
   }
 }
 
@@ -172,7 +205,6 @@ export async function callTarget(
       blobs: engine.blobs,
       llm: engine.llm,
       signal: opts.signal,
-      log: opts.log,
       workspaceDir: engine.dir,
     });
     if (!result.retryable || attempts > opts.retries || opts.signal.aborted) return { result, attempts };
@@ -180,6 +212,8 @@ export async function callTarget(
     const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** (attempts - 1) + Math.random() * 250;
     opts.log('warn', `Attempt ${attempts} failed (${result.error ?? `HTTP ${result.response?.status}`}); retrying in ${Math.round(wait)} ms`);
     await sleep(Math.min(wait, 30000), opts.signal).catch(() => {});
+    // Cancelled while waiting: don't call the app again (a script target would still run).
+    if (opts.signal.aborted) return { result, attempts };
   }
 }
 

@@ -241,10 +241,14 @@ export const datasetOps = [
       const sourceCols = [...new Set(records.flatMap((r) => Object.keys(r)))];
       const mapping = i.mapping ?? Object.fromEntries(sourceCols.map((c) => [c, c]));
       let columns = ds.schema.columns;
-      const missing = Object.values(mapping).filter((c) => c && !columns.some((k) => k.key === c));
-      if (missing.length) {
-        if (!i.createColumns) throw invalid(`Unknown columns: ${missing.join(', ')}`);
-        const added = [...new Set(missing)].map((key) => ColumnSpec.parse({ key: safeKey(key), type: inferType(records.map((r) => r[sourceKey(mapping, key)])) }));
+      // Compare by the column key the value is stored under, or re-importing "user question" would add user_question twice.
+      const missing = new Map<string, string>();
+      for (const dst of Object.values(mapping)) {
+        if (dst && !columns.some((k) => k.key === safeKey(dst)) && !missing.has(safeKey(dst))) missing.set(safeKey(dst), dst);
+      }
+      if (missing.size) {
+        if (!i.createColumns) throw invalid(`Unknown columns: ${[...missing.values()].join(', ')}`);
+        const added = [...missing].map(([key, dst]) => ColumnSpec.parse({ key, type: inferType(records.map((r) => r[sourceKey(mapping, dst)])) }));
         columns = [...columns, ...added];
         engine.repos.datasets.update(ds.id, { schema: { ...ds.schema, columns } });
       }
@@ -390,12 +394,14 @@ function parseRecords(text: string, format: 'csv' | 'jsonl' | 'json'): Record<st
   }
   if (format === 'jsonl') {
     return text.split(/\r?\n/).filter((l) => l.trim()).map((l, n) => {
+      let v: any;
       try {
-        const v = JSON.parse(l);
-        return v.item && typeof v.item === 'object' ? v.item : v; // OpenAI Evals {"item": {...}}
+        v = JSON.parse(l);
       } catch {
         throw invalid(`Line ${n + 1} is not valid JSON`);
       }
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw invalid(`Line ${n + 1} is not a JSON object`);
+      return v.item && typeof v.item === 'object' ? v.item : v; // OpenAI Evals {"item": {...}}
     });
   }
   const parsed = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true, dynamicTyping: false });

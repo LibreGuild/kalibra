@@ -40,8 +40,8 @@ const MAX_PARTIALS = 200;
 
 export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext): Promise<TargetCallResult> {
   const cfg = spec.config as WsTargetConfig;
-  const { logs, log } = makeLogger(ctx);
   const secrets = trackSecrets(ctx.env);
+  const { logs, log } = makeLogger(secrets.mask);
   const env = secrets.env;
   const scope = requestScope(ctx);
   const t0 = now();
@@ -87,9 +87,9 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
   });
 
   // ── Connect ──────────────────────────────────────────────────────────────
-  let ws: WebSocket;
+  let conn: Connection;
   try {
-    ws = await connect(url.toString(), cfg.subprotocols, headers, cfg.connectTimeoutMs, ctx.signal);
+    conn = await connect(url.toString(), cfg.subprotocols, headers, cfg.connectTimeoutMs, ctx.signal);
   } catch (e) {
     const status = (e as any).status as number | undefined;
     const { message, retryable } = describeError(e, cfg.connectTimeoutMs, ctx.signal);
@@ -100,6 +100,7 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
       metrics: { latency_ms: Math.round(rel()) },
     });
   }
+  const { ws } = conn;
   const openAt = rel();
   const metrics: Record<string, number> = { connect_ms: Math.round(openAt) };
 
@@ -121,12 +122,18 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
     closeCode: undefined as number | undefined,
   };
 
+  // Session-script inbox: messages not yet read, and scripts waiting for the next one.
+  const inbox: unknown[] = [];
+  const inboxWaiters: ((msg: unknown) => void)[] = [];
+
   let resolveDone!: (reason: string) => void;
   const done = new Promise<string>((r) => (resolveDone = r));
   const finish = (reason: string) => {
     if (!st.doneReason) {
       st.doneReason = reason;
       resolveDone(reason);
+      // A session script waiting for a message gets `undefined` now instead of after its own timeout.
+      for (const w of inboxWaiters.splice(0)) w(undefined);
     }
   };
 
@@ -155,17 +162,20 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
     }
   };
 
-  // Ack waiting (waitForOpenAck) and session-script inbox.
-  let ackWaiter: ((msg: unknown) => void) | undefined;
-  const inbox: unknown[] = [];
-  const inboxWaiters: ((msg: unknown) => void)[] = [];
+  // Ack waiting (waitForOpenAck). The ack can arrive before the wait starts (a greeting on connect).
+  let acked = false;
+  let ackWaiter: (() => void) | undefined;
   const sessionMode = cfg.scripts.session.trim() !== '';
 
   // ── Incoming messages (processed strictly in order) ──────────────────────
   let queue = Promise.resolve();
-  ws.on('message', (raw: WebSocket.RawData, isBinary: boolean) => {
+  const onMessage = (raw: WebSocket.RawData, isBinary: boolean) => {
     queue = queue.then(() => handleMessage(raw, isBinary)).catch((e) => log('error', `Message handling failed: ${(e as Error).message}`));
-  });
+  };
+  // Messages that arrived with the handshake (greetings, "session created", acks) come first.
+  conn.stopBuffering();
+  for (const [raw, isBinary] of conn.early) onMessage(raw, isBinary);
+  ws.on('message', onMessage);
   ws.on('close', (code: number, reason: Buffer) => {
     st.closeCode = code;
     record('in', 'close', { code, reason: reason.toString() });
@@ -199,9 +209,9 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
       else inbox.push(msg);
       return;
     }
-    if (ackWaiter && cfg.waitForOpenAck.trim() && evalSafe(cfg.waitForOpenAck, { msg, state: st.state })) {
-      ackWaiter(msg);
-      ackWaiter = undefined;
+    if (!acked && cfg.waitForOpenAck.trim() && evalSafe(cfg.waitForOpenAck, { msg, state: st.state })) {
+      acked = true;
+      ackWaiter?.();
     }
     armIdle();
     if (cfg.incoming.ignoreWhen.trim() && evalSafe(cfg.incoming.ignoreWhen, { msg, state: st.state })) return;
@@ -354,8 +364,8 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
       finish('script');
     } else {
       await sendMessages(cfg.onOpen);
-      if (cfg.waitForOpenAck.trim() && isOpen()) {
-        const ack = new Promise<unknown>((r) => (ackWaiter = r));
+      if (cfg.waitForOpenAck.trim() && isOpen() && !acked) {
+        const ack = new Promise<void>((r) => (ackWaiter = r));
         const r = await Promise.race([ack, done.then(() => 'done'), sleep(cfg.connectTimeoutMs).then(() => 'timeout')]);
         if (r === 'timeout') throw new Error(`No message matched waitForOpenAck within ${cfg.connectTimeoutMs} ms`);
       }
@@ -468,6 +478,7 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
       nextMessage: (timeoutMs = 10000) =>
         new Promise<unknown>((resolve) => {
           if (inbox.length) return resolve(inbox.shift());
+          if (st.doneReason) return resolve(undefined); // closed, timed out or cancelled: nothing more will come
           const timer = setTimeout(() => {
             const i = inboxWaiters.indexOf(waiter);
             if (i >= 0) inboxWaiters.splice(i, 1);
@@ -501,7 +512,14 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
   }
 }
 
-function connect(url: string, protocols: string[], headers: Record<string, string>, timeoutMs: number, signal: AbortSignal): Promise<WebSocket> {
+interface Connection {
+  ws: WebSocket;
+  /** Messages received before the caller attached its own handler. */
+  early: [WebSocket.RawData, boolean][];
+  stopBuffering: () => void;
+}
+
+function connect(url: string, protocols: string[], headers: Record<string, string>, timeoutMs: number, signal: AbortSignal): Promise<Connection> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error('Cancelled'));
     const ws = new WebSocket(url, protocols.length ? protocols : undefined, { headers, handshakeTimeout: timeoutMs, perMessageDeflate: false });
@@ -512,9 +530,14 @@ function connect(url: string, protocols: string[], headers: Record<string, strin
       reject(new Error('Cancelled'));
     };
     signal.addEventListener('abort', onAbort, { once: true });
+    // A server can send right after the handshake, in the same packet: 'message' then fires before
+    // the caller's handler exists, so keep those messages until it takes over.
+    const early: Connection['early'] = [];
+    const buffer = (data: WebSocket.RawData, isBinary: boolean) => early.push([data, isBinary]);
+    ws.on('message', buffer);
     ws.once('open', () => {
       cleanup();
-      resolve(ws);
+      resolve({ ws, early, stopBuffering: () => ws.off('message', buffer) });
     });
     ws.once('unexpected-response', (req, res) => {
       cleanup();

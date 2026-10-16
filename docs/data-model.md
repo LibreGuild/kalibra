@@ -11,10 +11,13 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 | `row_revs` | every content revision of a row (append-only) |
 | `dataset_versions` + `dataset_version_rows` | immutable snapshots: which row at which revision |
 | `defs` + `def_versions` | targets, suites, connections (kind + spec JSON), every saved version |
-| `runs` | dataset version, target/suite versions, settings, status, summary JSON |
+| `runs` | dataset version, target/suite versions, settings (incl. `overrides`, `conversation`), status, summary JSON, `group_id` + `variant_label` for comparisons |
+| `run_groups` | comparisons: name, dataset, suite, settings with the variant list |
 | `results` | one per row × repetition: input, request, response, outputs, checks, metrics, logs |
 | `blobs` | file metadata (hash, size, mime, name) |
 | `labels` | human pass/fail per result and check (calibration) |
+| `insights` | saved analyses by `kind` + subject (e.g. `failure_themes` per run); the latest wins |
+| `meta` | workspace settings, e.g. the Git sync folder |
 | `activity` | who changed what (actor + op + summary) |
 
 ## Versioning rules
@@ -44,4 +47,4 @@ secrets.json (or secrets.enc)
 .engine.json   (only while an engine is running)
 ```
 
-Back it up like any folder. To share with a teammate today, copy the folder.
+Back it up like any folder. To share with a teammate, export a `.kalibra` bundle or sync a Git folder (Settings → Share with your team); see [engine.md](engine.md#sharing-srcsharing).

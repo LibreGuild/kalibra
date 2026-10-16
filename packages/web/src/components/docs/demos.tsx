@@ -325,7 +325,7 @@ function ConfusionDemo() {
       <div className="flex flex-col gap-2 text-sm">
         <div className="flex justify-between">
           <span className="text-ink-muted">Agreement</span>
-          <strong className="tabular-nums">{(agree * 100).toFixed(0)}%</strong>
+          <strong className="tabular-nums">{n ? `${(agree * 100).toFixed(0)}%` : '–'}</strong>
         </div>
         <div className="flex justify-between">
           <span className="text-ink-muted">Kappa</span>

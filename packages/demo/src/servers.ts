@@ -363,6 +363,8 @@ function handleSttSocket(ws: WebSocket, fixtures: LoadedFixture[]) {
     send({ type: 'final', text, is_final: true, audio_ms: Math.round(durationMs), ...(match ? {} : { warning: 'unrecognized audio' }) });
   };
 
+  // Without a listener, a client's protocol error (bad frame, oversized message) would crash the demo.
+  ws.on('error', () => ws.terminate());
   ws.on('message', (data, isBinary) => {
     const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
     if (isBinary) return onAudio(buf);

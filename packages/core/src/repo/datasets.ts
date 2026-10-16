@@ -106,6 +106,9 @@ export class DatasetRepo {
     if (baseRevision !== undefined && baseRevision !== cur.revision) {
       throw conflict(`Dataset changed since revision ${baseRevision} (now ${cur.revision}). Reload and re-apply.`, { current: cur.revision });
     }
+    if (patch.name !== undefined && patch.name !== cur.name && this.db.get('SELECT 1 FROM datasets WHERE name = ? AND id != ? AND deleted_at IS NULL', patch.name, cur.id)) {
+      throw conflict(`A dataset named "${patch.name}" already exists`);
+    }
     const schema = patch.schema !== undefined ? DatasetSchema.parse(patch.schema) : cur.schema;
     assertUniqueColumns(schema.columns);
     this.db.run(

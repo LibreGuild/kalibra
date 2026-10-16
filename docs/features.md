@@ -16,12 +16,19 @@
 - ✅ Background jobs with progress and cancel
 - 🧪 Safety pack: categories mapped to OWASP / NIST / MITRE ATLAS / AILuminate, variants (base64, role-play, typos…), benign look-alikes, optional tailored prompts
 
+## Dataset quality
+- ✅ Quality tab: rows in use, empty cells, exact copies, "Worth fixing" flags with suggestions
+- ✅ Coverage of category-like columns (dominant values, allowed values with no rows) and variety (length spread, new word pairs, overlap between rows, repetition)
+- ✅ Duplicates: exact, near (small edits) or meaning (embeddings); "Keep one of each" rejects the extras, nothing is deleted
+- 🧪 Fill gaps: a model writes rows for under-represented values of a column (background job, rows land as needs review)
+
 ## Targets (the app under test)
 - ✅ HTTP: templates, auth, JSON/form/multipart/binary bodies, SSE/NDJSON streaming, extractors, cURL import, before/after scripts
 - ✅ WebSocket: real-time audio streaming (PCM/μ-law/A-law/file, binary or base64 JSON), partial/final rules, session scripts
 - ✅ Model targets: text, image, speech, transcription
 - ✅ Custom script targets (JavaScript)
 - ✅ Variables and secrets in every template; "Try it" with a real row before saving
+- ✅ Prompt playground: one prompt, up to 25 rows (typed or from a dataset), up to 4 models side by side, optional suite scoring, save as a model target, "Run full eval" on the whole dataset (a run, or a comparison for several models)
 
 ## Checks
 - ✅ Layered suites with gates, weights, `applyWhen`, all-pass or weighted pass rules
@@ -30,6 +37,9 @@
 - ✅ Equals, contains, regex, numeric tolerance, fuzzy similarity
 - ✅ WER / CER / MER / WIL with normalizers and alignment diff; keyword recall
 - ✅ BLEU, ROUGE-L, chrF, token F1
+- ✅ Meaning matches (embeddings): free offline local model or a connection's embedding model
+- 🧪 Meaning errors in a transcript: an LLM counts only the STT errors that change the meaning
+- ✅ Conversation checks: goal achieved, conversation mentions, number of turns
 - ✅ LLM judge (rubric, critique-first, repetitions, image/audio attachments, strict JSON for OpenAI)
 - 🧪 Refusal check (unsafe compliance and over-refusal) and PII/canary leak check
 - ✅ Script and expression checks
@@ -37,11 +47,18 @@
 ## Runs & analysis
 - ✅ Concurrency, retries with Retry-After, repetitions, row filters, resume after crash/cancel
 - ✅ Live progress and live summary
+- ✅ Setup warnings before a run ("Check before you start"): `{{columns}}` the dataset lacks, undefined `{{vars.x}}`, missing turns column
+- ✅ Multi-turn conversations: scripted turns from a list column; transcript in the result, turn count and per-turn latency metrics
+- 🧪 Simulated users: a model plays a persona with a goal, decides when it is done and whether the goal was met
+- ✅ Comparisons: 2–8 variants (targets, or one target with another model, temperature, variables or config) on one dataset version; leaderboard, per-check table, side-by-side outputs, McNemar test against the best
+- ✅ Run overrides: change model, variables or any config field for one run without editing the target
 - ✅ Pass rate with 95% interval, corpus WER, latency percentiles, per-check stats
 - ✅ Results grid (100k rows), result detail with WER diff, judge reasoning, request/response, WebSocket timeline
 - ✅ Score outputs produced elsewhere (imported runs)
 - ✅ Compare runs: improved/regressed rows, per-check deltas, McNemar significance
 - ✅ Breakdown by tag / column / status with "weakest" group
+- ✅ Failure themes: instant quick groups by failing check and reason pattern (free)
+- 🧪 AI failure themes: named themes with likely cause, suggested fix and severity (model + local embeddings)
 - ✅ Trends of pass rate per suite on Overview
 
 ## Calibration
@@ -50,11 +67,17 @@
 
 ## Connections
 - ✅ OpenAI, Anthropic, Gemini API, Vertex AI (ADC, service account, express), Azure (key or `az login`), Bedrock (profile/SSO, keys, API key), OpenAI-compatible (Ollama, vLLM, OpenRouter, xAI, Groq, LiteLLM…)
-- ✅ Text, image, speech and transcription models per connection, each with a Test
+- ✅ Text, image, speech, transcription and embedding models per connection, each with a Test
+- ✅ Local embedding model (all-MiniLM-L6-v2): one-time ~110 MB download into `~/Kalibra/models`, then free and offline
 - ✅ Secret store (OS keychain in the desktop app), `{{secret.name}}` references
 
+## Sharing (no server)
+- ✅ `.kalibra` bundles: datasets with audio/images, targets, suites, connections, optional runs; secret names only, never values; on conflict keep both, skip or update mine
+- ✅ Folder sync for Git: byte-stable text files, "Check for changes" preview, apply as new versions, optional prune
+- 🧪 Importers: promptfoo config, OpenAI Evals JSONL (+ graders), LangSmith and Langfuse dataset exports, with a report of what could not be mapped
+
 ## Agents (MCP)
-- ✅ 55+ tools generated from the operation registry, prompts, destructive hints, agent provenance
+- ✅ ~100 tools generated from the operation registry (every feature above), prompts, destructive hints, agent provenance
 - ✅ Setup snippets for Claude Code, Codex, Cursor, Gemini CLI, VS Code; agent activity feed
 
 ## CLI, CI and install
@@ -64,5 +87,7 @@
 
 ## UX
 - ✅ Light / dark / system theme, accent colour picker, reading fonts (Atkinson Hyperlegible Next default), text size
-- ✅ Collapsible sidebar, help tooltips on every non-obvious control
-- ✅ In-app docs: 29 short illustrated guides with search and progress
+- ✅ Collapsible sidebar grouped by use (build and measure · tools · docs and settings), help tooltips on every non-obvious control
+- ✅ Progressive disclosure: dataset **Add rows** and **Generate** menus, "Most used" checks first, run page tabs (Results, Checks, Failure themes, Breakdown, Metrics)
+- ✅ Focus rings for keyboard users only
+- ✅ In-app docs: 35 short illustrated guides with search and progress

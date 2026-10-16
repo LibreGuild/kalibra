@@ -6,12 +6,12 @@ An npm-workspaces monorepo, TypeScript everywhere.
 
 | Package | Role |
 |---|---|
-| `packages/core` | The engine: operation registry, storage, datasets, targets, checks, runner, jobs, providers, audio |
+| `packages/core` | The engine: operation registry, storage, datasets, targets, checks, runner (incl. conversations, comparisons), jobs, providers, embeddings, insights, quality, sharing, audio |
 | `packages/server` | HTTP API over the engine: operations, live events (SSE), file upload/download, static UI |
 | `packages/web` | React UI (Vite, Tailwind, Radix, TanStack Query/Virtual) |
 | `packages/cli` | `kalibra` CLI: `serve`, `run`, `op`, `ops`, `mcp`. Published to npm as `kalibra` |
 | `packages/desktop` | Electron shell: starts the server, opens the UI, OS-keychain secrets |
-| `packages/demo` | Mock apps under test (chat JSON/SSE, STT batch + WebSocket) and demo data |
+| `packages/demo` | Mock apps under test (chat JSON/SSE, multi-turn session chat, STT batch + WebSocket) and demo data |
 
 ## How the pieces talk
 
@@ -52,10 +52,12 @@ An npm-workspaces monorepo, TypeScript everywhere.
 
 ```
 <workspace>/            default ~/Kalibra/default, or KALIBRA_DIR / --dir
-  kalibra.db            SQLite (WAL): datasets, rows, definitions, runs, results, labels, activity
+  kalibra.db            SQLite (WAL): datasets, rows, definitions, runs, comparisons, results, labels, insights, activity
   blobs/ab/cd/<sha256>  uploaded and generated files, stored once by content hash
   secrets.json|.enc     secret values (desktop: encrypted with the OS keychain)
   .engine.json          address + token of the running engine (deleted on exit)
+
+~/Kalibra/models/       shared by all workspaces, only after "Download": local embedding runtime + model
 ```
 
 ## Seams for a future server mode
@@ -67,5 +69,6 @@ Built in now so a self-hosted, multi-user server is mostly packaging later:
 - Files always go through the blob store (never local paths).
 - Storage, blobs, secrets and jobs sit behind interfaces (SQLite → Postgres, folder → S3/GCS, keychain → Vault/KMS, in-process jobs → workers).
 - Saves carry the version they edited (optimistic concurrency).
+- Until then, teams share without a server: `.kalibra` bundles and a Git-synced folder (`src/sharing/`).
 
 See [research §11.6](research/market-and-product-analysis.md) for the full plan.

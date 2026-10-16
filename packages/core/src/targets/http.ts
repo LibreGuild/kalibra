@@ -38,8 +38,8 @@ const MAX_STREAM_EVENTS = 500;
 
 export async function executeHttp(spec: TargetSpec, ctx: TargetCallContext): Promise<TargetCallResult> {
   const cfg = spec.config as HttpTargetConfig;
-  const { logs, log } = makeLogger(ctx);
   const secrets = trackSecrets(ctx.env);
+  const { logs, log } = makeLogger(secrets.mask);
   const env = secrets.env;
   const scope = requestScope(ctx);
   const started = now();

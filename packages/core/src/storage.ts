@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, stat, writeFile, chmod } from 'node:fs/promise
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Db } from './db.js';
-import { nowIso } from './util.js';
+import { invalid, notFound, nowIso } from './util.js';
 
 export interface BlobInfo {
   hash: string;
@@ -25,7 +25,7 @@ export class FsBlobStore implements BlobStore {
   constructor(private root: string, private db: Db) {}
 
   private path(hash: string) {
-    if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error(`invalid blob hash: ${hash}`);
+    if (!/^[a-f0-9]{64}$/.test(hash)) throw invalid(`Not a file hash: ${String(hash).slice(0, 80)}`);
     return join(this.root, hash.slice(0, 2), hash.slice(2, 4), hash);
   }
 
@@ -47,8 +47,14 @@ export class FsBlobStore implements BlobStore {
     return info;
   }
 
-  get(hash: string) {
-    return readFile(this.path(hash));
+  async get(hash: string) {
+    try {
+      return await readFile(this.path(hash));
+    } catch (e: any) {
+      // Not the raw ENOENT: that message carries the workspace path into API and MCP errors.
+      if (e?.code === 'ENOENT') throw notFound('File', hash);
+      throw e;
+    }
   }
 
   info(hash: string): BlobInfo | undefined {
@@ -118,7 +124,8 @@ export class FileSecretStore implements SecretStore {
 
   private async save() {
     await mkdir(dirname(this.file), { recursive: true });
-    await writeFile(this.file, this.codec.encrypt(JSON.stringify(this.load())));
+    // mode applies when the file is created; chmod covers files made by older versions.
+    await writeFile(this.file, this.codec.encrypt(JSON.stringify(this.load())), { mode: 0o600 });
     await chmod(this.file, 0o600);
   }
 

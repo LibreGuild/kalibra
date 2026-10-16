@@ -113,7 +113,7 @@ export const llmJudgeCheck = defineCheck({
         files: files.length ? files.map((f) => f.file) : undefined,
         signal: ctx.signal,
       });
-      runs.push(r.value);
+      runs.push(judgeAnswer(r.value));
       inputTokens += r.inputTokens ?? 0;
       outputTokens += r.outputTokens ?? 0;
       latencyMs += r.latencyMs;
@@ -214,6 +214,20 @@ export const expressionCheck = defineCheck({
     return verdict(!!v, { reason: v ? 'True' : `False (${toText(v).slice(0, 80) || String(v)})` });
   },
 });
+
+/**
+ * Only OpenAI enforces the answer schema; other providers can answer "Pass", leave out the reasoning
+ * or score on another scale. Normalize so one odd answer can't crash the check or skew averages.
+ */
+function judgeAnswer(raw: unknown): JudgeAnswer {
+  const v = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const score = typeof v.score === 'number' && Number.isFinite(v.score) ? Math.max(0, Math.min(1, v.score)) : undefined;
+  return {
+    reasoning: typeof v.reasoning === 'string' ? v.reasoning : '',
+    verdict: String(v.verdict ?? '').trim().toLowerCase() === 'pass' ? 'pass' : 'fail',
+    ...(score === undefined ? {} : { score }),
+  };
+}
 
 /** Resolves attachment templates to files; non-file values (or missing ones) are skipped. */
 async function loadAttachments(templates: string[], ctx: Parameters<typeof llmJudgeCheck.run>[1]): Promise<{ name: string; file: MediaFile }[]> {

@@ -46,6 +46,15 @@ async function boot() {
   return `${server.url}/?token=${token}`;
 }
 
+/** Same origin as the engine (a plain prefix check would also accept e.g. port 43170 for 4317). */
+function isAppUrl(target: string) {
+  try {
+    return new URL(target).origin === new URL(server!.url).origin;
+  } catch {
+    return false;
+  }
+}
+
 function createWindow(url: string) {
   const win = new BrowserWindow({
     width: 1440,
@@ -60,11 +69,11 @@ function createWindow(url: string) {
   });
   // External links open in the browser, never inside the app window.
   win.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (/^https?:/.test(target) && !target.startsWith(server!.url)) shell.openExternal(target);
+    if (/^https?:/.test(target) && !isAppUrl(target)) shell.openExternal(target);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e, target) => {
-    if (!target.startsWith(server!.url)) {
+    if (!isAppUrl(target)) {
       e.preventDefault();
       if (/^https?:/.test(target)) shell.openExternal(target);
     }

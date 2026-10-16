@@ -1,7 +1,7 @@
 import { ms, pct } from '../../lib/format';
 
 /** Rate-like check values (WER, recall, similarity, BLEU...) read best as percentages. */
-const RATE_TYPES = new Set(['wer', 'keyword_recall', 'bleu', 'rouge_l', 'chrf', 'token_f1', 'similarity']);
+const RATE_TYPES = new Set(['wer', 'semantic_wer', 'keyword_recall', 'bleu', 'rouge_l', 'chrf', 'token_f1', 'similarity']);
 
 export function formatMetric(type: string, v: number | null | undefined) {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';

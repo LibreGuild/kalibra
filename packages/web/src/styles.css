@@ -138,15 +138,15 @@ body {
 }
 
 /*
- * In the base layer so component utilities win: inputs draw their own focus border and ring, and
- * an unlayered outline here would add a second box inside them.
+ * In the base layer so component utilities win: text inputs draw their own focus border and ring, and
+ * an unlayered outline here would add a second box inside them. Checkboxes keep the outline.
  */
 @layer base {
   :focus-visible {
     outline: 2px solid var(--k-accent);
     outline-offset: 1px;
   }
-  input:focus-visible,
+  input:not([type='checkbox'], [type='radio']):focus-visible,
   textarea:focus-visible,
   select:focus-visible,
   [contenteditable]:focus-visible,

@@ -38,8 +38,8 @@ export async function uploadFile(file: File | Blob, name?: string): Promise<Uplo
     credentials: 'same-origin',
     body: file,
   });
-  const body = await res.json();
-  if (!res.ok) throw new ApiError(body?.error?.code ?? 'internal', body?.error?.message ?? 'Upload failed');
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(body?.error?.code ?? 'internal', body?.error?.message ?? `Upload failed (HTTP ${res.status})`);
   return body.data;
 }
 
@@ -69,13 +69,15 @@ export function useOpMutation<I = any, T = any>(name: string, opts: { invalidate
 }
 
 const INVALIDATE: Record<string, string[]> = {
-  'dataset.changed': ['list_datasets', 'get_dataset_schema', 'list_dataset_versions', 'get_workspace'],
-  'rows.changed': ['list_rows', 'list_datasets', 'get_dataset_schema', 'get_workspace'],
-  'def.changed': ['list_targets', 'list_suites', 'list_connections', 'get_target', 'get_suite', 'get_connection', 'get_workspace'],
-  'run.updated': ['list_runs', 'get_run'],
-  'result.updated': ['query_results'],
+  'dataset.changed': ['list_datasets', 'get_dataset_schema', 'list_dataset_versions', 'dataset_quality', 'get_workspace'],
+  'rows.changed': ['list_rows', 'list_datasets', 'get_dataset_schema', 'dataset_quality', 'get_workspace'],
+  'def.changed': ['list_targets', 'list_suites', 'list_connections', 'get_target', 'get_suite', 'get_connection', 'list_target_versions', 'get_workspace'],
+  // Comparisons are groups of runs, so their views follow run progress too (including ones an agent starts).
+  'run.updated': ['list_runs', 'get_run', 'list_comparisons', 'get_comparison', 'compare_rows', 'run_breakdown', 'get_failure_themes', 'suite_trend'],
+  'result.updated': ['query_results', 'get_result'],
   activity: ['list_activity'],
-  'job.updated': ['get_job', 'list_jobs', 'list_rows', 'list_datasets'],
+  // Jobs: generation fills rows, fill_gaps adds them, cluster_failures writes themes.
+  'job.updated': ['get_job', 'list_jobs', 'list_rows', 'list_datasets', 'dataset_quality', 'get_failure_themes'],
 };
 
 /** Subscribes to live engine events and refreshes what changed — including edits made by agents or the CLI. */
@@ -117,6 +119,22 @@ export function useLiveEvents() {
 }
 
 export interface ServerMeta {
-  mcp?: { command: string; args: string[] };
+  mcp?: { command: string; args: string[]; env?: Record<string, string> };
   version?: string;
+  mode?: 'desktop' | 'cli' | 'dev';
+  dir?: string;
+}
+
+/** Facts about the running server (version, how to start the MCP bridge). */
+export function useMeta() {
+  return useQuery<ServerMeta>({
+    queryKey: ['meta'],
+    queryFn: async () => {
+      const res = await fetch('/api/meta', { credentials: 'same-origin' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ApiError(body?.error?.code ?? 'internal', body?.error?.message ?? `HTTP ${res.status}`);
+      return body.data;
+    },
+    staleTime: Infinity,
+  });
 }

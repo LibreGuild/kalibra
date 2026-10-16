@@ -201,6 +201,8 @@ export function RowSheet({
     setError(null);
     try {
       if (current) {
+        // update_row merges into the stored values, so a cleared column must be sent as null to clear it.
+        for (const c of columns) if (!(c.key in data) && current.data[c.key] != null) data[c.key] = null;
         await op('update_row', { rowId: current.id, data, tags, status, baseRev: current.rev });
         toast.success('Row saved');
       } else {
@@ -217,8 +219,8 @@ export function RowSheet({
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict' && current) {
         toast.info('Changed elsewhere — reloaded', 'Someone (or an agent) edited this row while you were editing. Re-apply your change.');
-        const fresh = await op<{ rows: RowRecord[] }>('list_rows', { dataset: datasetId, search: current.id, limit: 1 });
-        if (fresh.rows[0]) load(fresh.rows[0]);
+        const fresh = await op<{ rows: RowRecord[] }>('list_rows', { dataset: datasetId, search: current.id, limit: 1 }).catch(() => null);
+        if (fresh?.rows[0]) load(fresh.rows[0]);
         qc.invalidateQueries({ queryKey: ['list_rows'] });
       } else setError((e as Error).message);
     } finally {

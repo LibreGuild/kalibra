@@ -72,6 +72,49 @@ export function secretNames(spec: unknown): string[] {
   return [...names].sort();
 }
 
+/** Spec fields holding JavaScript that Kalibra runs on this computer. */
+const CODE_KEYS = new Set(['code', 'beforeRequest', 'afterResponse', 'onMessage', 'waitForOpenAck', 'ignoreWhen', 'isFinal', 'doneExpression', 'applyWhen', 'expression']);
+const DONE_WHEN_MODES = new Set(['final_after_audio', 'close', 'expression', 'idle']);
+
+/** Where a definition runs JavaScript (scripts, expressions), e.g. ["applyWhen", "code"]. */
+export function codeIn(spec: unknown): string[] {
+  const found = new Set<string>();
+  const walk = (v: unknown, key?: string) => {
+    if (typeof v === 'string') {
+      // `doneWhen` is JS on streaming HTTP targets and a mode name on WebSocket targets.
+      if (v.trim() && key && (CODE_KEYS.has(key) || (key === 'doneWhen' && !DONE_WHEN_MODES.has(v)))) found.add(key);
+    } else if (Array.isArray(v)) v.forEach((x) => walk(x));
+    else if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      if (o.from === 'expression' && typeof o.path === 'string' && o.path.trim()) found.add('output expression');
+      for (const [k, x] of Object.entries(o)) walk(x, k);
+    }
+  };
+  walk(spec);
+  return [...found].sort();
+}
+
+/**
+ * Shared definitions can carry scripts that run with your permissions, like npm scripts in a cloned
+ * repo. Nothing is blocked; the import just says where the code is so it can be reviewed first.
+ */
+export interface CodeItem {
+  kind: string;
+  name: string;
+  /** Spec fields with code, e.g. ["beforeRequest", "code"]. */
+  places: string[];
+}
+
+export function findCode(items: { kind: string; name: string; spec: unknown }[]): CodeItem[] {
+  return items.map((i) => ({ kind: i.kind, name: i.name, places: codeIn(i.spec) })).filter((i) => i.places.length);
+}
+
+export function codeWarning(source: string, code: CodeItem[]): string | undefined {
+  if (!code.length) return undefined;
+  const list = code.map((i) => `${i.kind} "${i.name}" (${i.places.join(', ')})`).join('; ');
+  return `${source} has code that runs on your computer when used: ${list}. Review it before running, as you would scripts in a repository you cloned.`;
+}
+
 // ── Zip ─────────────────────────────────────────────────────────────────────
 
 export const ZIP_LIMITS = {

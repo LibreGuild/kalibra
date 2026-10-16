@@ -49,7 +49,9 @@ export class DefRepo {
   }
 
   getVersion(kind: DefKind, id: string, version: number): DefRecord {
-    const cur = this.get(kind, id);
+    // Runs pin versions by id; they keep working (view, resume) after the item is moved to the trash.
+    const pinned = this.db.get('SELECT * FROM defs WHERE kind = ? AND id = ?', kind, id);
+    const cur = pinned ? toDef(pinned) : this.get(kind, id);
     const v = this.db.get('SELECT * FROM def_versions WHERE def_id = ? AND version = ?', cur.id, version);
     if (!v) throw notFound(`${kind} version`, `${id}@${version}`);
     return { ...cur, name: v.name, version: v.version, spec: parseJson(v.spec, {}) };

@@ -8,11 +8,11 @@ import type { TargetCallContext, TargetCallResult } from './types.js';
 
 export const MASK = '••••';
 
-export function makeLogger(ctx: TargetCallContext) {
+/** Collects the call's log lines (returned in `TargetCallResult.logs`), masking secret values rendered so far. */
+export function makeLogger(mask: (text: string) => string = (t) => t) {
   const logs: LogEntry[] = [];
   const log = (level: LogEntry['level'], message: string) => {
-    logs.push({ at: Date.now(), level, message });
-    ctx.log(level, message);
+    logs.push({ at: Date.now(), level, message: mask(message) });
   };
   return { logs, log };
 }

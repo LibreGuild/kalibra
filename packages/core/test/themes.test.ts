@@ -198,12 +198,38 @@ describe('cluster_failures / get_failure_themes', () => {
     expect(t.ai.themes[0].title.split(' ').length).toBeLessThanOrEqual(6);
   });
 
-  it('falls back to LLM assignment when embeddings fail', async () => {
-    engine.embeddings = { embed: async () => { throw new Error('no model'); }, status: async () => ({ local: 'unavailable' as const, model: '' }) };
+  it('falls back to LLM assignment when there is no embedding model', async () => {
+    engine.embeddings = { embed: async () => { throw new Error('should not be called'); }, status: async () => ({ local: 'unavailable' as const, model: '' }) };
     const job = await run({});
     expect((job.result as any).method).toBe('llm');
     const t = await engine.call<any>('get_failure_themes', { runId });
-    expect(t.ai.embeddingNote).toMatch(/no model/);
+    expect(t.ai.embeddingNote).toMatch(/No embedding model/);
+  });
+
+  it("uses the connection's embedding model when the local one is not installed", async () => {
+    const seen: any[] = [];
+    engine.embeddings = {
+      embed: async (texts: string[], opts: any) => {
+        seen.push(opts);
+        return { vectors: texts.map(() => [1, 0, 0]), model: 'conn-emb', source: 'connection' as const };
+      },
+      status: async () => ({ local: 'unavailable' as const, model: '' }),
+    };
+    const conn = await engine.call<any>('get_connection', { id: 'Stub' });
+    await engine.call('update_connection', { id: conn.id, spec: { ...conn.spec, embeddingModel: 'text-embedding-3-small' } });
+    mode = 'ok';
+    const job = await run({});
+    expect((job.result as any).method).toBe('embeddings');
+    expect(seen[0].connectionId).toBe('Stub');
+    await engine.call('update_connection', { id: conn.id, spec: conn.spec });
+  });
+
+  it('reports why embeddings failed and falls back to LLM assignment', async () => {
+    engine.embeddings = { embed: async () => { throw new Error('model download broken'); }, status: async () => ({ local: 'ready' as const, model: 'x' }) };
+    const job = await run({});
+    expect((job.result as any).method).toBe('llm');
+    const t = await engine.call<any>('get_failure_themes', { runId });
+    expect(t.ai.embeddingNote).toMatch(/model download broken/);
   });
 
   it('keeps the free grouping and reports the error when the model fails or returns nothing', async () => {

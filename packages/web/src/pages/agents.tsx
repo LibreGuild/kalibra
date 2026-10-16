@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Bot, Eye, Trash2 } from 'lucide-react';
 import { Page } from '../components/layout/shell';
-import { Badge, Card, CodeBlock, CopyButton, Loading, SectionTitle, Tabs } from '../components/ui/display';
+import { Badge, Card, CodeBlock, CopyButton, ErrorBox, Loading, SectionTitle, Tabs } from '../components/ui/display';
 import { Tip } from '../components/ui/overlay';
-import { useOp } from '../lib/api';
+import { useMeta, useOp } from '../lib/api';
 import { timeAgo } from '../lib/format';
 
 const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
@@ -33,7 +32,7 @@ const EXAMPLES = [
 ];
 
 export function AgentsPage() {
-  const meta = useQuery({ queryKey: ['meta'], queryFn: () => fetch('/api/meta').then((r) => r.json()).then((b) => b.data) });
+  const meta = useMeta();
   const ops = useOp<any[]>('list_operations');
   const activity = useOp<any[]>('list_activity', { limit: 20, actorKind: 'agent' });
   const [client, setClient] = useState('claude');
@@ -57,8 +56,10 @@ export function AgentsPage() {
         <div className="flex min-w-0 flex-col gap-6">
           <Card>
             <SectionTitle help="The command starts a small MCP bridge that talks to this running Kalibra. Run the setup once per agent.">1. Connect your agent</SectionTitle>
-            {!snip ? (
-              <Loading />
+            {meta.error ? (
+              <ErrorBox error={meta.error} />
+            ) : !snip ? (
+              meta.isLoading ? <Loading /> : <div className="text-[0.8125rem] text-ink-muted">This server did not report how to start the MCP bridge. Run <code className="font-mono">npx kalibra mcp</code> as your agent's MCP command.</div>
             ) : (
               <>
                 <Tabs

@@ -130,6 +130,7 @@ export function ScriptForm({ value, onChange }: { value: ScriptConfig; onChange:
           ['fetch', 'Standard fetch for HTTP calls'],
           ['WebSocket', 'WebSocket client (the ws package)'],
           ['readFile(file)', 'Bytes of a file column, e.g. await readFile(row.audio)'],
+          ['secret(name)', 'A stored secret, e.g. await secret("api_key"). Masked in logs'],
           ['llm', 'Configured model connections (llm.text / llm.json)'],
           ['log(...)', 'Write to the run log'],
           ['require(...)', 'Node built-ins and packages in the workspace'],

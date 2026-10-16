@@ -112,13 +112,17 @@ export const groupsOps: OpDef<any, any>[] = [
         p.label = l;
         labels.add(l);
       }
-      const group = runs.createGroup({ name: i.name, datasetId: ds.id, suiteId: suite.id, settings: { ...i.settings, variants: prepared.map((p) => ({ target: p.target.id, label: p.label, overrides: p.overrides ?? null })) } }, actor);
-      const created = prepared.map((p) => {
-        const settings = RunSettings.parse({ ...i.settings, overrides: p.overrides });
-        const { run, rows } = prepareRun(engine, actor, { dataset: ds.id, suite: suite.id, target: p.target.id, name: `${group.name} · ${p.label}`, settings, kind: 'live', groupId: group.id, variantLabel: p.label });
-        const items = rows.flatMap((r) => Array.from({ length: settings.repetitions }, (_, rep) => ({ rowId: r.id, rowRev: r.rev, rep, input: r.data })));
-        runs.addPending(run.id, items);
-        return run;
+      // One transaction: if a variant cannot be set up (e.g. no rows match), no half-made comparison is left behind.
+      const { group, created } = engine.db.tx(() => {
+        const group = runs.createGroup({ name: i.name, datasetId: ds.id, suiteId: suite.id, settings: { ...i.settings, variants: prepared.map((p) => ({ target: p.target.id, label: p.label, overrides: p.overrides ?? null })) } }, actor);
+        const created = prepared.map((p) => {
+          const settings = RunSettings.parse({ ...i.settings, overrides: p.overrides });
+          const { run, rows } = prepareRun(engine, actor, { dataset: ds.id, suite: suite.id, target: p.target.id, name: `${group.name} · ${p.label}`, settings, kind: 'live', groupId: group.id, variantLabel: p.label });
+          const items = rows.flatMap((r) => Array.from({ length: settings.repetitions }, (_, rep) => ({ rowId: r.id, rowRev: r.rev, rep, input: r.data })));
+          runs.addPending(run.id, items);
+          return run;
+        });
+        return { group, created };
       });
       for (const r of created) engine.runner.start(r.id);
       const warnings = prepared.flatMap((p) => runPreflight(engine, ds.id, p.target.id, { ...i.settings, overrides: p.overrides } as any).map((w) => ({ ...w, variant: p.label })));

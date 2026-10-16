@@ -150,7 +150,7 @@ export function parseCurl(command: string): HttpTargetConfig {
   if (qIndex >= 0) {
     for (const pair of url.slice(qIndex + 1).split('&')) {
       if (!pair) continue;
-      const [k, v = ''] = pair.split('=');
+      const [k, v] = splitPair(pair);
       query.push({ key: safeDecode(k), value: safeDecode(v), enabled: true });
     }
     url = url.slice(0, qIndex);
@@ -161,9 +161,9 @@ export function parseCurl(command: string): HttpTargetConfig {
   let body: HttpTargetConfig['body'] = { type: 'none', content: '', contentType: '', form: [], parts: [], binary: '' };
 
   if (getMode && (data.length || urlencoded.length)) {
-    for (const d of [...data, ...urlencoded]) {
+    for (const d of [...data, ...urlencoded.map(encodeUrlencodeArg)]) {
       for (const pair of d.split('&')) {
-        const [k, v = ''] = pair.split('=');
+        const [k, v] = splitPair(pair);
         if (k) query.push({ key: safeDecode(k), value: safeDecode(v), enabled: true });
       }
     }
@@ -182,7 +182,7 @@ export function parseCurl(command: string): HttpTargetConfig {
       const form: KV[] = [];
       for (const d of [...data, ...urlencoded.map(encodeUrlencodeArg)]) {
         for (const pair of d.split('&')) {
-          const [k, v = ''] = pair.split('=');
+          const [k, v] = splitPair(pair);
           if (k) form.push({ key: safeDecode(k), value: safeDecode(v), enabled: true });
         }
       }
@@ -214,6 +214,12 @@ export function parseCurl(command: string): HttpTargetConfig {
   };
   // Parsed twice so nested defaults (streaming, scripts) are filled; see normalizeTargetConfig.
   return HttpTarget.parse(HttpTarget.parse(config));
+}
+
+/** "key=value" split at the first "=" only: values such as base64 tokens keep their own "=". */
+function splitPair(pair: string): [string, string] {
+  const eq = pair.indexOf('=');
+  return eq < 0 ? [pair, ''] : [pair.slice(0, eq), pair.slice(eq + 1)];
 }
 
 function encodeUrlencodeArg(arg: string) {

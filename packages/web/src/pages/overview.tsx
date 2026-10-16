@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import clsx from 'clsx';
 import { ArrowRight, Bot, CheckCircle2, Circle, Crosshair, Database, ListChecks, Play, Terminal, User } from 'lucide-react';
 import { Page } from '../components/layout/shell';
-import { Button } from '../components/ui/button';
+import { buttonClass } from '../components/ui/button';
 import { Badge, Card, CodeBlock, Loading, SectionTitle, StatusBadge } from '../components/ui/display';
 import { TrendsCard } from '../components/trends';
 import { useOp } from '../lib/api';
@@ -43,10 +43,8 @@ export function OverviewPage() {
                         <div className={clsx('text-[0.875rem] font-medium', ok && 'text-ink-muted line-through decoration-ink-faint/50')}>{s.title}</div>
                         <div className="text-[0.8125rem] text-ink-muted">{s.body}</div>
                       </div>
-                      <Link to={s.to}>
-                        <Button size="sm" variant={ok ? 'ghost' : 'secondary'}>
-                          {s.cta} <ArrowRight className="size-3.5" />
-                        </Button>
+                      <Link to={s.to} className={buttonClass(ok ? 'ghost' : 'secondary', 'sm')}>
+                        {s.cta} <ArrowRight className="size-3.5" />
                       </Link>
                     </li>
                   );
@@ -71,10 +69,8 @@ export function OverviewPage() {
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
                   {review.map((d) => (
-                    <Link key={d.id} to={`/datasets/${d.id}?status=needs_review`}>
-                      <Button size="sm">
-                        {d.name} <Badge tone="warn">{d.reviewCount}</Badge>
-                      </Button>
+                    <Link key={d.id} to={`/datasets/${d.id}?status=needs_review`} className={buttonClass('secondary', 'sm')}>
+                      {d.name} <Badge tone="warn">{d.reviewCount}</Badge>
                     </Link>
                   ))}
                 </div>

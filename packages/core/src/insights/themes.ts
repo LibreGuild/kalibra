@@ -1,4 +1,4 @@
-import { cosine } from '../providers/embeddings.js';
+import { cosine, type EmbedOptions, type Embedder } from '../providers/embeddings.js';
 
 /*
  * Failure themes. Two layers:
@@ -140,30 +140,48 @@ export function summarize(r: FailureLite): string {
  * remain. Returns clusters as lists of item indexes, biggest first.
  */
 export function agglomerate(vectors: number[][], threshold: number, maxClusters: number): number[][] {
-  const clusters = vectors.map((v, i) => ({ members: [i], sum: [...v] }));
-  for (;;) {
-    if (clusters.length <= 1) break;
+  const n = vectors.length;
+  const members = vectors.map((_, i) => [i]);
+  const sums = vectors.map((v) => [...v]);
+  const alive = new Array<boolean>(n).fill(true);
+  // Centroid similarities are computed once and refreshed only for the merged cluster, so each merge
+  // costs O(n²) comparisons instead of O(n²·dims) (1000 failures: well under a second, not minutes).
+  const sim = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) sim[i * n + j] = cosine(sums[i], sums[j]);
+  for (let count = n; count > 1; count--) {
     let best = -Infinity;
     let bi = -1;
     let bj = -1;
-    for (let i = 0; i < clusters.length; i++) {
-      for (let j = i + 1; j < clusters.length; j++) {
-        const s = cosine(clusters[i].sum, clusters[j].sum);
-        if (s > best) {
-          best = s;
+    for (let i = 0; i < n; i++) {
+      if (!alive[i]) continue;
+      for (let j = i + 1; j < n; j++) {
+        if (alive[j] && sim[i * n + j] > best) {
+          best = sim[i * n + j];
           bi = i;
           bj = j;
         }
       }
     }
-    if (best < threshold && clusters.length <= maxClusters) break;
-    const a = clusters[bi];
-    const b = clusters[bj];
-    a.members.push(...b.members);
-    for (let k = 0; k < a.sum.length; k++) a.sum[k] += b.sum[k];
-    clusters.splice(bj, 1);
+    if (best < threshold && count <= maxClusters) break;
+    members[bi].push(...members[bj]);
+    for (let k = 0; k < sums[bi].length; k++) sums[bi][k] += sums[bj][k];
+    alive[bj] = false;
+    for (let k = 0; k < n; k++) {
+      if (alive[k] && k !== bi) sim[Math.min(k, bi) * n + Math.max(k, bi)] = cosine(sums[bi], sums[k]);
+    }
   }
-  return clusters.map((c) => c.members).sort((x, y) => y.length - x.length);
+  return members.filter((_, i) => alive[i]).sort((x, y) => y.length - x.length);
+}
+
+/**
+ * Which embeddings to cluster failures with: the free local model when it is downloaded, else the
+ * theme connection's own embedding model when it has one. `undefined` means none is available, so
+ * the LLM assigns failures to themes instead (slower and costs more).
+ */
+export async function pickEmbeddings(embedder: Embedder, connectionId: string, connection: { embeddingModel?: string } | undefined): Promise<EmbedOptions | undefined> {
+  if ((await embedder.status()).local === 'ready') return {};
+  if (connection?.embeddingModel?.trim()) return { connectionId };
+  return undefined;
 }
 
 export const THEME_SCHEMA = {

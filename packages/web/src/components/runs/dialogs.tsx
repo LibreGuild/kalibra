@@ -41,13 +41,19 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
   const [error, setError] = useState<unknown>(null);
   const hint = useConversationHint(dataset);
   // Warn before starting if the target uses {{columns}} this dataset doesn't have (they'd be sent empty).
-  const preflightTargets = compare ? variants.map((v) => v.target).filter(Boolean) : target ? [target] : [];
+  // Each variant is checked with its own overrides, so a variable set only on a variant isn't reported missing.
+  const preflightRuns: { target: string; overrides?: unknown }[] = compare
+    ? toVariants(variants.filter((v) => v.target)).map((v) => ({ target: v.target, overrides: 'overrides' in v ? v.overrides : undefined }))
+    : target
+      ? [{ target }]
+      : [];
+  const preflightConversation = toConversation(conversation);
   const preflight = useOp<{ warnings: { message: string; name: string }[] }[]>(
     'preflight_many',
-    { dataset, targets: preflightTargets, conversation: toConversation(conversation) },
+    { dataset, runs: preflightRuns, conversation: preflightConversation },
     {
-      enabled: !!dataset && preflightTargets.length > 0,
-      queryFn: () => Promise.all(preflightTargets.map((t) => op('preflight_run', { dataset, target: t, settings: { conversation: toConversation(conversation) } }))),
+      enabled: !!dataset && preflightRuns.length > 0,
+      queryFn: () => Promise.all(preflightRuns.map((r) => op('preflight_run', { dataset, target: r.target, settings: { conversation: preflightConversation, overrides: r.overrides } }))),
     } as any,
   );
   const warnings = [...new Map((preflight.data ?? []).flatMap((r) => r.warnings).map((w) => [w.message, w])).values()];
@@ -307,7 +313,17 @@ export function ImportOutputsDialog({ open, onOpenChange }: { open: boolean; onO
                 'Choose a file…'
               )}
             </span>
-            <input type="file" accept=".csv,.jsonl,.ndjson,.json" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+            <input
+              type="file"
+              accept=".csv,.jsonl,.ndjson,.json"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                pick(f);
+              }}
+            />
           </label>
         </Field>
         <div className="grid grid-cols-3 gap-4">

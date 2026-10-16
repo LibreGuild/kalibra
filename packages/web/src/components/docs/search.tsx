@@ -44,7 +44,7 @@ export function DocsSearch({ autoFocus, compact }: { autoFocus?: boolean; compac
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+      const typing = e.target instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable);
       if (e.key === '/' && !typing) {
         e.preventDefault();
         input.current?.focus();

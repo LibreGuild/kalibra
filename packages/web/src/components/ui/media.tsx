@@ -50,8 +50,8 @@ export function AudioPlayer({ file, compact }: { file: FileValue; compact?: bool
     }
     if (current && current !== a) current.pause();
     current = a;
-    a.play();
     setPlaying(true);
+    a.play().catch(() => setPlaying(false)); // missing file or unsupported format
   };
 
   return (

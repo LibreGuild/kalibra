@@ -6,7 +6,7 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 |---|---|
 | [overview.md](overview.md) | What Kalibra is, the core loop, and the principles behind it |
 | [architecture.md](architecture.md) | Packages, how they talk, process layouts, where state lives |
-| [engine.md](engine.md) | Operations, actors, events, jobs, the runner, checks, templates, scripts, providers |
+| [engine.md](engine.md) | Operations, actors, events, jobs, the runner (preflight, overrides, conversations, comparisons), checks, summaries, templates, scripts, providers, embeddings, sharing |
 | [data-model.md](data-model.md) | SQLite tables, versioning, blobs, secrets, workspace folder |
 | [targets-and-checks.md](targets-and-checks.md) | Every target kind and every check type, one line each |
 | [build-and-run.md](build-and-run.md) | Install, dev mode, demo data, builds, desktop, CLI, npm publishing |

@@ -81,7 +81,8 @@ export function detectFormat(bytes: Uint8Array, name = ''): ExternalFormat {
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
-const safeKey = (k: string) => k.trim().replace(/[^A-Za-z0-9_]/g, '_').replace(/^(\d)/, '_$1') || 'column';
+// `__proto__` as a plain key would replace the row object's prototype instead of adding a column.
+const safeKey = (k: string) => k.trim().replace(/[^A-Za-z0-9_]/g, '_').replace(/^(\d)/, '_$1').replace(/^__proto__$/, 'proto') || 'column';
 
 function inferType(values: unknown[]): ColumnType {
   const present = values.filter((v) => v !== undefined && v !== null && v !== '');
@@ -293,7 +294,7 @@ function importPromptfoo(engine: Engine, text: string, name: string | undefined,
           return /\breturn\b/.test(s) ? s : `return (${s});`;
         };
         if (distinct > 1) report.warnings.push('Different javascript assertions per test were merged; only the first one is used');
-        add(rawType, 'script', { code: `// Imported from promptfoo\nconst context = { vars: row };\n${negated ? `const __r = (() => { ${code(value)} })();\nreturn !__r;` : code(value)}` }, first, { applyWhen: when });
+        add(rawType, 'script', { code: `// Imported from promptfoo\nconst context = { vars: row };\n${negated ? `const __r = (() => { ${code(value)} })();\nreturn !__r;` : code(value)}` }, first, { applyWhen: when }, 'Runs the JavaScript from the config on your computer; review it before running');
         break;
       }
       case 'similar':

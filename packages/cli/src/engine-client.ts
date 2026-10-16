@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Engine, type Actor } from '@kalibra/core';
+import { Engine, KalibraError, type Actor } from '@kalibra/core';
 
 /** Where the default workspace lives. KALIBRA_DIR or --dir override it. */
 export function defaultDir(dev = false) {
@@ -43,6 +43,18 @@ function readEngineInfo(dir: string): EngineInfo | undefined {
   }
 }
 
+/**
+ * An engine for this process. The desktop app encrypts secrets with the OS keychain (secrets.enc),
+ * which only it can read, so without it secrets fail with a clear message instead of reading as unset.
+ */
+export function openEngine(dir: string) {
+  if (!existsSync(join(dir, 'secrets.enc'))) return new Engine({ dir });
+  const locked = async (): Promise<never> => {
+    throw new KalibraError('unavailable', 'Secrets in this workspace are encrypted by the Kalibra desktop app. Open the app and try again: the CLI and coding agents then connect to it.');
+  };
+  return new Engine({ dir, secrets: { get: locked, set: locked, delete: locked, list: locked } });
+}
+
 /** Uniform way to call operations, whether the engine runs in another process or in this one. */
 export interface OpsClient {
   call<T = any>(name: string, input: unknown): Promise<T>;
@@ -74,7 +86,7 @@ export async function connect(dir: string, actor: Actor): Promise<OpsClient> {
       };
     }
   }
-  const engine = new Engine({ dir });
+  const engine = openEngine(dir);
   return {
     mode: 'local',
     call: (name, input) => engine.call(name, input, actor),

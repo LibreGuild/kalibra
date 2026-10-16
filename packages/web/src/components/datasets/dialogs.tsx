@@ -199,7 +199,9 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
   const refresh = useRefreshRows();
   const fileColumns = columns.filter((c) => isFileType(c.type));
   const [items, setItems] = useState<UploadState[]>([]);
-  const [column, setColumn] = useState<string | undefined>(fileColumns[0]?.key);
+  const [picked, setPicked] = useState<string | undefined>();
+  // The dialog stays mounted, so fall back to the first file column if the picked one is gone or was never set.
+  const column = fileColumns.some((c) => c.key === picked) ? picked : fileColumns[0]?.key;
   const [csv, setCsv] = useState<{ file: File; headers: string[]; rows: Record<string, string>[] } | null>(null);
   const [nameCol, setNameCol] = useState<string | undefined>();
   const [mapping, setMapping] = useState<Record<string, string>>({});
@@ -333,7 +335,7 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
           </Button>
         ) : (
           <>
-            <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={() => (reset(), onOpenChange(false))}>Cancel</Button>
             <Button variant="primary" loading={busy} disabled={!items.length || !column} onClick={start}>
               Upload {items.length || ''} file{items.length === 1 ? '' : 's'}
             </Button>
@@ -349,7 +351,7 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
         <div className="flex flex-col gap-5">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Put files in column" help="The dataset column that receives the uploaded files.">
-              <Select value={column} onChange={setColumn} options={fileColumns.map((c) => ({ value: c.key, label: c.key, hint: c.type }))} />
+              <Select value={column} onChange={setPicked} options={fileColumns.map((c) => ({ value: c.key, label: c.key, hint: c.type }))} />
             </Field>
             <Field label="Status for new rows" help="Rows you include in runs. Choose 'Needs review' if someone should check them first.">
               <Select value={status} onChange={(v) => setStatus(v as RowStatus)} options={STATUS_OPTIONS} />
@@ -588,7 +590,7 @@ export function GenerateDialog({ open, onOpenChange, datasetId }: { open: boolea
         model,
         count: Math.max(1, Math.min(500, Number(count) || 10)),
         instructions,
-        temperature: Math.max(0, Math.min(2, Number(temperature) || 1)),
+        temperature: Math.max(0, Math.min(2, temperature.trim() && Number.isFinite(Number(temperature)) ? Number(temperature) : 1)),
       });
       setResult(res);
       refresh();
@@ -698,7 +700,7 @@ export function SaveVersionDialog({ open, onOpenChange, datasetId }: { open: boo
       }
     >
       <Field label="Note" help="Optional. What changed, e.g. 'added 40 noisy recordings'.">
-        <Input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="What changed in this version" onKeyDown={(e) => e.key === 'Enter' && save()} />
+        <Input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="What changed in this version" onKeyDown={(e) => e.key === 'Enter' && !busy && save()} />
       </Field>
     </Dialog>
   );

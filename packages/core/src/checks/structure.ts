@@ -26,9 +26,15 @@ export const isJsonCheck = defineCheck({
 // ajv/ajv-formats are CommonJS; depending on the loader the class sits on `.default` or is the module itself.
 const Ajv = ((AjvModule as any).default ?? AjvModule) as typeof AjvModule;
 const addFormats = ((addFormatsModule as any).default ?? addFormatsModule) as typeof addFormatsModule;
-const ajv = new Ajv({ allErrors: true, strict: false });
-addFormats(ajv);
-const validators = new Map<string, ReturnType<typeof ajv.compile>>();
+type Validator = ReturnType<InstanceType<typeof Ajv>['compile']>;
+const validators = new Map<string, Validator>();
+
+/** One Ajv per schema: a shared instance remembers every $id, so an edited schema keeping its $id would no longer compile. */
+function compileSchema(schema: object): Validator {
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv);
+  return ajv.compile(schema);
+}
 
 export const jsonSchemaCheck = defineCheck({
   type: 'json_schema',
@@ -55,7 +61,7 @@ export const jsonSchemaCheck = defineCheck({
     let validate = validators.get(schemaText);
     if (!validate) {
       try {
-        validate = ajv.compile(typeof cfg.schema === 'string' ? JSON.parse(cfg.schema) : cfg.schema);
+        validate = compileSchema(typeof cfg.schema === 'string' ? JSON.parse(cfg.schema) : cfg.schema);
       } catch (e) {
         return errorOutcome(`Invalid schema: ${(e as Error).message}`);
       }

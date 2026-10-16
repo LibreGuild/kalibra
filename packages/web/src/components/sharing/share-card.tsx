@@ -137,7 +137,8 @@ function FolderSection() {
     }
   }, [settings.data]);
 
-  const run = async (kind: 'export' | 'check' | 'apply') => {
+  // The preview is a dry run with the same prune setting, so it lists exactly what Apply will add, change or delete.
+  const run = async (kind: 'export' | 'check' | 'apply', pruneNow = prune) => {
     setBusy(kind);
     setError(null);
     try {
@@ -146,7 +147,7 @@ function FolderSection() {
         setPreview(null);
         toast.success('Exported to folder', r.written ? `${r.written} files written, ${r.removed} removed, ${r.unchanged} unchanged. Commit them to Git.` : 'Nothing changed since the last export.');
       } else {
-        const r = await op<FolderReport>('import_from_folder', { dir, dryRun: kind === 'check', prune: kind === 'apply' && prune });
+        const r = await op<FolderReport>('import_from_folder', { dir, dryRun: kind === 'check', prune: pruneNow });
         if (kind === 'check') setPreview(r);
         else {
           setPreview(null);
@@ -156,6 +157,7 @@ function FolderSection() {
       settings.refetch();
     } catch (e) {
       setError(e);
+      if (kind === 'check') setPreview(null);
     } finally {
       setBusy(null);
     }
@@ -170,7 +172,15 @@ function FolderSection() {
         <HelpTip>Export writes small, stable text files your team commits to Git. After a git pull, “Check for changes” shows what differs and “Apply” brings it in as new versions. Secret values are never written. Works in the desktop app and CLI (a local folder path).</HelpTip>
       </div>
       <Field label="Folder" hint={settings.data?.lastExportAt || settings.data?.lastImportAt ? `Last export ${timeAgo(settings.data?.lastExportAt)} · last import ${timeAgo(settings.data?.lastImportAt)}` : 'An absolute path, e.g. /Users/me/projects/support-bot/evals'}>
-        <Input mono value={dir} onChange={(e) => setDir(e.target.value)} placeholder="/path/to/your/repo/evals" />
+        <Input
+          mono
+          value={dir}
+          onChange={(e) => {
+            setDir(e.target.value);
+            setPreview(null);
+          }}
+          placeholder="/path/to/your/repo/evals"
+        />
       </Field>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <label className="flex items-center gap-2 text-[0.8125rem] text-ink-muted">
@@ -197,6 +207,7 @@ function FolderSection() {
             <Badge tone="ok">{preview.summary.added} new</Badge>
             <Badge tone="info">{preview.summary.changed} changed</Badge>
             <Badge>{preview.summary.unchanged} unchanged</Badge>
+            {preview.summary.removed > 0 && <Badge tone="bad">{preview.summary.removed} removed</Badge>}
           </div>
           {changes.length > 0 && (
             <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto text-[0.8125rem]">
@@ -205,9 +216,10 @@ function FolderSection() {
                   <Badge tone={c.change === 'added' ? 'ok' : c.change === 'removed' ? 'bad' : 'info'}>{c.change}</Badge>
                   <span className="text-ink-faint">{c.kind ?? 'dataset'}</span>
                   <span className="truncate">{c.name}</span>
-                  {c.rows && (c.rows.added || c.rows.changed) ? (
+                  {c.rows && (c.rows.added || c.rows.changed || c.rows.removed) ? (
                     <span className="text-ink-faint">
                       · rows +{c.rows.added} ~{c.rows.changed}
+                      {c.rows.removed ? ` −${c.rows.removed}` : ''}
                     </span>
                   ) : null}
                 </li>
@@ -221,9 +233,17 @@ function FolderSection() {
           ))}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label className="flex items-center gap-2 text-[0.8125rem] text-ink-muted">
-              <Switch checked={prune} onChange={setPrune} label="Also delete what is not in the folder" /> Also delete what is not in the folder
+              <Switch
+                checked={prune}
+                onChange={(v) => {
+                  setPrune(v);
+                  run('check', v);
+                }}
+                label="Also delete what is not in the folder"
+              />{' '}
+              Also delete what is not in the folder
             </label>
-            <Button variant="primary" disabled={!changes.length && !prune} loading={busy === 'apply'} onClick={() => run('apply')}>
+            <Button variant="primary" disabled={!changes.length || busy !== null} loading={busy === 'apply'} onClick={() => run('apply')}>
               Apply changes
             </Button>
           </div>

@@ -62,7 +62,10 @@ export function JobPanel({ job }: { job: JobRecord }) {
               loading={cancelling}
               onClick={async () => {
                 setCancelling(true);
-                await op('cancel_job', { jobId: job.id }).catch(toastError);
+                await op('cancel_job', { jobId: job.id }).catch((e) => {
+                  toastError(e, 'Could not stop the job');
+                  setCancelling(false);
+                });
               }}
             >
               Stop

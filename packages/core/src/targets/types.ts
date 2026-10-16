@@ -1,4 +1,4 @@
-import type { LogEntry, Logger } from '../script.js';
+import type { LogEntry } from '../script.js';
 import type { TemplateEnv } from '../template.js';
 import type { BlobStore } from '../storage.js';
 import type { TargetSpec } from '../specs.js';
@@ -15,7 +15,6 @@ export interface TargetCallContext {
   blobs: BlobStore;
   llm: LlmClient;
   signal: AbortSignal;
-  log: Logger;
   /** Directory used for `require()` inside user scripts. */
   workspaceDir: string;
 }

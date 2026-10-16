@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
 import { DEF_KINDS, DatasetSchema, type DefKind } from '../specs.js';
 import { invalid, nowIso, parseJson } from '../util.js';
-import { checkSyncDir, contentHash, insertRows, jsonl, settingsSet, stableStringify, uniqueSlugs, type IncomingRow } from './common.js';
+import { checkSyncDir, codeWarning, contentHash, findCode, insertRows, isSafeEntryName, jsonl, settingsSet, stableStringify, uniqueSlugs, type CodeItem, type IncomingRow } from './common.js';
 
 /*
  * Folder sync: definitions and datasets as small, stable text files that a team keeps in Git.
@@ -17,7 +17,41 @@ import { checkSyncDir, contentHash, insertRows, jsonl, settingsSet, stableString
 
 export const FOLDER_FORMAT = 'kalibra-folder';
 const DIRS: Record<DefKind, string> = { target: 'targets', suite: 'suites', connection: 'connections' };
-const MANAGED = ['targets', 'suites', 'connections', 'datasets'];
+
+/**
+ * A shared folder comes from other people (a Git pull). A symbolic link in it could point a read or
+ * a write anywhere on this computer, so Kalibra only follows real files and folders inside it.
+ */
+async function assertNoLinks(root: string, rel: string) {
+  let cur = root;
+  for (const part of rel.split('/')) {
+    cur = join(cur, part);
+    const st = await lstat(cur).catch(() => null);
+    if (!st) return;
+    if (st.isSymbolicLink()) throw invalid(`${rel} goes through a symbolic link. Kalibra only reads and writes real files inside the folder; replace the link with the file itself.`);
+  }
+}
+
+/**
+ * Files an earlier export wrote, from its kalibra.json. Only these are removed when their item is
+ * gone, so other files that happen to live in the folder (your own datasets/, notes…) are never touched.
+ */
+async function previousExport(dir: string): Promise<string[]> {
+  if (!existsSync(join(dir, 'kalibra.json'))) return [];
+  await assertNoLinks(dir, 'kalibra.json');
+  let m: any;
+  try {
+    m = JSON.parse(await readFile(join(dir, 'kalibra.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  if (m?.format !== FOLDER_FORMAT || !m.index || typeof m.index !== 'object') return [];
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string' && isSafeEntryName(p)) : []);
+  const out: string[] = [];
+  for (const sub of Object.values(DIRS)) out.push(...list(m.index[sub]).filter((p) => new RegExp(`^${sub}/[^/]+\\.json$`).test(p)));
+  for (const base of list(m.index.datasets).filter((p) => /^datasets\/[^/]+$/.test(p))) out.push(`${base}/schema.json`, `${base}/rows.jsonl`);
+  return out;
+}
 
 const fileOf = (v: unknown) => !!v && typeof v === 'object' && typeof (v as any).blob === 'string';
 const rowContent = (r: { data: unknown; tags?: unknown; status?: unknown; split?: unknown }) => ({ data: r.data, tags: r.tags ?? [], status: r.status ?? 'approved', split: r.split ?? null });
@@ -64,21 +98,19 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
     }
   }
 
-  // Remove files we manage that no longer correspond to anything (renamed or deleted items).
+  // Remove files the last export wrote whose item was renamed or deleted since.
   let removed = 0;
-  for (const sub of MANAGED) {
-    for (const rel of await listFiles(join(dir, sub))) {
-      const path = `${sub}/${rel}`;
-      if (!files.has(path) && /(\.json|\.jsonl)$/.test(path)) {
-        await rm(join(dir, path), { force: true });
-        removed++;
-      }
-    }
+  for (const path of await previousExport(dir)) {
+    if (files.has(path) || !existsSync(join(dir, path))) continue;
+    await assertNoLinks(dir, path);
+    await rm(join(dir, path), { force: true });
+    removed++;
   }
 
   let written = 0;
   let unchanged = 0;
   for (const [path, content] of files) {
+    await assertNoLinks(dir, path);
     const full = join(dir, path);
     const bytes = typeof content === 'string' ? Buffer.from(content, 'utf8') : Buffer.from(content);
     if (existsSync(full) && (await readFile(full)).equals(bytes)) {
@@ -93,21 +125,31 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
   return { dir, written, unchanged, removed, files: files.size };
 }
 
-async function listFiles(dir: string, prefix = ''): Promise<string[]> {
+/** Real files under `root/sub` (relative to that folder). Symbolic links are skipped. */
+async function listFiles(root: string, sub: string, prefix = ''): Promise<string[]> {
+  const dir = join(root, sub);
   if (!existsSync(dir)) return [];
+  if (!prefix) await assertNoLinks(root, sub);
   const out: string[] = [];
-  for (const e of await readdir(dir, { withFileTypes: true })) {
-    if (e.isDirectory()) out.push(...(await listFiles(join(dir, e.name), `${prefix}${e.name}/`)));
-    else out.push(`${prefix}${e.name}`);
+  for (const e of await readdir(join(dir, prefix), { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(...(await listFiles(root, sub, `${prefix}${e.name}/`)));
+    else if (e.isFile()) out.push(`${prefix}${e.name}`);
   }
   return out;
 }
 
-async function readJson<T>(path: string, what: string): Promise<T> {
+/** Reads `rel` inside the folder, refusing symbolic links. */
+async function readIn(root: string, rel: string): Promise<Buffer> {
+  await assertNoLinks(root, rel);
+  return readFile(join(root, rel));
+}
+
+async function readJson<T>(root: string, rel: string): Promise<T> {
+  const text = (await readIn(root, rel)).toString('utf8');
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as T;
+    return JSON.parse(text) as T;
   } catch {
-    throw invalid(`${what} is not valid JSON`);
+    throw invalid(`${rel} is not valid JSON`);
   }
 }
 
@@ -117,7 +159,7 @@ type DatasetChange = { name: string; change: 'added' | 'changed' | 'unchanged' |
 export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRun?: boolean; prune?: boolean }, actor: Actor) {
   const dir = checkSyncDir(dirIn, engine.dir);
   if (!existsSync(join(dir, 'kalibra.json'))) throw invalid('This folder has no kalibra.json. Export to it first, or pick the folder your team shares.');
-  const manifest = await readJson<any>(join(dir, 'kalibra.json'), 'kalibra.json');
+  const manifest = await readJson<any>(dir, 'kalibra.json');
   if (manifest.format !== FOLDER_FORMAT) throw invalid('kalibra.json is not a Kalibra folder manifest');
   if (typeof manifest.formatVersion !== 'number' || manifest.formatVersion > 1) throw invalid('This folder was written by a newer Kalibra. Update Kalibra to import it.');
 
@@ -126,12 +168,13 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
   const defChanges: DefChange[] = [];
   const dsChanges: DatasetChange[] = [];
   const warnings: string[] = [];
+  const incoming: { kind: string; name: string; spec: unknown }[] = []; // added or changed definitions
 
   // Media in the folder (optional) goes in first so rows can point at it.
   if (!dry && existsSync(join(dir, 'media'))) {
-    for (const name of await listFiles(join(dir, 'media'))) {
+    for (const name of await listFiles(dir, 'media')) {
       if (!/^[a-f0-9]{64}$/.test(name) || engine.blobs.has(name)) continue;
-      const bytes = await readFile(join(dir, 'media', name));
+      const bytes = await readIn(dir, `media/${name}`);
       if (createHash('sha256').update(bytes).digest('hex') !== name) {
         warnings.push(`media/${name} does not match its name and was skipped`);
         continue;
@@ -142,8 +185,8 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
 
   for (const kind of ['target', 'suite', 'connection'] as DefKind[]) {
     const seen = new Set<string>();
-    for (const rel of (await listFiles(join(dir, DIRS[kind]))).filter((f) => f.endsWith('.json')).sort()) {
-      const d = await readJson<any>(join(dir, DIRS[kind], rel), `${DIRS[kind]}/${rel}`);
+    for (const rel of (await listFiles(dir, DIRS[kind])).filter((f) => f.endsWith('.json')).sort()) {
+      const d = await readJson<any>(dir, `${DIRS[kind]}/${rel}`);
       if (typeof d?.name !== 'string' || !d.name.trim()) throw invalid(`${DIRS[kind]}/${rel} has no name`);
       const parsed = DEF_KINDS[kind].safeParse(d.spec ?? {});
       if (!parsed.success) throw invalid(`${DIRS[kind]}/${rel}: invalid ${kind} (${parsed.error.issues[0]?.path.join('.')}: ${parsed.error.issues[0]?.message})`);
@@ -156,9 +199,11 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
       }
       if (!existing) {
         defChanges.push({ kind, name: d.name, change: 'added' });
+        incoming.push({ kind, name: d.name, spec: parsed.data });
         if (!dry) engine.events.emit({ type: 'def.changed', kind, id: defs.create(kind, { name: d.name, description: d.description ?? '', spec: parsed.data }, actor).id, actor });
       } else if (contentHash({ spec: normalizeSpec(kind, existing.spec), description: existing.description }) !== contentHash({ spec: parsed.data, description: d.description ?? '' })) {
         defChanges.push({ kind, name: d.name, change: 'changed' });
+        incoming.push({ kind, name: d.name, spec: parsed.data });
         if (!dry) {
           defs.update(kind, existing.id, { spec: parsed.data, description: d.description ?? '' }, actor);
           engine.events.emit({ type: 'def.changed', kind, id: existing.id, actor });
@@ -175,15 +220,15 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
   }
 
   const seenDs = new Set<string>();
-  const dsDirs = [...new Set((await listFiles(join(dir, 'datasets'))).filter((f) => f.endsWith('/schema.json')).map((f) => f.replace(/\/schema\.json$/, '')))].sort();
+  const dsDirs = [...new Set((await listFiles(dir, 'datasets')).filter((f) => f.endsWith('/schema.json')).map((f) => f.replace(/\/schema\.json$/, '')))].sort();
   for (const sub of dsDirs) {
-    const s = await readJson<any>(join(dir, 'datasets', sub, 'schema.json'), `datasets/${sub}/schema.json`);
+    const s = await readJson<any>(dir, `datasets/${sub}/schema.json`);
     const schema = DatasetSchema.safeParse(s.schema ?? {});
     if (!schema.success || typeof s.name !== 'string') throw invalid(`datasets/${sub}/schema.json is not a valid dataset schema`);
     seenDs.add(s.name);
     const rowsPath = join(dir, 'datasets', sub, 'rows.jsonl');
     const hasRows = existsSync(rowsPath);
-    const rows = hasRows ? jsonl<IncomingRow>(await readFile(rowsPath, 'utf8'), `datasets/${sub}/rows.jsonl`) : [];
+    const rows = hasRows ? jsonl<IncomingRow>((await readIn(dir, `datasets/${sub}/rows.jsonl`)).toString('utf8'), `datasets/${sub}/rows.jsonl`) : [];
     const ch: DatasetChange = { name: s.name, change: 'unchanged', schemaChanged: false, rows: { added: 0, changed: 0, unchanged: 0, removed: 0, invalid: 0 } };
 
     let ds;
@@ -275,6 +320,9 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
     }
   }
 
+  const code: CodeItem[] = findCode(incoming);
+  const codeNote = codeWarning('This folder', code);
+  if (codeNote) warnings.unshift(codeNote);
   if (!dry) settingsSet(engine, { folder: dir, lastImportAt: nowIso() });
   const count = (c: string) => defChanges.filter((d) => d.change === c).length + dsChanges.filter((d) => d.change === c).length;
   return {
@@ -284,6 +332,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
     definitions: defChanges,
     datasets: dsChanges,
     warnings,
+    code,
     lastExport: parseJson<any>(engine.db.get("SELECT value FROM meta WHERE key = 'sharing'")?.value, {}).lastExportAt ?? null,
   };
 }

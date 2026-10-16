@@ -85,7 +85,9 @@ export async function runConversation(
   const messages: NonNullable<TargetCallResult['response']>['messages'] = [];
   const logs: TargetCallResult['logs'] = [];
   const turnLatencies: number[] = [];
-  let attempts = 0;
+  // Attempts mean what they mean for a single call: 1, plus one per retry of any turn.
+  let calls = 0;
+  let retries = 0;
   let sessionId: unknown;
   let lastResult: TargetCallResult | undefined;
   let error: string | undefined;
@@ -105,7 +107,8 @@ export async function runConversation(
     transcript.push({ role: 'user', content: message, turn });
     messages.push({ t: Date.now() - started, dir: 'out', kind: 'user', data: message });
     const { result, attempts: a } = await deps.call({ ...row, message, history, turn, conversation_id: conversationId, session_id: sessionId ?? '' });
-    attempts += a;
+    calls++;
+    retries += Math.max(0, a - 1);
     lastResult = result;
     logs.push(...result.logs.slice(0, 50));
     const latency = result.metrics.latency_ms;
@@ -139,10 +142,11 @@ export async function runConversation(
           logs,
           retryable: false,
         },
-        attempts,
+        attempts: 0,
       };
     }
-    for (const message of turns.slice(0, Math.max(settings.maxTurns, turns.length))) {
+    // Scripted conversations always play the whole script; maxTurns only bounds simulated users.
+    for (const message of turns) {
       if (deps.signal.aborted) {
         stopReason = 'cancelled';
         break;
@@ -153,7 +157,7 @@ export async function runConversation(
     if (!settings.connectionId) {
       return {
         result: { ok: false, outputs: { transcript: [], turns: 0, stop_reason: 'error' }, metrics: { turns: 0 }, error: 'Choose a model connection to play the simulated user', logs, retryable: false },
-        attempts,
+        attempts: 0,
       };
     }
     stopReason = 'max_turns';
@@ -162,18 +166,26 @@ export async function runConversation(
         stopReason = 'cancelled';
         break;
       }
-      const next = await deps.llm.json<{ message: string; done: boolean; goal_met: boolean; reason: string }>({
-        connectionId: settings.connectionId,
-        model: settings.model || undefined,
-        system: SIMULATOR_SYSTEM,
-        prompt:
-          `Persona: ${persona || '(a typical user)'}\nGoal: ${goal || '(none given)'}\n\n` +
-          (transcript.length ? `Conversation so far:\n${transcriptText(transcript)}\n\nWrite your next message as the user.` : 'Start the conversation: write your first message as the user.'),
-        temperature: 0.7,
-        schema: SIM_SCHEMA,
-        schemaName: 'simulated_user_turn',
-        signal: deps.signal,
-      });
+      let next;
+      try {
+        next = await deps.llm.json<{ message: string; done: boolean; goal_met: boolean; reason: string }>({
+          connectionId: settings.connectionId,
+          model: settings.model || undefined,
+          system: SIMULATOR_SYSTEM,
+          prompt:
+            `Persona: ${persona || '(a typical user)'}\nGoal: ${goal || '(none given)'}\n\n` +
+            (transcript.length ? `Conversation so far:\n${transcriptText(transcript)}\n\nWrite your next message as the user.` : 'Start the conversation: write your first message as the user.'),
+          temperature: 0.7,
+          schema: SIM_SCHEMA,
+          schemaName: 'simulated_user_turn',
+          signal: deps.signal,
+        });
+      } catch (e: any) {
+        // The simulated user's model failing is this row's error, not the whole run's.
+        error = `Simulated user (turn ${turn + 1}): ${e?.message ?? e}`;
+        stopReason = deps.signal.aborted ? 'cancelled' : 'error';
+        break;
+      }
       const sim = next.value ?? ({} as any);
       goalMet = !!sim.goal_met;
       simReason = sim.reason;
@@ -234,6 +246,6 @@ export async function runConversation(
       retryable: false,
       logs: logs.slice(0, 300),
     },
-    attempts,
+    attempts: calls ? 1 + retries : 0,
   };
 }

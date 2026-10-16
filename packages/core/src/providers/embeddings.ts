@@ -16,6 +16,7 @@ import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { ConnectionSpec } from '../specs.js';
 import type { SecretStore } from '../storage.js';
 import { invalid } from '../util.js';
+import { azureCliToken, secretValue } from './index.js';
 
 /*
  * Text embeddings for semantic similarity, near-duplicate detection and failure clustering.
@@ -105,8 +106,12 @@ export const LOCAL_DOWNLOAD_MB = 110;
 export const modelsDir = () => process.env.KALIBRA_MODELS_DIR || join(homedir(), 'Kalibra', 'models');
 const runtimeDir = (root: string) => join(root, 'runtime');
 const hubDir = (root: string) => join(root, 'hub');
-const runtimeInstalled = (root: string) => existsSync(join(runtimeDir(root), 'node_modules', '@huggingface', 'transformers', 'package.json'));
-const modelCached = (root: string) => existsSync(join(hubDir(root), ...LOCAL_MODEL.split('/'), 'onnx', 'model_quantized.onnx'));
+// Written only after an install or model load fully succeeded, so a download cut short (app closed,
+// network gone) is never mistaken for a ready one and is simply redone.
+const runtimeMarker = (root: string) => join(runtimeDir(root), '.kalibra-ready');
+const modelMarker = (root: string) => join(hubDir(root), `.kalibra-ready-${LOCAL_MODEL.replace(/[^\w.-]+/g, '_')}`);
+const runtimeInstalled = (root: string) => existsSync(runtimeMarker(root)) && existsSync(join(runtimeDir(root), 'node_modules', '@huggingface', 'transformers', 'package.json'));
+const modelCached = (root: string) => existsSync(modelMarker(root)) && existsSync(join(hubDir(root), ...LOCAL_MODEL.split('/'), 'onnx', 'model_quantized.onnx'));
 
 /**
  * How to run npm: through the npm that launched us (npx), else `npm` on PATH, else common install
@@ -127,8 +132,10 @@ async function findNpm(): Promise<{ cmd: string; args: string[]; env: NodeJS.Pro
     try {
       // npm's launcher needs `node` on PATH, so put npm's own folder first.
       const env = npm.includes(sep) ? { ...process.env, PATH: `${dirname(npm)}${delimiter}${process.env.PATH ?? ''}` } : process.env;
-      await promisify(execFile)(npm, ['--version'], { timeout: 15000, shell: win, env });
-      return { cmd: npm, args: [], env };
+      // .cmd files only run through a shell, which splits an unquoted "C:\Program Files\…" path.
+      const cmd = win && npm.includes(' ') ? `"${npm}"` : npm;
+      await promisify(execFile)(cmd, ['--version'], { timeout: 15000, shell: win, env });
+      return { cmd, args: [], env };
     } catch {
       /* try the next one */
     }
@@ -169,13 +176,10 @@ const DEFAULT_EMBED_MODEL: Record<string, string> = {
   openai_compatible: 'nomic-embed-text',
 };
 
-const run = promisify(execFile);
-
 /** Resolves a connection to an AI SDK embedding model (same credential sources as chat models). */
 export async function resolveEmbeddingModel(spec: ConnectionSpec, model: string, secrets: SecretStore, fetchImpl?: typeof fetch): Promise<EmbeddingModel> {
   const o = spec.options as Record<string, any>;
-  const apiKey = spec.apiKeySecret ? await secrets.get(spec.apiKeySecret) : undefined;
-  if (spec.apiKeySecret && apiKey === undefined) throw invalid(`Secret "${spec.apiKeySecret}" is not set`);
+  const apiKey = await secretValue(secrets, spec.apiKeySecret);
   const headers = Object.fromEntries(spec.headers.filter((h) => h.enabled && h.key).map((h) => [h.key, h.value]));
   const baseURL = spec.baseUrl || undefined;
   const f = fetchImpl ? { fetch: fetchImpl } : {};
@@ -189,12 +193,7 @@ export async function resolveEmbeddingModel(spec: ConnectionSpec, model: string,
       return createGoogleGenerativeAI({ apiKey, baseURL, headers, ...f }).embedding(model);
     case 'azure': {
       const useCli = o.authMode === 'az_cli';
-      const tokenProvider = useCli
-        ? async () => {
-            const { stdout } = await run('az', ['account', 'get-access-token', '--scope', o.tokenScope || 'https://cognitiveservices.azure.com/.default', '-o', 'json']);
-            return JSON.parse(stdout).accessToken as string;
-          }
-        : undefined;
+      const tokenProvider = useCli ? () => azureCliToken(o.tokenScope || 'https://cognitiveservices.azure.com/.default') : undefined;
       return createAzure({
         resourceName: o.resourceName || undefined,
         baseURL,
@@ -214,9 +213,9 @@ export async function resolveEmbeddingModel(spec: ConnectionSpec, model: string,
           : o.authMode === 'access_keys'
             ? createAmazonBedrock({
                 region,
-                accessKeyId: o.accessKeyIdSecret ? await secrets.get(o.accessKeyIdSecret) : undefined,
-                secretAccessKey: o.secretAccessKeySecret ? await secrets.get(o.secretAccessKeySecret) : undefined,
-                sessionToken: o.sessionTokenSecret ? await secrets.get(o.sessionTokenSecret) : undefined,
+                accessKeyId: await secretValue(secrets, o.accessKeyIdSecret),
+                secretAccessKey: await secretValue(secrets, o.secretAccessKeySecret),
+                sessionToken: await secretValue(secrets, o.sessionTokenSecret),
                 headers,
                 ...f,
               })
@@ -348,6 +347,9 @@ export class Embeddings implements Embedder {
         const root = this.dir;
         mkdirSync(runtimeDir(root), { recursive: true });
         if (!runtimeInstalled(root)) {
+          // Packages left half-extracted by an interrupted install look installed to npm; start clean.
+          rmSync(join(runtimeDir(root), 'node_modules'), { recursive: true, force: true });
+          this.pipe = null;
           const npm = await findNpm();
           if (!npm) throw new Error('Downloading the local model needs npm (it comes with Node.js from nodejs.org). Or use a connection\'s embedding model instead.');
           writeFileSync(
@@ -369,7 +371,7 @@ export class Embeddings implements Embedder {
             const child = spawn(npm.cmd, [...npm.args, 'install', '--omit=optional', '--no-audit', '--no-fund', '--loglevel=error'], {
               cwd: runtimeDir(root),
               env: npm.env,
-              shell: process.platform === 'win32' && npm.cmd.endsWith('.cmd'),
+              shell: process.platform === 'win32' && /\.cmd"?$/.test(npm.cmd),
             });
             let err = '';
             child.stderr?.on('data', (d) => (err += d));
@@ -377,9 +379,18 @@ export class Embeddings implements Embedder {
             child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`npm install failed (${code}): ${err.slice(-500)}`))));
           });
           pruneOtherPlatforms(root);
+          writeFileSync(runtimeMarker(root), TRANSFORMERS_VERSION);
         }
         onProgress({ phase: 'model', percent: 0, message: `Downloading ${LOCAL_MODEL}…` });
-        await this.pipeline(onProgress);
+        try {
+          await this.pipeline(onProgress);
+        } catch {
+          // A model file cut off by an earlier interrupted download does not load: fetch it again, once.
+          rmSync(join(hubDir(root), ...LOCAL_MODEL.split('/')), { recursive: true, force: true });
+          await this.pipeline(onProgress);
+        }
+        mkdirSync(hubDir(root), { recursive: true });
+        writeFileSync(modelMarker(root), LOCAL_MODEL);
         onProgress({ phase: 'done', percent: 100, message: 'Local model ready' });
       } catch (e: any) {
         this.lastError = e?.message ?? String(e);

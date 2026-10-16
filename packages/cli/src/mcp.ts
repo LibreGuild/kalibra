@@ -43,9 +43,9 @@ const PROMPTS = [
     ],
     text: (a: Record<string, string>) =>
       `Use Kalibra to evaluate target "${a.target}" on dataset "${a.dataset}" with suite "${a.suite}".
-1. Call start_run, then poll get_run until status is completed (wait a few seconds between polls).
+1. Call start_run. If it returns warnings (e.g. the target uses a column the dataset lacks), stop and tell me before waiting on results. Otherwise poll get_run until status is completed (wait a few seconds between polls).
 2. Report the pass rate with its interval, each check's pass rate, and corpus metrics such as WER.
-3. Call query_results with filter "failed" and sort "score", look at the worst rows with get_result, and explain the main failure patterns.`,
+3. Call get_failure_themes to see failures grouped by cause. Then call query_results with filter "failed" and sort "score", look at the worst rows with get_result, and explain the main failure patterns.`,
   },
   {
     name: 'setup-target',

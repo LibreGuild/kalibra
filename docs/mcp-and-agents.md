@@ -10,7 +10,7 @@ agent ──stdio──► kalibra mcp ──HTTP + token──► running engin
                     └─ tools generated from the operation registry
 ```
 
-- `packages/cli/src/mcp.ts`. Tools = every operation except secret handling (`mcp: false`).
+- `packages/cli/src/mcp.ts`. Tools = every operation except secret handling (`mcp: false`): about 100, covering everything the UI does (conversations, comparisons, playground, failure themes, quality, sharing and importers included).
 - Annotations: `readOnlyHint` and `destructiveHint` come from the operation, so clients ask before deleting.
 - Calls carry an **agent actor** (MCP client name). Rows agents add start as `needs_review`, with provenance.
 - Results are JSON text, truncated at 60k characters with a "use offset/limit" note.
@@ -42,6 +42,10 @@ Cursor / Gemini CLI / VS Code use the same command in their JSON config (`mcpSer
 
 - Agents should call `get_dataset_schema` before `add_dataset_rows`; batch 20–50 rows; resend only rejected rows.
 - Use `baseVersion` / `baseRevision` on updates to avoid overwriting edits.
+- Read `warnings` from `start_run` / `start_comparison` (or call `preflight_run` first): an empty `{{column}}` silently ruins a run.
+- Long work returns a `jobId` (`fill_gaps`, `cluster_failures`, multi-call `playground_run`, `download_embedding_model`); poll `get_job`. Comparisons: poll `get_comparison`, then `compare_rows` with `filter: "disagreements"`.
+- After a run, `get_failure_themes` is a cheap first look at what broke; `dataset_quality` and `find_duplicates` before trusting a generated dataset.
+- `export_to_folder` / `import_from_folder` take absolute paths on the user's machine; use `dryRun` before applying.
 - Calibrate agent-written grades against human labels before trusting them.
 
 ## Security notes

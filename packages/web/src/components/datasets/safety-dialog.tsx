@@ -77,6 +77,7 @@ export function SafetyPackDialog({ open, onOpenChange }: { open: boolean; onOpen
   const close = () => {
     onOpenChange(false);
     setStarted(null);
+    setError(null);
   };
   const done = job.data && !['queued', 'running'].includes(job.data.status);
 
@@ -187,7 +188,7 @@ export function SafetyPackDialog({ open, onOpenChange }: { open: boolean; onOpen
             </Field>
           </div>
 
-          <ErrorBox error={error} />
+          <ErrorBox error={error ?? meta.error} />
         </div>
       )}
     </Dialog>

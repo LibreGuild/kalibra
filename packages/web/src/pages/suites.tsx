@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBeforeUnload, useBlocker, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ListChecks, Plus, Save, Trash2 } from 'lucide-react';
 import { BackLink, Page } from '../components/layout/shell';
@@ -187,17 +187,44 @@ export function SuiteEditorPage() {
   const catalog = useCatalog();
   const confirm = useConfirm();
   const [draft, setDraft] = useState<SuiteRecord | null>(null);
+  // The server copy the draft started from. Saves send its version, so edits made elsewhere meanwhile conflict instead of being overwritten.
+  const [base, setBase] = useState<SuiteRecord | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const leaving = useRef(false);
 
+  const adopt = (s: SuiteRecord) => {
+    setBase(s);
+    setDraft(structuredClone(s));
+    setConflict(false);
+  };
+
+  // Adopt newer server versions (an agent or another window saved) unless there are local edits.
   useEffect(() => {
-    if (suite.data && (!draft || draft.id !== suite.data.id)) setDraft(structuredClone(suite.data));
+    const s = suite.data;
+    if (!s) return;
+    if (!draft || !base || base.id !== s.id) adopt(s);
+    else if (s.version !== base.version) {
+      if (sameContent(draft, base)) adopt(s);
+      else setConflict(true);
+    }
   }, [suite.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = useMemo(() => !!draft && !!suite.data && JSON.stringify({ n: draft.name, d: draft.description, s: draft.spec }) !== JSON.stringify({ n: suite.data.name, d: suite.data.description, s: suite.data.spec }), [draft, suite.data]);
+  const dirty = !!draft && !!base && !sameContent(draft, base);
 
-  if (suite.isLoading || !draft) return suite.error ? <Page title="Suite"><ErrorBox error={suite.error} /></Page> : <Loading />;
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => !leaving.current && dirty && currentLocation.pathname !== nextLocation.pathname);
+  useBeforeUnload(
+    useCallback(
+      (e: BeforeUnloadEvent) => {
+        if (dirty) e.preventDefault();
+      },
+      [dirty],
+    ),
+  );
+
+  if (suite.isLoading || !draft || !base) return suite.error ? <Page title="Suite" back={<BackLink to="/suites">Suites</BackLink>}><ErrorBox error={suite.error} /></Page> : <Loading />;
 
   const types = catalog.data?.types ?? [];
   const layers = catalog.data?.layers ?? [];
@@ -206,18 +233,22 @@ export function SuiteEditorPage() {
   const setChecks = (next: CheckSpec[]) => setDraft({ ...draft, spec: { ...draft.spec, checks: next } });
   const layerIdOf = (c: CheckSpec) => typeOf(c.type)?.layer ?? 5;
 
+  const reload = async () => {
+    const fresh = await suite.refetch();
+    if (fresh.data) adopt(fresh.data);
+  };
+
   const save = async () => {
     setSaving(true);
     try {
-      const saved = await op<SuiteRecord>('update_suite', { id: draft.id, name: draft.name, description: draft.description, spec: draft.spec, baseVersion: suite.data!.version });
-      setDraft(structuredClone(saved));
-      await suite.refetch();
+      const saved = await op<SuiteRecord>('update_suite', { id: draft.id, name: draft.name, description: draft.description, spec: draft.spec, baseVersion: base.version });
+      adopt(saved);
+      suite.refetch();
       toast.success('Suite saved', `Version ${saved.version}`);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') {
-        toast.error('This suite was changed elsewhere', 'Reloaded the latest version. Re-apply your edits.');
-        const fresh = await suite.refetch();
-        if (fresh.data) setDraft(structuredClone(fresh.data));
+        setConflict(true);
+        toast.error('This suite was changed elsewhere', 'Reload to see the latest version, then re-apply your edits.');
       } else toastError(e, 'Could not save the suite');
     } finally {
       setSaving(false);
@@ -228,6 +259,7 @@ export function SuiteEditorPage() {
     if (!(await confirm.ask(`Delete “${draft.name}”?`, 'Past runs keep the exact version they used.'))) return;
     try {
       await op('delete_suite', { id: draft.id });
+      leaving.current = true; // nothing left to protect
       toast.success('Suite deleted');
       navigate('/suites');
     } catch (e) {
@@ -254,7 +286,7 @@ export function SuiteEditorPage() {
       title={draft.name}
       badge={
         <>
-          <Badge>v{suite.data!.version}</Badge>
+          <Badge>v{base.version}</Badge>
           {dirty && <Badge tone="warn">Unsaved changes</Badge>}
         </>
       }
@@ -277,6 +309,14 @@ export function SuiteEditorPage() {
         </>
       }
     >
+      {conflict && (
+        <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 text-[0.8125rem] text-warn">
+          <span>This suite was changed elsewhere (in another window, the CLI or by a coding agent). Reload to see the latest version; your unsaved edits will be replaced.</span>
+          <Button size="sm" onClick={reload}>
+            Reload
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col gap-6">
         <Card>
           <div className="grid grid-cols-2 gap-4">
@@ -408,7 +448,26 @@ export function SuiteEditorPage() {
           setOpenId(c.id);
         }}
       />
+      <Dialog
+        open={blocker.state === 'blocked'}
+        onOpenChange={(o) => !o && blocker.reset?.()}
+        title="Discard unsaved changes?"
+        width="sm"
+        footer={
+          <>
+            <Button onClick={() => blocker.reset?.()}>Keep editing</Button>
+            <Button variant="danger" onClick={() => blocker.proceed?.()}>
+              Discard
+            </Button>
+          </>
+        }
+      >
+        <div className="text-[0.84375rem] text-ink-muted">You changed this suite but did not save. Leaving now loses those changes.</div>
+      </Dialog>
       {confirm.element}
     </Page>
   );
 }
+
+const sameContent = (a: SuiteRecord, b: SuiteRecord) =>
+  JSON.stringify({ n: a.name, d: a.description, s: a.spec }) === JSON.stringify({ n: b.name, d: b.description, s: b.spec });

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Clock, Search } from 'lucide-react';
 import { Page } from '../components/layout/shell';
-import { Button } from '../components/ui/button';
+import { buttonClass } from '../components/ui/button';
 import { Kbd, Progress } from '../components/ui/display';
 import { BlockView, headingId, ICONS } from '../components/docs/blocks';
 import { DocsSearch } from '../components/docs/search';
@@ -57,13 +57,11 @@ function DocsHome() {
           </div>
           <DocsSearch />
           <div className="flex flex-wrap items-center gap-3">
-            <Link to="/docs/welcome">
-              <Button variant="primary">
-                Start: Kalibra in 60 seconds <ArrowRight className="size-4" />
-              </Button>
+            <Link to="/docs/welcome" className={buttonClass('primary')}>
+              Start: Kalibra in 60 seconds <ArrowRight className="size-4" />
             </Link>
-            <Link to="/docs/recipe-stt">
-              <Button>Jump to a recipe</Button>
+            <Link to="/docs/recipe-stt" className={buttonClass()}>
+              Jump to a recipe
             </Link>
           </div>
           <div className="flex items-center gap-3">
@@ -157,8 +155,9 @@ function GuideView({ guide }: { guide: Guide }) {
   // ← / → move between guides when not typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      // Skip keys a focused control already handled (tabs, sliders, menus) or that belong to typing.
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
       if (e.key === 'ArrowRight' && next) navigate(`/docs/${next.slug}`);
       if (e.key === 'ArrowLeft' && prev) navigate(`/docs/${prev.slug}`);
     };
@@ -288,10 +287,8 @@ function NotFound({ slug }: { slug: string }) {
     <Page title="Guide not found" description={`There is no guide called "${slug}".`}>
       <div className="flex max-w-md flex-col gap-4">
         <DocsSearch autoFocus />
-        <Link to="/docs">
-          <Button>
-            <ArrowLeft className="size-4" /> All guides
-          </Button>
+        <Link to="/docs" className={buttonClass('secondary', 'md', 'w-fit')}>
+          <ArrowLeft className="size-4" /> All guides
         </Link>
       </div>
     </Page>

@@ -557,6 +557,11 @@ export function RunDetailPage() {
                 />
               </div>
             </div>
+            {results.error && (
+              <div className="mb-3">
+                <ErrorBox error={results.error} />
+              </div>
+            )}
             <DataTable
               rows={results.data?.rows ?? []}
               rowKey={(x) => x.id}
@@ -880,7 +885,7 @@ export function ComparePage() {
               rows={shown}
               rowKey={(x) => x.key}
               activeKey={null}
-              onRowClick={(x) => x.next?.resultId && setOpenResult(x.next.resultId)}
+              onRowClick={(x) => setOpenResult(x.next?.resultId ?? x.base?.resultId ?? null)}
               rowHeight={56}
               height="calc(100vh - 260px)"
               empty={view === 'regressed' ? 'No regressions. Nothing got worse.' : view === 'improved' ? 'No improvements.' : 'No rows.'}

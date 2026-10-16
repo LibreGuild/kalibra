@@ -6,7 +6,6 @@ import { encodeWav } from '../audio/wav.js';
 import { defineOp, type OpDef } from '../registry.js';
 import { ConnectionSpec, TargetSpec, type DefKind } from '../specs.js';
 import { executeTarget, parseCurl } from '../targets/index.js';
-import type { LogEntry } from '../script.js';
 import { invalid } from '../util.js';
 
 const LABEL: Record<DefKind, { one: string; many: string; about: string }> = {
@@ -127,7 +126,6 @@ export const defOpsAll = [
         row = r.data;
         rowId = r.id;
       }
-      const logs: LogEntry[] = [];
       const res = await executeTarget(spec, {
         row,
         rowId,
@@ -136,10 +134,9 @@ export const defOpsAll = [
         blobs: engine.blobs,
         llm: engine.llm,
         signal: AbortSignal.timeout(180_000),
-        log: (level, message) => logs.push({ at: Date.now(), level, message }),
         workspaceDir: engine.dir,
       });
-      return { ...res, rowId, row, logs: [...res.logs, ...logs] };
+      return { ...res, rowId, row };
     },
   }),
 

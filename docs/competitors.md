@@ -21,7 +21,7 @@ Tags: `promptfoo` `DeepEval` (incl. Confident AI) `Langfuse` `Phoenix` (Arize Ph
 | Human review of generated rows | ✅ | `Kiln` `Langfuse` `LangSmith` `Braintrust` | — |
 | Safety / red-team datasets (static) | 🧪 | `promptfoo` `DeepEval` `Foundry` `Galileo`? | — |
 | Dynamic multi-turn red teaming | 🛠 | `promptfoo` `DeepEval` `Foundry` | Medium |
-| Diversity dashboard & dedup | 🛠 | `Kiln`? | Low |
+| Dataset quality: coverage, variety, dedup (exact/near/meaning) | ✅ | `Kiln`? | Differentiator |
 
 ## Connecting to the app
 
@@ -33,9 +33,9 @@ Tags: `promptfoo` `DeepEval` (incl. Confident AI) `Langfuse` `Phoenix` (Arize Ph
 | Custom code target | ✅ | `promptfoo` `DeepEval` `Inspect` `Phoenix` `Opik` `Braintrust` `LangSmith` `Weave` | — |
 | Score outputs produced elsewhere | ✅ | `DeepEval` `Langfuse` `Braintrust` `LangSmith` `Vertex` `Bedrock` `Foundry` `promptfoo` (workaround) | — |
 | SDK / OpenTelemetry tracing & online evals | 🛠 | `Langfuse` `Phoenix` `Opik` `Braintrust` `LangSmith` `Weave` `Galileo` `Foundry` | **High** |
-| Multi-turn simulated users | 🛠 | `Maxim` `DeepEval` `Kiln` `Coval/Hamming` `LangSmith`? | **High** |
+| Multi-turn conversations (scripted + simulated users) | ✅ | `Maxim` `DeepEval` `Kiln` `Coval/Hamming` `LangSmith`? | — |
 | Voice-agent phone simulation | 🛠 | `Coval/Hamming` `Maxim` | Medium |
-| Prompt playground | 🛠 | `Braintrust` `LangSmith` `Langfuse` `Phoenix` `Opik` `Vertex` `Foundry` | **High** |
+| Prompt playground | ✅ | `Braintrust` `LangSmith` `Langfuse` `Phoenix` `Opik` `Vertex` `Foundry` | — |
 
 ## Scoring
 
@@ -49,7 +49,8 @@ Tags: `promptfoo` `DeepEval` (incl. Confident AI) `Langfuse` `Phoenix` (Arize Ph
 | Multimodal judge (images/audio) | ✅ | `Braintrust` `LangSmith` `Opik` `DeepEval` | — |
 | Refusal / over-refusal check | 🧪 | `promptfoo` `DeepEval` `Foundry` | — |
 | PII leak check | 🧪 | `promptfoo` `Weave` `Galileo` `Foundry` | — |
-| Embedding similarity / BERTScore | 🛠 | `promptfoo` `DeepEval` `Braintrust` `Weave` `Foundry` | **High** |
+| Embedding similarity (local offline model or provider) | ✅ | `promptfoo` `DeepEval` `Braintrust` `Weave` `Foundry` | — |
+| BERTScore | 🛠 | `DeepEval`? `Foundry`? | Low |
 | RAG metrics (faithfulness, context recall…) | 🛠 | `DeepEval` `Phoenix` `Braintrust` `Vertex` `Bedrock` `Foundry` `Opik` | **High** |
 | Agent / tool-call metrics | 🛠 | `promptfoo` `DeepEval` `Phoenix` `Vertex` `Bedrock` `Foundry` | **High** |
 | Custom Python scorers | 🛠 | `DeepEval` `Inspect` `Phoenix` `Opik` `Braintrust` `LangSmith` `Weave` | **High** |
@@ -61,13 +62,14 @@ Tags: `promptfoo` `DeepEval` (incl. Confident AI) `Langfuse` `Phoenix` (Arize Ph
 | Feature | Kalibra | Who has it | Priority hint |
 |---|---|---|---|
 | Run comparison with regressions | ✅ | `Braintrust` `LangSmith` `Langfuse` `Phoenix` `Opik` `promptfoo` `Weave` | — |
+| Compare several targets/models in one go (leaderboard) | ✅ | `promptfoo` `Braintrust` `LangSmith` `Vertex`? | — |
 | Confidence intervals | ✅ | `Inspect`? `Braintrust`? | Differentiator |
-| Significance test between runs | ✅ | — | Differentiator |
+| Significance test between runs (and against the best variant) | ✅ | — | Differentiator |
 | Breakdown by tag / column | ✅ | `Braintrust` `LangSmith` `Phoenix`? | — |
 | Trends over runs | ✅ | `Langfuse` `Braintrust` `LangSmith` `Weave` | — |
 | Judge-vs-human calibration | ✅ | `LangSmith` `Kiln` `Galileo` | — |
 | Team annotation queues | 🛠 | `Langfuse` `LangSmith` `Braintrust` `Phoenix` `Opik` | **High** |
-| Failure clustering | 🛠 | `LangSmith` `Braintrust` `Foundry` | Medium |
+| Failure clustering | ✅ | `LangSmith` `Braintrust` `Foundry` | — |
 | Load / latency testing | 🛠 | — | Low |
 
 ## Workflow & platform
@@ -83,5 +85,6 @@ Tags: `promptfoo` `DeepEval` (incl. Confident AI) `Langfuse` `Phoenix` (Arize Ph
 | Installers + auto-update | 🛠 | `Kiln` | Medium |
 | Multi-provider auth (Bedrock, Vertex, Azure Entra) | ✅ | `promptfoo` `Kiln`? `DeepEval`? | — |
 | Self-hosted team server (SSO, roles) | 🛠 | `Langfuse` `Phoenix` `Opik` `Braintrust` (enterprise) `LangSmith` (enterprise) | **High** |
-| Importers from other tools | 🛠 | `Weave` (Humanloop migration) `promptfoo` (OpenAI Evals) | Medium |
+| Importers from other tools (promptfoo, OpenAI Evals, LangSmith, Langfuse) | ✅ | `Weave` (Humanloop migration) `promptfoo` (OpenAI Evals) | Differentiator |
+| Team sharing without a server (bundles, Git folder) | ✅ | `promptfoo` (config in Git) `Kiln`? `Inspect`? | — |
 | OSI open-source license | ✅ (MIT) | `promptfoo` `DeepEval` `Langfuse` `Opik` `Inspect` | — |

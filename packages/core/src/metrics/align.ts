@@ -22,10 +22,16 @@ export interface Alignment {
   ins: number;
 }
 
+/** Largest table align() builds (~200 MB): beyond it, fail clearly instead of exhausting memory. */
+export const MAX_ALIGN_CELLS = 50_000_000;
+
 export function align(ref: string[], hyp: string[]): Alignment {
   const n = ref.length;
   const m = hyp.length;
   const w = m + 1;
+  if ((n + 1) * w > MAX_ALIGN_CELLS) {
+    throw new Error(`Texts are too long to align (${n} × ${m} tokens); split them into shorter segments or use a word-level metric`);
+  }
   const d = new Uint32Array((n + 1) * w);
   for (let i = 0; i <= n; i++) d[i * w] = i;
   for (let j = 0; j <= m; j++) d[j] = j;

@@ -21,6 +21,7 @@ console.log(`Kalibra demo apps running (${servers.fixtures.length} audio fixture
 
   POST ${servers.url}/api/chat          JSON support bot      body: {"message": "..."}
   POST ${servers.url}/api/chat/stream   same bot over SSE
+  POST ${servers.url}/api/chat/session  multi-turn bot        body: {"message": "...", "session_id": "..."}
   POST ${servers.url}/api/stt           batch STT             multipart: file, language
   WS   ${servers.wsUrl}/ws/stt            streaming STT         {"type":"start"} → audio frames → {"type":"stop"}
 `);

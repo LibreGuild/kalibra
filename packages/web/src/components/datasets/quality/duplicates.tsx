@@ -34,6 +34,7 @@ export function DuplicatesSection({ datasetId, onChanged }: { datasetId: string;
   const [keep, setKeep] = useState<'first' | 'longest'>('first');
   const [result, setResult] = useState<{ groups: DuplicateGroup[]; duplicates: number; note?: string; rowsChecked: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const find = async () => {
@@ -49,6 +50,7 @@ export function DuplicatesSection({ datasetId, onChanged }: { datasetId: string;
   };
 
   const resolve = async (groups: DuplicateGroup[]) => {
+    setResolving(true);
     try {
       const r = await op<{ rejected: number; kept: number }>('resolve_duplicates', { dataset: datasetId, groups: groups.map((g) => g.rowIds), keep });
       toast.success(`Kept ${r.kept}, rejected ${r.rejected}`, 'Rejected rows stay in the dataset but are skipped by runs.');
@@ -57,6 +59,8 @@ export function DuplicatesSection({ datasetId, onChanged }: { datasetId: string;
       onChanged();
     } catch (e) {
       toastError(e);
+    } finally {
+      setResolving(false);
     }
   };
 
@@ -124,7 +128,7 @@ export function DuplicatesSection({ datasetId, onChanged }: { datasetId: string;
                     { value: 'longest', label: 'Most detailed' },
                   ]}
                 />
-                <Button size="sm" variant="primary" onClick={() => resolve(result.groups)}>
+                <Button size="sm" variant="primary" loading={resolving} onClick={() => resolve(result.groups)}>
                   Keep one of each
                 </Button>
               </div>
@@ -137,7 +141,7 @@ export function DuplicatesSection({ datasetId, onChanged }: { datasetId: string;
                   <Copy className="size-3.5" /> {g.rowIds.length} rows
                   {method !== 'exact' && <Badge>{Math.round(g.similarity * 100)}% alike</Badge>}
                 </span>
-                <Button size="sm" variant="ghost" onClick={() => resolve([g])}>
+                <Button size="sm" variant="ghost" disabled={resolving} onClick={() => resolve([g])}>
                   Keep one
                 </Button>
               </div>

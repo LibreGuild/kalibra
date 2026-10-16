@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { AudioLines, Bot, Captions, Check, Database, Download, Ellipsis, FileSpreadsheet, Image as ImageIcon, Plus, Save, Search, ShieldAlert, Sparkles, Trash2, Undo2, Upload, Waves, X } from 'lucide-react';
 import { ApiError, fileUrl, op, useOp } from '../lib/api';
@@ -242,7 +242,10 @@ export function DatasetDetailPage() {
     >
       <Tabs
         value={tab}
-        onChange={setTab}
+        onChange={(t) => {
+          setTab(t);
+          setSelectedIds([]); // the Rows tab remounts with nothing selected
+        }}
         tabs={[
           { value: 'rows', label: 'Rows', count: ds.stats.total },
           { value: 'quality', label: 'Quality' },
@@ -320,7 +323,12 @@ function RowsTab({
 }) {
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const [filter, setFilter] = useState<Filter>('all');
+  const [params] = useSearchParams();
+  // Links such as Overview → "Rows waiting for review" open with ?status=needs_review.
+  const [filter, setFilter] = useState<Filter>(() => {
+    const s = params.get('status');
+    return s === 'needs_review' || s === 'approved' || s === 'rejected' ? s : 'all';
+  });
   const [searchText, setSearchText] = useState('');
   const search = useDebounced(searchText.trim());
   const [tag, setTag] = useState('__all');
@@ -620,6 +628,7 @@ function ColumnsTab({ ds, onSaved }: { ds: DatasetSchemaResp; onSaved: () => voi
               setInstructions(ds.instructions);
               setName(ds.name);
               setDescription(ds.description);
+              setBaseRevision(ds.revision);
             }}
           >
             Discard

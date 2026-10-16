@@ -1,8 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
 import { Page } from '../components/layout/shell';
 import { Card, CopyButton, Loading, SectionTitle } from '../components/ui/display';
 import { Field, Segmented } from '../components/ui/form';
-import { useOp } from '../lib/api';
+import { useMeta, useOp } from '../lib/api';
 import { bytes } from '../lib/format';
 import clsx from 'clsx';
 import { Check } from 'lucide-react';
@@ -21,7 +20,7 @@ const ACCENTS: { id: AccentChoice; label: string; swatch: string }[] = [
 export function SettingsPage() {
   const { choice, setChoice, font, setFont, scale, setScale, accent, setAccent } = useTheme();
   const ws = useOp<any>('get_workspace');
-  const meta = useQuery({ queryKey: ['meta'], queryFn: () => fetch('/api/meta').then((r) => r.json()).then((b) => b.data) });
+  const meta = useMeta();
 
   return (
     <Page title="Settings">

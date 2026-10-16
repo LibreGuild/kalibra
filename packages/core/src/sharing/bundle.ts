@@ -5,6 +5,8 @@ import { DEF_KINDS, DatasetSchema, type DefKind } from '../specs.js';
 import { invalid, newId, nowIso, parseJson } from '../util.js';
 import {
   APP_VERSION,
+  codeWarning,
+  findCode,
   freeName,
   insertRows,
   jsonOf,
@@ -186,6 +188,11 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
 
 export type ConflictMode = 'rename' | 'skip' | 'new_version';
 
+// Run files may be hand-edited or come from other tools: only text, numbers and null reach the
+// database (SQLite rejects booleans and objects, which would abort the import halfway).
+const str = (v: unknown) => (v === undefined || v === null ? null : typeof v === 'string' ? v : JSON.stringify(v));
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'boolean' ? Number(v) : null);
+
 function openBundle(bytes: Uint8Array) {
   const files = readZip(bytes);
   const manifest = jsonOf<BundleManifest>(files.get('manifest.json'), 'manifest.json');
@@ -240,12 +247,15 @@ export async function inspectBundle(engine: Engine, bytes: Uint8Array) {
       return false;
     }
   };
+  const defsIn = readDefs(files);
   const items = [
     ...readDatasets(files).map((d) => ({ kind: 'dataset', name: d.name, rows: d.rows.length, exists: exists('dataset', d.name) })),
-    ...readDefs(files).map((d) => ({ kind: d.kind, name: d.name, exists: exists(d.kind, d.name) })),
+    ...defsIn.map((d) => ({ kind: d.kind, name: d.name, exists: exists(d.kind, d.name) })),
     ...[...files.keys()].filter((p) => /^runs\/[^/]+\/run\.json$/.test(p)).map((p) => ({ kind: 'run', name: jsonOf<any>(files.get(p), p).name, exists: false })),
   ];
-  return { manifest, items, conflicts: items.filter((i) => i.exists).length, secretsMissing: await missingSecretsAsync(engine, manifest.secrets ?? []) };
+  const code = findCode(defsIn);
+  const warning = codeWarning('This bundle', code);
+  return { manifest, items, conflicts: items.filter((i) => i.exists).length, secretsMissing: await missingSecretsAsync(engine, manifest.secrets ?? []), code, warnings: warning ? [warning] : [] };
 }
 
 async function missingSecretsAsync(engine: Engine, names: string[]) {
@@ -263,6 +273,7 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
     renamed: [] as { kind: string; from: string; to: string }[],
     warnings: [] as string[],
     secretsToSet: [] as string[],
+    code: [] as ReturnType<typeof findCode>,
   };
 
   // Validate every definition before writing anything.
@@ -272,6 +283,8 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
     return { ...d, spec: parsed.data };
   });
   const dsIn = readDatasets(files);
+  // Definitions written by this import (skipped ones keep the local copy).
+  const written: typeof defsIn = [];
 
   // Media first, verifying every file against its name (content hash).
   const blobMeta = parseJson<Record<string, { mime?: string; name?: string }>>(textOf(files.get('media.json')), {});
@@ -311,6 +324,7 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
       }
       if (onConflict === 'new_version') {
         const u = defs.update(d.kind, existing.id, { spec: d.spec, description: d.description }, actor);
+        written.push(d);
         idMap.set(d.sourceId, u.id);
         versionOf.set(u.id, u.version);
         report.updated.push({ kind: d.kind, id: u.id, name: u.name });
@@ -322,6 +336,7 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
       d.name = name;
     }
     const c = defs.create(d.kind, { name: d.name, description: d.description, spec: d.spec }, actor);
+    written.push(d);
     idMap.set(d.sourceId, c.id);
     versionOf.set(c.id, c.version);
     report.created.push({ kind: d.kind, id: c.id, name: c.name });
@@ -380,7 +395,7 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
   // Runs: remap dataset/target/suite/row ids; results keep their inputs, outputs and checks.
   for (const [path, bytes] of [...files].filter(([p]) => /^runs\/[^/]+\/run\.json$/.test(p)).sort(([a], [b]) => a.localeCompare(b))) {
     const r = jsonOf<any>(bytes, path);
-    const results = jsonl<any>(textOf(files.get(path.replace(/run\.json$/, 'results.jsonl'))), path);
+    const results = jsonl<any>(textOf(files.get(path.replace(/run\.json$/, 'results.jsonl'))), path).filter((x) => x && typeof x === 'object');
     const datasetId = idMap.get(r.datasetId) ?? null;
     let datasetVersionId: string | null = null;
     if (datasetId) {
@@ -399,16 +414,16 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, String(r.name ?? `Run #${number}`), r.kind === 'imported' ? 'imported' : 'live', status, datasetId, datasetVersionId,
         targetId, targetId ? versionOf.get(targetId) ?? null : null, suiteId, suiteId ? versionOf.get(suiteId) ?? null : null,
-        JSON.stringify(r.settings ?? {}), JSON.stringify(r.summary ?? {}), results.length, results.filter((x) => ['done', 'error'].includes(x.status)).length,
-        r.createdAt ?? nowIso(), r.startedAt ?? null, r.finishedAt ?? null, JSON.stringify(actor), r.error ?? null, r.variantLabel ?? null,
+        JSON.stringify(r.settings ?? {}), JSON.stringify(r.summary ?? {}), results.length, results.filter((x) => ['done', 'error'].includes(x?.status)).length,
+        str(r.createdAt) ?? nowIso(), str(r.startedAt), str(r.finishedAt), JSON.stringify(actor), str(r.error), str(r.variantLabel),
       );
       for (const x of results) {
         engine.db.run(
           `INSERT INTO results (id, run_id, row_id, row_rev, rep, seq, status, passed, score, input, request, response, outputs, checks, metrics, error, logs, attempts, started_at, finished_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          newId('res'), id, rowMap.get(x.row_id) ?? x.row_id, x.row_rev ?? null, x.rep ?? 0, x.seq ?? 0, ['done', 'error'].includes(x.status) ? x.status : 'pending',
-          x.passed ?? null, x.score ?? null, x.input ?? null, x.request ?? null, x.response ?? null, x.outputs ?? null, x.checks ?? null, x.metrics ?? null,
-          x.error ?? null, x.logs ?? null, x.attempts ?? 0, x.started_at ?? null, x.finished_at ?? null,
+          newId('res'), id, rowMap.get(x.row_id) ?? str(x.row_id) ?? '', num(x.row_rev), num(x.rep) ?? 0, num(x.seq) ?? 0, ['done', 'error'].includes(x.status) ? x.status : 'pending',
+          num(x.passed), num(x.score), str(x.input), str(x.request), str(x.response), str(x.outputs), str(x.checks), str(x.metrics),
+          str(x.error), str(x.logs), num(x.attempts) ?? 0, str(x.started_at), str(x.finished_at),
         );
       }
     });
@@ -416,6 +431,9 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
     engine.events.emit({ type: 'run.updated', runId: id, status, done: results.length, total: results.length });
   }
 
+  report.code = findCode(written);
+  const warning = codeWarning('This bundle', report.code);
+  if (warning) report.warnings.unshift(warning);
   report.secretsToSet = await missingSecretsAsync(engine, manifest.secrets ?? []);
   return { manifest: { name: manifest.name, createdAt: manifest.createdAt, appVersion: manifest.appVersion }, ...report };
 }

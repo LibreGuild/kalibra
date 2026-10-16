@@ -20,6 +20,11 @@ const SIZES: Record<Size, string> = {
   'icon-sm': 'h-7 w-7 rounded-md justify-center',
 };
 
+const BASE = 'inline-flex shrink-0 items-center font-medium whitespace-nowrap transition-colors select-none';
+
+/** Button styling for links, so navigation stays a real link (middle-click, no button nested in an anchor). */
+export const buttonClass = (variant: Variant = 'secondary', size: Size = 'md', className?: string) => clsx(BASE, VARIANTS[variant], SIZES[size], className);
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
@@ -37,7 +42,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       type={type}
       disabled={disabled || loading}
       className={clsx(
-        'inline-flex shrink-0 items-center font-medium whitespace-nowrap transition-colors select-none',
+        BASE,
         'disabled:pointer-events-none disabled:opacity-50',
         VARIANTS[variant],
         SIZES[size],

@@ -14,7 +14,7 @@ import { failure, isFileValue, makeLogger, now, requestScope } from './common.js
 export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Promise<TargetCallResult> {
   const cfg = spec.config as ModelTargetConfig;
   const task = cfg.task ?? 'text';
-  const { logs, log } = makeLogger(ctx);
+  const { logs, log } = makeLogger();
   if (!cfg.connectionId) return failure('Choose a connection for this model target', logs);
   const scope = requestScope(ctx);
   const started = now();

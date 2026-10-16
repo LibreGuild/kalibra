@@ -3,9 +3,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { Engine } from '@kalibra/core';
 import { newToken, startServer } from '@kalibra/server';
-import { clearEngineInfo, connect, defaultDir, writeEngineInfo } from './engine-client.js';
+import { clearEngineInfo, connect, defaultDir, openEngine, writeEngineInfo } from './engine-client.js';
 import { runMcp } from './mcp.js';
 
 // node:sqlite prints an ExperimentalWarning on load; it is expected and noisy for CLI users.
@@ -62,13 +61,17 @@ async function main() {
   const dir = values.dir ? resolve(values.dir) : defaultDir(values.dev);
 
   if (cmd === 'serve') {
-    const engine = new Engine({ dir });
+    const engine = openEngine(dir);
     const token = values.dev || values['no-token'] ? undefined : newToken();
+    const host = values.host ?? '127.0.0.1';
+    if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
+      console.warn(`Warning: listening on ${host} makes Kalibra reachable from other machines${token ? '' : ' with no token: anyone on the network can use the API, including script targets'}.`);
+    }
     const here = dirname(fileURLToPath(import.meta.url));
     const staticDir = [join(here, 'web'), join(here, '../../web/dist')].find((d) => existsSync(join(d, 'index.html')));
     const srv = await startServer({
       engine,
-      host: values.host ?? '127.0.0.1',
+      host,
       port: values.port ? Number(values.port) : values.dev ? 4317 : 0,
       token,
       staticDir,

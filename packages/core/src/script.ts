@@ -57,6 +57,7 @@ export function evalExpression(expr: string, scope: Record<string, unknown>): un
   let script = exprCache.get(expr);
   if (!script) {
     script = new vm.Script(`(${expr}\n)`, { filename: 'expression.js' });
+    if (exprCache.size >= 500) exprCache.clear();
     exprCache.set(expr, script);
   }
   const ctx = vm.createContext({ ...baseGlobals(), ...scope });

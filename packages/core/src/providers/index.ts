@@ -45,13 +45,28 @@ export function inferModelKind(model: string): ModelKind {
 
 type Opt = Record<string, any>;
 
-let azCliToken: { token: string; expires: number } | undefined;
-async function azureCliToken(scope: string): Promise<string> {
-  if (azCliToken && azCliToken.expires - Date.now() > 120_000) return azCliToken.token;
-  const { stdout } = await run('az', ['account', 'get-access-token', '--scope', scope, '-o', 'json']);
+const azCliTokens = new Map<string, { token: string; expires: number }>();
+/** Access token from the Azure CLI (`az login`), cached per scope until shortly before it expires. */
+export async function azureCliToken(scope: string): Promise<string> {
+  const cached = azCliTokens.get(scope);
+  if (cached && cached.expires - Date.now() > 120_000) return cached.token;
+  // On Windows `az` is a .cmd script that only runs through a shell, and specs can come from shared
+  // bundles, so the scope is limited to URL characters.
+  if (!/^[\w.:/~-]+$/.test(scope)) throw invalid(`Invalid Azure token scope "${scope}"`);
+  const win = process.platform === 'win32';
+  const { stdout } = await run(win ? 'az.cmd' : 'az', ['account', 'get-access-token', '--scope', scope, '-o', 'json'], { shell: win });
   const parsed = JSON.parse(stdout);
-  azCliToken = { token: parsed.accessToken, expires: Date.parse(parsed.expiresOn ?? parsed.expires_on) || Date.now() + 600_000 };
-  return azCliToken.token;
+  const token = { token: parsed.accessToken as string, expires: Date.parse(parsed.expiresOn ?? parsed.expires_on) || Date.now() + 600_000 };
+  azCliTokens.set(scope, token);
+  return token.token;
+}
+
+/** A named secret's value; a name that is set on the connection but missing in the store is an error, not "no credentials". */
+export async function secretValue(secrets: SecretStore, name: string | undefined): Promise<string | undefined> {
+  if (!name) return undefined;
+  const v = await secrets.get(name);
+  if (v === undefined) throw invalid(`Secret "${name}" is not set`);
+  return v;
 }
 
 const headerRecord = (spec: ConnectionSpec) =>
@@ -67,8 +82,7 @@ interface ProviderHandle {
 
 async function providerFor(spec: ConnectionSpec, secrets: SecretStore, model: string): Promise<ProviderHandle> {
   const o = spec.options as Opt;
-  const apiKey = spec.apiKeySecret ? await secrets.get(spec.apiKeySecret) : undefined;
-  if (spec.apiKeySecret && apiKey === undefined) throw invalid(`Secret "${spec.apiKeySecret}" is not set`);
+  const apiKey = await secretValue(secrets, spec.apiKeySecret);
   const headers = headerRecord(spec);
   const baseURL = spec.baseUrl || undefined;
 
@@ -111,9 +125,9 @@ async function providerFor(spec: ConnectionSpec, secrets: SecretStore, model: st
           : o.authMode === 'access_keys'
             ? createAmazonBedrock({
                 region,
-                accessKeyId: o.accessKeyIdSecret ? await secrets.get(o.accessKeyIdSecret) : undefined,
-                secretAccessKey: o.secretAccessKeySecret ? await secrets.get(o.secretAccessKeySecret) : undefined,
-                sessionToken: o.sessionTokenSecret ? await secrets.get(o.sessionTokenSecret) : undefined,
+                accessKeyId: await secretValue(secrets, o.accessKeyIdSecret),
+                secretAccessKey: await secretValue(secrets, o.secretAccessKeySecret),
+                sessionToken: await secretValue(secrets, o.sessionTokenSecret),
                 headers,
               })
             : // Default: the standard AWS chain (env, ~/.aws profiles incl. SSO, credential_process, ...).
@@ -147,7 +161,8 @@ export function strictSchema(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
   if (Array.isArray(schema)) return schema.map(strictSchema);
   const out: any = { ...schema };
-  if (out.type === 'object' && out.properties) {
+  const isObject = out.type === 'object' || (Array.isArray(out.type) && out.type.includes('object'));
+  if (isObject && out.properties) {
     const required = new Set<string>(out.required ?? []);
     out.properties = Object.fromEntries(
       Object.entries(out.properties).map(([k, v]: [string, any]) => {

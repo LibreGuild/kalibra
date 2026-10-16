@@ -99,7 +99,7 @@ export function ColumnsEditor({ value, onChange }: { value: ColumnDef[]; onChang
         <div key={i} className="rounded-lg border border-line bg-surface p-2">
           <div className="grid grid-cols-[160px_150px_minmax(0,1fr)_86px_92px] items-center gap-2">
             <Input mono value={c.key} placeholder="column_name" onChange={(e) => set(i, { key: e.target.value })} className={clsx(errors[i] && 'border-bad')} aria-label="Column name" />
-            <Select value={c.type} onChange={(v) => set(i, { type: v as ColumnType })} options={COLUMN_TYPES} />
+            <Select value={c.type} onChange={(v) => set(i, { type: v as ColumnType, enum: v === 'text' ? c.enum : undefined })} options={COLUMN_TYPES} />
             <Input value={c.description} placeholder="What this column holds" onChange={(e) => set(i, { description: e.target.value })} aria-label="Description" />
             <div className="flex justify-center">
               <Switch checked={c.required} onChange={(v) => set(i, { required: v })} label="Required" />
@@ -124,7 +124,7 @@ export function ColumnsEditor({ value, onChange }: { value: ColumnDef[]; onChang
           </div>
           {errors[i] && <div className="mt-1 px-1 text-[0.75rem] text-bad">{errors[i]}</div>}
           {c.type === 'text' &&
-            (showEnum.has(i) ? (
+            (showEnum.has(i) || !!c.enum?.length ? (
               <div className="mt-2 flex items-center gap-2">
                 <span className="flex w-[160px] shrink-0 items-center gap-1 px-1 text-[0.75rem] text-ink-muted">
                   Allowed values <HelpTip>Limit this column to a fixed set of values, such as labels or categories. Leave empty for free text.</HelpTip>

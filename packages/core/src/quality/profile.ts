@@ -101,8 +101,13 @@ export function selfBleu(texts: string[], sample = 200): number | null {
 
 function histogram(values: number[], buckets = 8) {
   if (!values.length) return [];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  // A loop, not Math.min(...values): spreading 100k+ arguments overflows the call stack.
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
   if (min === max) return [{ from: min, to: max, count: values.length }];
   const width = Math.ceil((max - min + 1) / buckets);
   const out = Array.from({ length: buckets }, (_, i) => ({ from: min + i * width, to: min + (i + 1) * width - 1, count: 0 }));

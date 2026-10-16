@@ -30,7 +30,7 @@ function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: s
       <NavLink
         to={to}
         end={end}
-        aria-label={label}
+        aria-label={count ? `${label}, ${count} to review` : label}
         className={({ isActive }) =>
           clsx(
             'relative flex h-9 items-center rounded-lg text-[0.84375rem] font-medium transition-colors',

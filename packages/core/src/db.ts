@@ -206,6 +206,8 @@ const MIGRATIONS: string[] = [
 export class Db {
   readonly raw: DatabaseSync;
   private cache = new Map<string, StatementSync>();
+  /** Queries with variable-length IN (...) lists produce many distinct statements; keep the cache bounded. */
+  private static readonly MAX_CACHED = 500;
   private depth = 0;
 
   constructor(file: string) {
@@ -230,6 +232,7 @@ export class Db {
     let s = this.cache.get(sql);
     if (!s) {
       s = this.raw.prepare(sql);
+      if (this.cache.size >= Db.MAX_CACHED) this.cache.delete(this.cache.keys().next().value!);
       this.cache.set(sql, s);
     }
     return s;

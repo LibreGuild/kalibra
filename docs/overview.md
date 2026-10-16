@@ -14,8 +14,10 @@ Dataset ──► Target ──► Suite ──► Run ──► Compare / Break
 - **Dataset**: typed rows (text, numbers, lists, JSON, chat messages, audio, images, files). Versioned.
 - **Target**: a recipe for calling your app once per row, using `{{column}}` placeholders.
 - **Suite**: an ordered set of checks in layers, cheapest first. A failing gate skips the expensive layers.
-- **Run**: dataset × target × suite. Results stream in live; the summary has confidence intervals.
-- **Compare / Breakdown / Calibrate**: row-by-row run comparison with a significance test, slices by tag or column, and judge-vs-human agreement.
+- **Run**: dataset × target × suite, one call per row or a multi-turn conversation (scripted or a simulated user). Results stream in live; the summary has confidence intervals.
+- **Compare / Breakdown / Calibrate**: row-by-row run comparison with a significance test, comparisons of several targets or models in one go, failure themes, slices by tag or column, and judge-vs-human agreement.
+
+Around the loop: the **Playground** tries a prompt across models before you wire a target, the dataset **Quality** tab finds gaps and duplicates, and **bundles** or a **Git folder** share everything with a team without a server.
 
 ## Principles
 

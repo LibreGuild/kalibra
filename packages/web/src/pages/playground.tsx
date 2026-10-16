@@ -61,14 +61,15 @@ export function PlaygroundPage() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [saving, setSaving] = useState<number | null>(null);
+  const [evaluating, setEvaluating] = useState(false);
+  // What the shown results were produced with, so saving uses that even if the form changed since.
+  const [ran, setRan] = useState<Pick<Draft, 'system' | 'prompt' | 'variants'> | null>(null);
   const job = useJob(jobId);
   const running = starting || (job.data && (job.data.status === 'queued' || job.data.status === 'running'));
 
   const connections = useOp<any[]>('list_connections');
   const defaults = useMemo(() => Object.fromEntries((connections.data ?? []).map((c) => [c.id, c.spec?.defaultModel ?? ''])), [connections.data]);
   const schema = useOp<any>('get_dataset_schema', { dataset: d.dataset, sampleRows: 0 }, { enabled: d.source === 'dataset' && !!d.dataset });
-  const ops = useOp<any[]>('list_operations');
-  const comparison = ops.data?.find((o) => o.name === 'start_comparison');
 
   const usedVars = templateVars(d.prompt, d.system);
   const columns: string[] = schema.data?.columns?.map((c: any) => c.key) ?? [];
@@ -96,6 +97,7 @@ export function PlaygroundPage() {
     setError(null);
     setResult(null);
     setJobId(null);
+    setRan({ system: d.system, prompt: d.prompt, variants: d.variants });
     try {
       const r = await op<any>('playground_run', {
         system: d.system,
@@ -118,7 +120,8 @@ export function PlaygroundPage() {
   runRef.current = run;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      // Not while a dialog (e.g. "Save as a target") is open on top of the page.
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !document.querySelector('[role="dialog"]')) {
         e.preventDefault();
         runRef.current();
       }
@@ -127,37 +130,43 @@ export function PlaygroundPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  /** Saves every variant as a target, then starts a comparison on the chosen dataset and suite. */
+  const targetInput = (v: VariantDraft, name: string) => ({
+    name,
+    system: ran!.system,
+    prompt: ran!.prompt,
+    connectionId: v.connectionId,
+    model: v.model,
+    temperature: v.temperature === '' ? undefined : Number(v.temperature),
+  });
+
+  /** Saves every variant as a target, then runs them on the whole dataset: one run, or a comparison of several. */
   const fullEval = async () => {
-    if (!comparison || !result) return;
+    if (!ran || !result || evaluating) return;
+    setEvaluating(true);
     try {
       const stamp = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const targets = [];
       for (const v of result.variants) {
-        const src = d.variants[v.index];
-        targets.push(
-          await op<any>('save_playground_target', {
-            name: `Playground ${String.fromCharCode(65 + v.index)} · ${v.label} · ${stamp}`,
-            system: d.system,
-            prompt: d.prompt,
-            connectionId: src.connectionId,
-            model: src.model,
-            temperature: src.temperature === '' ? undefined : Number(src.temperature),
-          }),
-        );
+        targets.push(await op<any>('save_playground_target', targetInput(ran.variants[v.index], `Playground ${String.fromCharCode(65 + v.index)} · ${v.label} · ${stamp}`)));
       }
-      const props = comparison.inputSchema?.properties ?? {};
-      const item = props.variants?.items?.properties ?? {};
-      const key = 'targetId' in item && !('target' in item) ? 'targetId' : 'target';
-      const input: Record<string, unknown> = { dataset: d.dataset, suite: d.suite, name: `Playground comparison · ${stamp}` };
-      if (props.variants) input.variants = targets.map((t, i) => ({ [key]: t.id, label: result.variants[i].label }));
-      else input.targets = targets.map((t) => t.id);
-      const r = await op<any>('start_comparison', input);
-      const id = r?.id ?? r?.groupId ?? r?.group?.id;
-      toast.success('Full evaluation started', `${targets.length} targets saved`);
-      if (id) navigate(`/comparisons/${id}`);
+      if (targets.length === 1) {
+        const r = await op<any>('start_run', { dataset: d.dataset, target: targets[0].id, suite: d.suite, name: `Playground · ${result.variants[0].label} · ${stamp}` });
+        toast.success('Full evaluation started', 'Saved the model as a target');
+        navigate(`/runs/${r.id}`);
+      } else {
+        const r = await op<any>('start_comparison', {
+          dataset: d.dataset,
+          suite: d.suite,
+          name: `Playground comparison · ${stamp}`,
+          variants: targets.map((t, i) => ({ target: t.id, label: result.variants[i].label })),
+        });
+        toast.success('Full evaluation started', `${targets.length} targets saved`);
+        navigate(`/comparisons/${r.id}`);
+      }
     } catch (e) {
       toastError(e, 'Could not start the full evaluation');
+    } finally {
+      setEvaluating(false);
     }
   };
 
@@ -274,15 +283,13 @@ export function PlaygroundPage() {
           <section className="flex flex-col gap-3">
             <SectionTitle
               action={
-                comparison ? (
-                  <Tip content={!d.dataset || d.source !== 'dataset' ? 'Pick a dataset as the row source to run a full evaluation' : !d.suite ? 'Pick a suite to score the full evaluation' : 'Saves each model as a target and runs them all on the whole dataset'}>
-                    <span>
-                      <Button size="sm" disabled={d.source !== 'dataset' || !d.dataset || !d.suite} onClick={fullEval}>
-                        Run full eval
-                      </Button>
-                    </span>
-                  </Tip>
-                ) : undefined
+                <Tip content={!d.dataset || d.source !== 'dataset' ? 'Pick a dataset as the row source to run a full evaluation' : !d.suite ? 'Pick a suite to score the full evaluation' : 'Saves each model as a target and runs them all on the whole dataset'}>
+                  <span>
+                    <Button size="sm" loading={evaluating} disabled={d.source !== 'dataset' || !d.dataset || !d.suite} onClick={fullEval}>
+                      Run full eval
+                    </Button>
+                  </span>
+                </Tip>
               }
             >
               Results
@@ -298,20 +305,12 @@ export function PlaygroundPage() {
         )}
       </div>
 
-      {saving !== null && result && (
+      {saving !== null && result && ran && (
         <SaveTargetDialog
-          label={result.variants[saving]?.label ?? ''}
+          label={result.variants.find((v) => v.index === saving)?.label ?? ''}
           onClose={() => setSaving(null)}
           onSave={async (name) => {
-            const v = d.variants[saving];
-            const t = await op<any>('save_playground_target', {
-              name,
-              system: d.system,
-              prompt: d.prompt,
-              connectionId: v.connectionId,
-              model: v.model,
-              temperature: v.temperature === '' ? undefined : Number(v.temperature),
-            });
+            const t = await op<any>('save_playground_target', targetInput(ran.variants[saving], name));
             toast.success('Saved as a target', t.name);
             setSaving(null);
             navigate(`/targets/${t.id}`);

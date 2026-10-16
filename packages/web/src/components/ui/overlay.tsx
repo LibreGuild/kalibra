@@ -66,6 +66,8 @@ export function Dialog({
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px]" />
         <D.Content
+          // Without a description, say so explicitly (Radix otherwise warns and points to a missing element).
+          {...(description ? {} : { 'aria-describedby': undefined })}
           className={clsx(
             'fixed left-1/2 top-[8vh] z-50 flex max-h-[84vh] w-[calc(100vw-32px)] -translate-x-1/2 flex-col rounded-xl border border-line bg-surface shadow-card',
             w,

@@ -102,6 +102,9 @@ const toGroup = (r: any): RunGroupRecord => ({
   createdBy: parseJson(r.created_by, { kind: 'user', id: 'local' }),
 });
 
+/** Columns toResultLite reads: request, response and logs can be large and are left in the database. */
+const LITE_COLUMNS = 'id, row_id, rep, seq, status, passed, score, input, outputs, checks, metrics, error';
+
 /** Light result shape for grids (no request/response/logs). */
 const toResultLite = (r: any) => ({
   id: r.id as string,
@@ -221,10 +224,10 @@ export class RunRepo {
       `UPDATE runs SET status = ?,
         started_at = CASE WHEN ? = 'running' AND started_at IS NULL THEN ? ELSE started_at END,
         finished_at = CASE WHEN ? IN ('completed','cancelled','failed','interrupted') THEN ? ELSE NULL END,
-        error = COALESCE(?, error),
+        error = CASE WHEN ? = 'running' THEN NULL ELSE COALESCE(?, error) END,
         summary = COALESCE(?, summary)
        WHERE id = ?`,
-      status, status, now, status, now, extra.error ?? null, extra.summary !== undefined ? JSON.stringify(extra.summary) : null, id,
+      status, status, now, status, now, status, extra.error ?? null, extra.summary !== undefined ? JSON.stringify(extra.summary) : null, id,
     );
   }
 
@@ -316,7 +319,7 @@ export class RunRepo {
     const order = q.sort === 'score' ? 'score ASC NULLS FIRST, seq' : q.sort === 'latency' ? "json_extract(metrics, '$.latency_ms') DESC, seq" : 'seq';
     const clause = where.join(' AND ');
     const total = this.db.get(`SELECT COUNT(*) AS n FROM results WHERE ${clause}`, ...params).n as number;
-    const results = this.db.all(`SELECT * FROM results WHERE ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, q.limit ?? 100, q.offset ?? 0).map(toResultLite);
+    const results = this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, q.limit ?? 100, q.offset ?? 0).map(toResultLite);
     return { total, results };
   }
 
@@ -328,7 +331,7 @@ export class RunRepo {
 
   /** All finished results of a run, light shape, for summaries and comparisons. */
   allLite(runId: string) {
-    return this.db.all("SELECT * FROM results WHERE run_id = ? ORDER BY seq", runId).map((r) => ({
+    return this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE run_id = ? ORDER BY seq`, runId).map((r) => ({
       ...toResultLite(r),
       checks: parseJson<any[]>(r.checks, []),
     }));

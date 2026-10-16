@@ -11,6 +11,7 @@ import {
   example,
   freeGroups,
   isFailure,
+  pickEmbeddings,
   PROPOSE_SCHEMA,
   summarize,
   THEME_SCHEMA,
@@ -69,7 +70,10 @@ async function nameCluster(engine: Engine, o: ThemeOptions, members: FailureLite
 
 /** Embeddings path: cluster summaries, then name each cluster. */
 async function viaEmbeddings(engine: Engine, o: ThemeOptions, failures: FailureLite[], summaries: string[], total: number, job: JobHandle) {
-  const { vectors } = await engine.embeddings.embed(summaries, { signal: job.signal });
+  // The local model when installed, else the connection's embedding model.
+  const how = await pickEmbeddings(engine.embeddings, o.connectionId, engine.repos.defs.get('connection', o.connectionId).spec as { embeddingModel?: string });
+  if (!how) throw new Error('No embedding model: download the local model or set one on the connection');
+  const { vectors } = await engine.embeddings.embed(summaries, { ...how, signal: job.signal });
   if (vectors.length !== failures.length) throw new Error('Embedding count does not match the failures');
   const clusters = failures.length === 1 ? [[0]] : agglomerate(vectors, SIMILARITY, o.maxThemes);
   const themes: Theme[] = [];

@@ -79,6 +79,8 @@ export class Registry {
   async call(ctx: OpContext, name: string, rawInput: unknown) {
     const def = this.ops.get(name);
     if (!def) throw new KalibraError('not_found', `Unknown operation: ${name}`);
+    // Hidden from MCP is not enough: an agent can still name the op directly.
+    if (def.mcp === false && ctx.actor.kind === 'agent') throw new KalibraError('forbidden', `${def.title} is only available in the Kalibra app`);
     const parsed = def.input.safeParse(rawInput ?? {});
     if (!parsed.success) {
       throw new KalibraError('invalid', `Invalid input for ${name}: ${z.prettifyError(parsed.error)}`, parsed.error.issues);

@@ -78,7 +78,11 @@ export function ImportExternalDialog({ open, onOpenChange }: { open: boolean; on
       if (step.format === 'kalibra_bundle') report = await op('import_bundle', { blob: step.file.hash, onConflict });
       else if (step.format === 'plain') {
         const ds = await op('create_dataset', { name: name || 'Imported dataset' });
-        const r = await op('import_rows', { dataset: ds.id, blob: step.file.hash, createColumns: true });
+        // Don't leave an empty dataset behind when the rows can't be read.
+        const r = await op('import_rows', { dataset: ds.id, blob: step.file.hash, createColumns: true }).catch(async (e) => {
+          await op('delete_dataset', { dataset: ds.id }).catch(() => {});
+          throw e;
+        });
         report = { dataset: { id: ds.id, name: ds.name, rows: r.added.length, rejected: r.rejected.length }, targets: [], mappedChecks: [], unsupported: [], skipped: [], warnings: r.rejected.length ? [`${r.rejected.length} rows were rejected`] : [] };
       } else report = await op('import_external', { blob: step.file.hash, name: name || undefined, gradersBlob: graders?.hash });
       for (const k of ['list_datasets', 'list_targets', 'list_suites', 'list_connections', 'list_runs']) qc.invalidateQueries({ queryKey: [k] });
@@ -112,6 +116,7 @@ export function ImportExternalDialog({ open, onOpenChange }: { open: boolean; on
         <div className="flex flex-col gap-3">
           <button
             type="button"
+            disabled={busy}
             onClick={() => input.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
@@ -121,7 +126,7 @@ export function ImportExternalDialog({ open, onOpenChange }: { open: boolean; on
             onDrop={(e) => {
               e.preventDefault();
               setDragging(false);
-              pick(e.dataTransfer.files[0]);
+              if (!busy) pick(e.dataTransfer.files[0]);
             }}
             className={clsx('flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors', dragging ? 'border-accent bg-accent-soft/50' : 'border-line-strong hover:bg-hover')}
           >
@@ -129,7 +134,17 @@ export function ImportExternalDialog({ open, onOpenChange }: { open: boolean; on
             <div className="text-[0.875rem] font-medium">{busy ? 'Reading the file…' : 'Drop a file here or click to choose'}</div>
             <div className="text-[0.78125rem] text-ink-muted">.kalibra · promptfooconfig.yaml · OpenAI Evals .jsonl · LangSmith .csv/.jsonl · Langfuse .json</div>
           </button>
-          <input ref={input} type="file" className="hidden" accept=".kalibra,.zip,.yaml,.yml,.json,.jsonl,.ndjson,.csv" onChange={(e) => pick(e.target.files?.[0])} />
+          <input
+            ref={input}
+            type="file"
+            className="hidden"
+            accept=".kalibra,.zip,.yaml,.yml,.json,.jsonl,.ndjson,.csv"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              pick(f);
+            }}
+          />
           <ErrorBox error={error} />
         </div>
       )}
@@ -168,6 +183,19 @@ export function ImportExternalDialog({ open, onOpenChange }: { open: boolean; on
                   />
                 </Field>
               )}
+              {step.info.code?.length > 0 && (
+                <div className="rounded-lg border border-warn/40 bg-warn-soft px-3 py-2.5 text-[0.8125rem] text-warn">
+                  <div className="mb-1 font-semibold">Contains code that runs on your computer</div>
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {step.info.code.map((c: { kind: string; name: string; places: string[] }) => (
+                      <li key={`${c.kind}:${c.name}`}>
+                        {c.kind} “{c.name}”: <span className="font-mono text-[0.75rem]">{c.places.join(', ')}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-1 text-ink-muted">Only import bundles from people you trust, and review the code before running it.</div>
+                </div>
+              )}
               {step.info.secretsMissing?.length > 0 && <SecretsNote names={step.info.secretsMissing} />}
             </>
           ) : step.format === 'plain' ? (
@@ -195,7 +223,22 @@ export function ImportExternalDialog({ open, onOpenChange }: { open: boolean; on
                       {graders ? 'Change file' : 'Choose graders JSON'}
                     </Button>
                     {graders && <span className="truncate text-[0.8125rem] text-ink-muted">{graders.name}</span>}
-                    <input ref={gradersInput} type="file" accept=".json" className="hidden" onChange={async (e) => e.target.files?.[0] && setGraders(await uploadFile(e.target.files[0]))} />
+                    <input
+                      ref={gradersInput}
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!f) return;
+                        try {
+                          setGraders(await uploadFile(f));
+                        } catch (err) {
+                          setError(err);
+                        }
+                      }}
+                    />
                   </div>
                 </Field>
               )}

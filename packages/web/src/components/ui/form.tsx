@@ -1,4 +1,4 @@
-import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react';
+import { createContext, forwardRef, useContext, useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react';
 import { Select as S, Switch as Sw } from 'radix-ui';
 import clsx from 'clsx';
 import { Check, ChevronDown, Plus, Trash2 } from 'lucide-react';
@@ -8,12 +8,23 @@ import { Button } from './button';
 const control =
   'w-full rounded-lg border border-line-strong bg-surface px-2.5 text-[0.84375rem] text-ink placeholder:text-ink-faint transition-colors hover:border-ink-faint focus:border-accent/60 focus:outline-none focus-visible:outline-none focus:ring-[3px] focus:ring-accent/12 disabled:opacity-60';
 
+/** Id of the enclosing Field's label, so controls get an accessible name without wiring ids by hand. */
+const FieldLabel = createContext<string | undefined>(undefined);
+
+/** aria-labelledby from the enclosing Field, unless the control is already named. */
+function useFieldLabel(props: { 'aria-label'?: string; 'aria-labelledby'?: string }) {
+  const labelId = useContext(FieldLabel);
+  return props['aria-label'] || props['aria-labelledby'] ? {} : labelId ? { 'aria-labelledby': labelId } : {};
+}
+
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }>(function Input({ className, mono, ...rest }, ref) {
-  return <input ref={ref} className={clsx(control, 'h-8.5', mono && 'font-mono text-[0.78125rem]', className)} {...rest} />;
+  const named = useFieldLabel(rest);
+  return <input ref={ref} className={clsx(control, 'h-8.5', mono && 'font-mono text-[0.78125rem]', className)} {...named} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement> & { mono?: boolean }>(function Textarea({ className, mono, rows = 3, ...rest }, ref) {
-  return <textarea ref={ref} rows={rows} className={clsx(control, 'py-2 leading-relaxed', mono && 'font-mono text-[0.78125rem]', className)} {...rest} />;
+  const named = useFieldLabel(rest);
+  return <textarea ref={ref} rows={rows} className={clsx(control, 'py-2 leading-relaxed', mono && 'font-mono text-[0.78125rem]', className)} {...named} {...rest} />;
 });
 
 /** Label + optional (?) help + hint + error, wrapped around any control. */
@@ -34,16 +45,16 @@ export function Field({
   className?: string;
   inline?: boolean;
 }) {
-  const id = useId();
+  const labelId = useId();
   return (
-    <div className={clsx('min-w-0', inline ? 'flex items-center justify-between gap-4' : 'flex flex-col gap-1.5', className)} id={id}>
+    <div className={clsx('min-w-0', inline ? 'flex items-center justify-between gap-4' : 'flex flex-col gap-1.5', className)}>
       {label && (
         <div className="flex items-center gap-1.5 text-[0.8125rem] font-medium text-ink">
-          <span>{label}</span>
+          <span id={labelId}>{label}</span>
           {help && <HelpTip>{help}</HelpTip>}
         </div>
       )}
-      {children}
+      <FieldLabel.Provider value={label ? labelId : undefined}>{children}</FieldLabel.Provider>
       {hint && !error && <div className="text-[0.75rem] text-ink-faint">{hint}</div>}
       {error && <div className="text-[0.75rem] text-bad">{error}</div>}
     </div>
@@ -73,9 +84,10 @@ export function Select({
   disabled?: boolean;
   size?: 'sm' | 'md';
 }) {
+  const named = useFieldLabel({});
   return (
     <S.Root value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <S.Trigger className={clsx(control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[0.8125rem]' : 'h-8.5', className)}>
+      <S.Trigger {...named} className={clsx(control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[0.8125rem]' : 'h-8.5', className)}>
         <span className="truncate">
           <S.Value placeholder={<span className="text-ink-faint">{placeholder}</span>} />
         </span>
@@ -103,12 +115,14 @@ export function Select({
 }
 
 export function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label?: string }) {
+  const named = useFieldLabel({ 'aria-label': label });
   return (
     <Sw.Root
       checked={checked}
       onCheckedChange={onChange}
       disabled={disabled}
       aria-label={label}
+      {...named}
       className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-line-strong transition-colors data-[state=checked]:bg-accent disabled:opacity-50"
     >
       <Sw.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
@@ -124,6 +138,7 @@ export function Segmented<T extends string>({ value, onChange, options, size = '
         <button
           key={o.value}
           type="button"
+          aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
           className={clsx(
             'inline-flex items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors',

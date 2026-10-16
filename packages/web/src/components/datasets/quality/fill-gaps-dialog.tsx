@@ -23,7 +23,7 @@ export function FillGapsDialog({
   initialColumn?: string;
 }) {
   const candidates = columns.filter((c) => c.categorical && c.topValues?.length && !['audio', 'image', 'file'].includes(c.type));
-  const [column, setColumn] = useState(initialColumn ?? candidates[0]?.key ?? '');
+  const [column, setColumn] = useState(() => (candidates.some((c) => c.key === initialColumn) ? initialColumn! : (candidates[0]?.key ?? '')));
   const col = candidates.find((c) => c.key === column);
   const maxCount = Math.max(1, ...(col?.topValues?.map((v) => v.count) ?? [1]));
   const [target, setTarget] = useState<number | ''>('');

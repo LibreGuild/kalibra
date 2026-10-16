@@ -31,9 +31,15 @@ import {
   TriangleAlert,
   Wand2,
   Waves,
+  FlaskConical,
+  Gauge,
+  Layers,
+  MessagesSquare,
+  Share2,
+  Trophy,
   type LucideIcon,
 } from 'lucide-react';
-import { Button } from '../ui/button';
+import { buttonClass } from '../ui/button';
 import { CodeBlock } from '../ui/display';
 import type { Block } from '../../docs/types';
 import { Demo } from './demos';
@@ -42,6 +48,7 @@ import { Inline } from './inline';
 export const ICONS: Record<string, LucideIcon> = {
   ArrowLeftRight, BookA, Bot, ChartColumn, Code2, Crosshair, Database, FileInput, Gavel, GitCompare, Image, ListChecks,
   MessageCircleQuestion, Mic, Play, Plug, Radio, Rocket, Scale, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, Wand2, Waves,
+  FlaskConical, Gauge, Layers, MessagesSquare, Share2, Trophy,
 };
 
 export const headingId = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -115,11 +122,9 @@ export function BlockView({ block }: { block: Block }) {
       return (
         <div className="flex flex-wrap gap-2">
           {block.links.map((l) => (
-            <Link key={l.to} to={l.to}>
-              <Button variant={l.primary ? 'primary' : 'secondary'}>
-                {l.label}
-                <ArrowRight className="size-4" />
-              </Button>
+            <Link key={l.to} to={l.to} className={buttonClass(l.primary ? 'primary' : 'secondary')}>
+              {l.label}
+              <ArrowRight className="size-4" />
             </Link>
           ))}
         </div>

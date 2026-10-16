@@ -48,7 +48,6 @@ function ctxFor(row: Record<string, unknown>, vars: Record<string, string>): Tar
       transcribe: async () => ({ text: '', latencyMs: 1, model: 'stub' }),
     },
     signal: new AbortController().signal,
-    log: () => undefined,
     workspaceDir: process.cwd(),
   };
 }
@@ -236,5 +235,19 @@ describe('script target', () => {
     expect(res.outputs.output).toBe('ok:abc');
     expect(res.outputs.fixtures).toBe(12);
     expect(res.metrics.extra).toBe(1);
+  });
+
+  it('script targets read secrets with secret(name) and never log their values', async () => {
+    const spec = TargetSpec.parse({
+      config: { kind: 'script', code: 'const t = await secret("demo_token"); log("using", t); return { output: t.length, raw: t };' },
+    });
+    const res = await executeTarget(spec, ctxFor({}, {}));
+    expect(res.ok).toBe(true);
+    expect(res.outputs.output).toBe(9);
+    expect(JSON.stringify(res.logs)).not.toContain('tok-12345');
+    expect(JSON.stringify(res.response)).not.toContain('tok-12345');
+    const missing = await executeTarget(TargetSpec.parse({ config: { kind: 'script', code: 'return await secret("nope")' } }), ctxFor({}, {}));
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toMatch(/Secret "nope" is not set/);
   });
 });

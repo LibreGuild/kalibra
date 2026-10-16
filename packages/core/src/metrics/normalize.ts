@@ -64,16 +64,19 @@ const CONTRACTIONS: [RegExp, string][] = [
 
 const FILLERS = new Set(['um', 'umm', 'uh', 'uhh', 'hmm', 'hm', 'mm', 'mmm', 'mhm', 'er', 'erm']);
 
-const UNITS: Record<string, number> = {
+// Lookup tables have no prototype, so words like "constructor" or "valueof" are not found in them.
+const table = <T>(entries: Record<string, T>): Record<string, T> => Object.assign(Object.create(null), entries);
+
+const UNITS = table<number>({
   zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
   ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
   seventeen: 17, eighteen: 18, nineteen: 19,
-};
-const TENS: Record<string, number> = {
+});
+const TENS = table<number>({
   twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
-};
+});
 
-const BRITISH: Record<string, string> = {
+const BRITISH = table<string>({
   colour: 'color', colours: 'colors', favour: 'favor', favours: 'favors', favourite: 'favorite',
   honour: 'honor', labour: 'labor', neighbour: 'neighbor', neighbours: 'neighbors', behaviour: 'behavior',
   flavour: 'flavor', humour: 'humor', rumour: 'rumor', centre: 'center', centres: 'centers',
@@ -85,7 +88,7 @@ const BRITISH: Record<string, string> = {
   grey: 'gray', licence: 'license', defence: 'defense', offence: 'offense', catalogue: 'catalog',
   dialogue: 'dialog', cheque: 'check', jewellery: 'jewelry', tyre: 'tire', tyres: 'tires',
   aluminium: 'aluminum', mum: 'mom', practise: 'practice', enrol: 'enroll', fulfil: 'fulfill',
-};
+});
 
 /** Converts spelled-out numbers 0–999 to digits: "twenty five" → "25", "one hundred and two" → "102". */
 function spelledNumbersToDigits(words: string[]): string[] {

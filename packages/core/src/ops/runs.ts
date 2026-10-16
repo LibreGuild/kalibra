@@ -302,13 +302,14 @@ export function mcnemarExact(b: number, c: number): number | null {
   const n = b + c;
   if (n === 0) return null;
   const k = Math.min(b, c);
-  let p = 0;
-  let coef = 1;
-  for (let i = 0; i <= k; i++) {
-    if (i > 0) coef = (coef * (n - i + 1)) / i;
-    p += coef;
+  // Terms C(n, i) / 2^n in log space: both overflow a double past ~1000 discordant pairs.
+  let logTerm = -n * Math.LN2;
+  let p = Math.exp(logTerm);
+  for (let i = 1; i <= k; i++) {
+    logTerm += Math.log(n - i + 1) - Math.log(i);
+    p += Math.exp(logTerm);
   }
-  return Math.min(1, (2 * p) / 2 ** n);
+  return Math.min(1, 2 * p);
 }
 
 /** Setup problems for a dataset × target pair (with the run's overrides applied). */

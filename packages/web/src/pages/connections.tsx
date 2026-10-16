@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { KeyRound, MoreHorizontal, Pencil, Plug, Plus, Trash2, Zap } from 'lucide-react';
 import { Page } from '../components/layout/shell';
 import { Button } from '../components/ui/button';
@@ -135,6 +136,8 @@ export function ConnectionsPage() {
       <div className="flex flex-col gap-6">
         {list.isLoading ? (
           <Loading />
+        ) : list.error ? (
+          <ErrorBox error={list.error} />
         ) : (list.data ?? []).length === 0 ? (
           <EmptyState
             icon={<Plug />}
@@ -219,7 +222,7 @@ export function ConnectionsPage() {
                     size="icon-sm"
                     aria-label={`Delete ${s}`}
                     onClick={async () => {
-                      if (await confirm.ask(`Delete secret "${s}"?`, 'Anything that references it will fail until it is set again.')) delSecret.mutate({ name: s });
+                      if (await confirm.ask(`Delete secret "${s}"?`, 'Anything that references it will fail until it is set again.')) delSecret.mutate({ name: s }, { onError: (e) => toastError(e, 'Could not delete the secret') });
                     }}
                   >
                     <Trash2 className="size-3.5" />
@@ -251,6 +254,7 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
   const [models, setModels] = useState<string[] | null>(null);
   const [busy, setBusy] = useState<'save' | 'test' | 'models' | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const qc = useQueryClient();
   const isNew = !initial.id;
   const o = spec.options;
   const set = (patch: Partial<ConnSpec>) => setSpec((s) => ({ ...s, ...patch }));
@@ -272,6 +276,8 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
       await op('set_secret', { name: secretName, value });
       next.options[field] = secretName;
     }
+    // Secrets don't emit change events; refresh the list on the page behind the dialog.
+    if (apiKey || Object.values(extraSecrets).some(Boolean)) qc.invalidateQueries({ queryKey: ['list_secrets'] });
     return next;
   };
 
@@ -282,6 +288,7 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
       const finalSpec = await persistSecrets();
       if (isNew) await op('create_connection', { name, spec: finalSpec });
       else await op('update_connection', { id: initial.id, name, spec: finalSpec, baseVersion: initial.version });
+      qc.invalidateQueries({ queryKey: ['list_connections'] });
       toast.success(isNew ? 'Connection added' : 'Connection saved');
       onClose();
     } catch (e) {

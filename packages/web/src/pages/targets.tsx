@@ -150,7 +150,7 @@ function NewTargetDialog({ open, onOpenChange, onCreated }: { open: boolean; onO
     >
       <div className="flex flex-col gap-5">
         <Field label="Name">
-          <Input autoFocus value={name} placeholder="Support bot (staging)" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && submit()} />
+          <Input autoFocus value={name} placeholder="Support bot (staging)" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && !create.isPending && submit()} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           {KINDS.map(({ kind: k, icon: Icon, title, text }) => (
