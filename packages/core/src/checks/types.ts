@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type { Logger } from '../script.js';
 import type { TemplateEnv } from '../template.js';
 import type { LlmClient } from '../providers/types.js';
+import type { Embedder } from '../providers/embeddings.js';
 
 export type CheckStatus = 'pass' | 'fail' | 'skip' | 'error';
 
@@ -23,6 +24,8 @@ export interface CheckScope {
   scope: Record<string, unknown>;
   env: TemplateEnv;
   llm: LlmClient;
+  /** Text embeddings for semantic checks (optional in hand-built contexts and tests). */
+  embed?: Embedder;
   log: Logger;
   workspaceDir: string;
   signal: AbortSignal;

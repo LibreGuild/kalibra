@@ -6,6 +6,8 @@ import { containsCheck, equalsCheck, numericCheck, regexCheck, similarityCheck }
 import { bleuCheck, chrfCheck, keywordRecallCheck, rougeLCheck, tokenF1Check, werCheck } from './reference.js';
 import { expressionCheck, llmJudgeCheck, scriptCheck } from './judgment.js';
 import { piiLeakCheck, refusalCheck } from './safety.js';
+import { semanticChecks } from './semantic.js';
+import { conversationChecks } from './conversation.js';
 
 export * from './types.js';
 export { statusMatches } from './transport.js';
@@ -30,8 +32,10 @@ export const CHECK_TYPES: CheckType[] = [
   rougeLCheck,
   chrfCheck,
   tokenF1Check,
+  ...semanticChecks,
   refusalCheck,
   piiLeakCheck,
+  ...conversationChecks,
   llmJudgeCheck,
   scriptCheck,
   expressionCheck,

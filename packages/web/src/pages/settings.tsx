@@ -7,6 +7,7 @@ import { bytes } from '../lib/format';
 import clsx from 'clsx';
 import { Check } from 'lucide-react';
 import { Tip } from '../components/ui/overlay';
+import { ShareCard } from '../components/sharing/share-card';
 import { useTheme, type AccentChoice, type FontChoice, type TextScale, type ThemeChoice } from '../lib/theme';
 
 const ACCENTS: { id: AccentChoice; label: string; swatch: string }[] = [
@@ -121,6 +122,8 @@ export function SettingsPage() {
             </div>
           )}
         </Card>
+
+        <ShareCard />
 
         <Card>
           <SectionTitle>About</SectionTitle>

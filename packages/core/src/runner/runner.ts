@@ -6,6 +6,7 @@ import type { TargetCallResult } from '../targets/types.js';
 import { sleep, truncate } from '../util.js';
 import type { ResultRecord, RunRecord } from '../repo/runs.js';
 import { evaluateChecks } from './evaluate.js';
+import { applyOverrides } from './overrides.js';
 import { summarize } from './summary.js';
 
 const MAX_TEXT = 256 * 1024;
@@ -62,7 +63,7 @@ export class Runner {
     this.emitProgress(run.id);
     try {
       const suite = SuiteSpec.parse(defs.getVersion('suite', run.suiteId!, run.suiteVersion!).spec);
-      const target = run.kind === 'live' ? TargetSpec.parse(defs.getVersion('target', run.targetId!, run.targetVersion!).spec) : null;
+      const target = run.kind === 'live' ? applyOverrides(TargetSpec.parse(defs.getVersion('target', run.targetId!, run.targetVersion!).spec), run.settings.overrides) : null;
       const vars = target ? Object.fromEntries(target.variables.filter((v) => v.enabled && v.key).map((v) => [v.key, v.value])) : {};
       const queue = runs.pending(run.id);
       let next = 0;
@@ -145,7 +146,7 @@ export class Runner {
       vars,
       error: call.error ?? '',
     };
-    const evaluated = await evaluateChecks(suite, { scope, env, llm: this.engine.llm, log, workspaceDir: this.engine.dir, signal });
+    const evaluated = await evaluateChecks(suite, { scope, env, llm: this.engine.llm, embed: this.engine.embeddings, log, workspaceDir: this.engine.dir, signal });
 
     runs.saveResult(run.id, item.id, {
       status: call.ok ? 'done' : 'error',

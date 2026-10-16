@@ -256,6 +256,29 @@ export type ConnectionSpec = z.infer<typeof ConnectionSpec>;
 
 // ── Runs ────────────────────────────────────────────────────────────────────
 
+export const RunOverrides = z.object({
+  label: z.string().default('').describe('Name shown for this variant in comparisons, e.g. "gpt-6-luna, temp 0"'),
+  vars: z.record(z.string(), z.string()).default({}).describe('Target variables to replace for this run, e.g. { base_url: "https://staging…" }'),
+  model: z
+    .object({ connectionId: z.string().default(''), model: z.string().default(''), temperature: z.number().min(0).max(2).optional() })
+    .optional()
+    .describe('For model targets: use this connection/model instead'),
+  config: z.record(z.string(), z.unknown()).default({}).describe('Any other target config fields to replace (deep-merged), e.g. { prompt: "…" }'),
+});
+export type RunOverrides = z.infer<typeof RunOverrides>;
+
+export const ConversationSettings = z.object({
+  mode: z.enum(['off', 'scripted', 'simulated']).default('off'),
+  turnsColumn: z.string().default('turns').describe('Scripted: a list column with the user messages, in order'),
+  personaTemplate: z.string().default('{{persona}}').describe('Simulated: who the simulated user is'),
+  goalTemplate: z.string().default('{{goal}}').describe('Simulated: what the user is trying to get done'),
+  connectionId: z.string().default('').describe('Simulated: model connection that plays the user'),
+  model: z.string().default(''),
+  maxTurns: z.number().int().min(1).max(30).default(6),
+  stopPhrase: z.string().default('').describe('Optional: end the conversation when the app says this'),
+});
+export type ConversationSettings = z.infer<typeof ConversationSettings>;
+
 export const RunSettings = z.object({
   concurrency: z.number().int().min(1).max(256).default(4),
   retries: z.number().int().min(0).max(10).default(2),
@@ -265,6 +288,10 @@ export const RunSettings = z.object({
   tags: z.array(z.string()).optional().describe('Only rows having any of these tags'),
   includeStatuses: z.array(RowStatus).default(['approved', 'needs_review', 'draft']),
   delayMs: z.number().int().min(0).default(0),
+  /** Per-run changes to the target without editing it: compare models, prompts or environments side by side. */
+  overrides: RunOverrides.optional(),
+  /** Multi-turn: scripted turns from a column, or an LLM playing a user with a goal. */
+  conversation: ConversationSettings.optional(),
 });
 export type RunSettings = z.infer<typeof RunSettings>;
 

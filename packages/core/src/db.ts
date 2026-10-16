@@ -172,6 +172,34 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX labels_run ON labels(run_id, check_id);
   `,
+  // 3: run groups (compare several targets/models in one go) and saved insights (failure themes, quality reports)
+  `
+  ALTER TABLE runs ADD COLUMN group_id TEXT;
+  ALTER TABLE runs ADD COLUMN variant_label TEXT;
+  CREATE INDEX runs_group ON runs(group_id);
+
+  CREATE TABLE run_groups (
+    id TEXT PRIMARY KEY,
+    number INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    dataset_id TEXT NOT NULL,
+    suite_id TEXT NOT NULL,
+    settings TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    deleted_at TEXT
+  );
+
+  CREATE TABLE insights (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+  );
+  CREATE INDEX insights_subject ON insights(kind, subject_id, created_at);
+  `,
 ];
 
 /** Thin synchronous wrapper over node:sqlite with cached statements and transactions. */

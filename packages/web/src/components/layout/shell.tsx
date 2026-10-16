@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router';
 import clsx from 'clsx';
-import { BookOpen, Bot, Crosshair, Database, Home, ListChecks, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings } from 'lucide-react';
+import { BookOpen, Bot, Crosshair, Database, FlaskConical, Home, ListChecks, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings } from 'lucide-react';
 import { useLiveEvents, useOp } from '../../lib/api';
 import { Tip } from '../ui/overlay';
 
@@ -13,10 +13,13 @@ const NAV = [
   { to: '/runs', label: 'Runs', icon: Play, hint: 'Run a dataset through a target and score it with a suite' },
 ];
 const NAV2 = [
+  { to: '/playground', label: 'Playground', icon: FlaskConical, hint: 'Try a prompt on a few rows across models, side by side' },
   { to: '/connections', label: 'Connections', icon: Plug, hint: 'Model providers for judges, generation, images and speech' },
   { to: '/agents', label: 'Coding agents', icon: Bot, hint: 'Let Claude Code, Codex, Cursor and others drive Kalibra through MCP' },
+];
+const NAV3 = [
   { to: '/docs', label: 'Docs', icon: BookOpen, hint: 'Short, illustrated guides to every feature' },
-  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, reading font, text size, workspace' },
+  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, reading font, text size, workspace, sharing' },
 ];
 
 function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: string; label: string; icon: any; end?: boolean; hint: string; count?: number; collapsed: boolean }) {
@@ -103,7 +106,12 @@ export function AppShell() {
             <NavItem key={n.to} {...n} collapsed={collapsed} />
           ))}
         </nav>
-        <div className="mt-auto">
+        <nav className="mt-auto flex flex-col gap-0.5">
+          {NAV3.map((n) => (
+            <NavItem key={n.to} {...n} collapsed={collapsed} />
+          ))}
+        </nav>
+        <div className="mt-1.5">
           <Tip content={collapsed ? 'Expand sidebar (⌘\\)' : 'Collapse sidebar (⌘\\)'} side="right">
             <button
               type="button"

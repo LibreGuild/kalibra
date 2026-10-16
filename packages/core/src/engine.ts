@@ -4,6 +4,7 @@ import { Db } from './db.js';
 import { EventBus } from './events.js';
 import { createLlmClient } from './providers/index.js';
 import type { LlmClient } from './providers/types.js';
+import { UnavailableEmbedder, type Embedder } from './providers/embeddings.js';
 import { LOCAL_USER, Registry, type Actor } from './registry.js';
 import { DatasetRepo } from './repo/datasets.js';
 import { DefRepo } from './repo/defs.js';
@@ -34,6 +35,8 @@ export class Engine {
   readonly repos: { datasets: DatasetRepo; defs: DefRepo; runs: RunRepo };
   readonly runner: Runner;
   readonly llm: LlmClient;
+  /** Text embeddings (local model or a connection) for similarity, dedup and clustering. */
+  embeddings: Embedder = new UnavailableEmbedder();
   /** Background jobs (media generation, augmentation, …). */
   readonly jobs: Jobs;
 

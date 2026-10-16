@@ -15,6 +15,8 @@ import { toast, toastError } from '../components/ui/toast';
 import { ColumnsEditor, columnErrors } from '../components/datasets/columns-editor';
 import { GenerateDialog, ImportDialog, NewDatasetDialog, SaveVersionDialog, UploadFilesDialog } from '../components/datasets/dialogs';
 import { SafetyPackDialog } from '../components/datasets/safety-dialog';
+import { QualityTab } from '../components/datasets/quality-tab';
+import { ImportExternalDialog } from '../components/sharing/import-dialog';
 import { RowSheet } from '../components/datasets/row-sheet';
 import { AudioVariantsDialog, DatasetJobsStrip, GenerateImagesDialog, GenerateSpeechDialog, TranscribeDialog } from '../components/datasets/media-dialogs';
 import type { ColumnDef, DatasetSchemaResp, RowRecord, RowStatus } from '../components/datasets/types';
@@ -26,6 +28,7 @@ export function DatasetsPage() {
   const q = useOp<any[]>('list_datasets');
   const [creating, setCreating] = useState(false);
   const [safety, setSafety] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const columns: Column<any>[] = [
     {
@@ -64,6 +67,9 @@ export function DatasetsPage() {
       description="Test cases for your AI app: inputs, expected answers, recordings and images. Every column can be sent to your app and compared against."
       actions={
         <>
+          <Button icon={<FileSpreadsheet className="size-4" />} onClick={() => setImporting(true)}>
+            Import
+          </Button>
           <Button icon={<ShieldAlert className="size-4" />} onClick={() => setSafety(true)}>
             Safety pack
           </Button>
@@ -94,6 +100,7 @@ export function DatasetsPage() {
       )}
       <NewDatasetDialog open={creating} onOpenChange={setCreating} />
       <SafetyPackDialog open={safety} onOpenChange={setSafety} />
+      <ImportExternalDialog open={importing} onOpenChange={setImporting} />
     </Page>
   );
 }
@@ -224,6 +231,7 @@ export function DatasetDetailPage() {
         onChange={setTab}
         tabs={[
           { value: 'rows', label: 'Rows', count: ds.stats.total },
+          { value: 'quality', label: 'Quality' },
           { value: 'columns', label: 'Columns & instructions', count: ds.columns.length },
           { value: 'versions', label: 'Versions' },
         ]}
@@ -231,6 +239,9 @@ export function DatasetDetailPage() {
         <TabPanel value="rows" className="pt-4">
           <DatasetJobsStrip datasetId={ds.id} />
           <RowsTab ds={ds} onOpenRow={(r) => (setSheetRow(r), setSheetOpen(true))} onAddRow={() => (setSheetRow(null), setSheetOpen(true))} onUpload={() => setDialog('upload')} onSelectionChange={setSelectedIds} />
+        </TabPanel>
+        <TabPanel value="quality" className="pt-5">
+          <QualityTab datasetId={ds.id} columns={ds.columns} />
         </TabPanel>
         <TabPanel value="columns" className="pt-5">
           <ColumnsTab ds={ds} onSaved={() => schema.refetch()} />
