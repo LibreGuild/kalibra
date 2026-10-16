@@ -18,7 +18,7 @@ const STEPS = [
 export function OverviewPage() {
   const ws = useOp<any>('get_workspace');
   const runs = useOp<{ runs: any[] }>('list_runs', { limit: 6 });
-  const activity = useOp<any[]>('list_activity', { limit: 12 });
+  const activity = useOp<any[]>('list_activity', { limit: 8 });
   const datasets = useOp<any[]>('list_datasets');
   const review = (datasets.data ?? []).filter((d) => d.reviewCount > 0);
 

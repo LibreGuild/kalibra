@@ -427,7 +427,7 @@ export function RunDetailPage() {
                   {
                     key: 'name',
                     header: 'Check',
-                    width: 'minmax(220px, 2.4fr)',
+                    width: 'minmax(180px, 2.2fr)',
                     render: (c) => (
                       <div className="min-w-0">
                         <div className="truncate font-medium">{c.name}</div>
@@ -435,22 +435,22 @@ export function RunDetailPage() {
                       </div>
                     ),
                   },
-                  { key: 'layer', header: 'Layer', width: '60px', render: (c) => <span className="tabular-nums text-ink-muted">{c.layer}</span> },
-                  { key: 'bar', header: 'Outcome', width: 'minmax(120px, 1.2fr)', help: 'Green passed, red failed, amber errored, grey skipped. Hover a segment for the count.', render: (c) => <OutcomeBar pass={c.pass} fail={c.fail} error={c.error} skip={c.skip} /> },
-                  { key: 'rate', header: 'Pass rate', width: '90px', align: 'right', render: (c) => <span className="tabular-nums">{pct(c.passRate)}</span> },
+                  { key: 'layer', header: 'Layer', width: '52px', render: (c) => <span className="tabular-nums text-ink-muted">{c.layer}</span> },
+                  { key: 'bar', header: 'Outcome', width: 'minmax(90px, 1fr)', help: 'Green passed, red failed, amber errored, grey skipped. Hover a segment for the count.', render: (c) => <OutcomeBar pass={c.pass} fail={c.fail} error={c.error} skip={c.skip} /> },
+                  { key: 'rate', header: 'Pass', width: '70px', align: 'right', render: (c) => <span className="tabular-nums">{pct(c.passRate)}</span> },
                   {
                     key: 'counts',
                     header: 'Failed',
-                    width: '80px',
+                    width: '64px',
                     align: 'right',
                     help: 'Rows where this check failed or errored. Skipped rows are not counted.',
                     render: (c) => <span className={c.fail + c.error > 0 ? 'tabular-nums text-bad' : 'tabular-nums text-ink-muted'}>{c.fail + c.error}</span>,
                   },
-                  { key: 'mean', header: 'Mean value', width: '100px', align: 'right', help: 'Average raw value, e.g. per-row WER or latency.', render: (c) => <span className="tabular-nums">{formatMetric(c.type, c.meanValue)}</span> },
+                  { key: 'mean', header: 'Mean', width: '78px', align: 'right', help: 'Average raw value, e.g. per-row WER or latency.', render: (c) => <span className="tabular-nums">{formatMetric(c.type, c.meanValue)}</span> },
                   {
                     key: 'corpus',
                     header: 'Corpus',
-                    width: '100px',
+                    width: '74px',
                     align: 'right',
                     help: 'For WER/CER checks: total errors ÷ total reference words across all rows.',
                     render: (c) => <span className="tabular-nums">{c.corpus ? pct(c.corpus.value) : '–'}</span>,
@@ -458,20 +458,20 @@ export function RunDetailPage() {
                   {
                     key: 'calibrate',
                     header: '',
-                    width: '104px',
+                    width: '48px',
                     align: 'right',
                     render: (c) => (
                       <Tip content="Label rows yourself and measure how often this check agrees with you">
                         <Button
-                          size="sm"
+                          size="icon-sm"
                           variant="ghost"
-                          icon={<Scale className="size-3.5" />}
+                          aria-label="Calibrate this check"
                           onClick={(e) => {
                             e.stopPropagation();
                             navigate(`/runs/${r.id}/calibrate?check=${encodeURIComponent(c.id)}`);
                           }}
                         >
-                          Calibrate
+                          <Scale className="size-3.5" />
                         </Button>
                       </Tip>
                     ),

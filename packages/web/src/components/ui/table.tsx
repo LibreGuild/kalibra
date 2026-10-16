@@ -119,7 +119,7 @@ export function SimpleTable<T>({ rows, columns, rowKey, onRowClick, empty }: { r
     <div className="overflow-x-auto rounded-xl border border-line bg-surface">
       <div className="grid border-b border-line bg-raised text-[0.75rem] font-semibold uppercase tracking-wide text-ink-faint" style={{ gridTemplateColumns: template }}>
         {columns.map((c) => (
-          <div key={c.key} className={clsx('flex h-9 items-center gap-1 px-4', c.align === 'right' && 'justify-end')}>
+          <div key={c.key} className={clsx('flex h-9 items-center gap-1 px-3', c.align === 'right' && 'justify-end')}>
             {c.header}
             {c.help && <HelpTip className="normal-case">{c.help}</HelpTip>}
           </div>
@@ -134,7 +134,7 @@ export function SimpleTable<T>({ rows, columns, rowKey, onRowClick, empty }: { r
           style={{ gridTemplateColumns: template }}
         >
           {columns.map((c) => (
-            <div key={c.key} className={clsx('flex min-w-0 items-center px-4 py-3', c.align === 'right' && 'justify-end')}>
+            <div key={c.key} className={clsx('flex min-w-0 items-center px-3 py-3', c.align === 'right' && 'justify-end')}>
               <div className={clsx('min-w-0', c.align !== 'right' && 'w-full')}>{c.render(r, i)}</div>
             </div>
           ))}

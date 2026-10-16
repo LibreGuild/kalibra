@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BookA,
   Bot,
+  ChartColumn,
   Code2,
   Crosshair,
   Database,
@@ -22,6 +23,7 @@ import {
   Radio,
   Rocket,
   Scale,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -38,8 +40,8 @@ import { Demo } from './demos';
 import { Inline } from './inline';
 
 export const ICONS: Record<string, LucideIcon> = {
-  ArrowLeftRight, BookA, Bot, Code2, Crosshair, Database, FileInput, Gavel, GitCompare, Image, ListChecks,
-  MessageCircleQuestion, Mic, Play, Plug, Radio, Rocket, Scale, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, Wand2, Waves,
+  ArrowLeftRight, BookA, Bot, ChartColumn, Code2, Crosshair, Database, FileInput, Gavel, GitCompare, Image, ListChecks,
+  MessageCircleQuestion, Mic, Play, Plug, Radio, Rocket, Scale, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, Wand2, Waves,
 };
 
 export const headingId = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

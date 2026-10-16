@@ -1,73 +1,52 @@
 # Kalibra
 
-Local-first, open-source evaluation for AI applications. Build test datasets (text, audio, images), point Kalibra at your app (HTTP API, WebSocket stream, model + prompt, or your own script), score every result with layered checks (status → schema → fields → content → WER/BLEU/similarity → LLM judge), and compare runs. Everything runs on your machine; no account, no server to host.
+Local-first, open-source evaluation for AI applications. Build test datasets (text, audio, images), point Kalibra at your real app (HTTP API, WebSocket stream, a model, or your own script), score every result with layered checks (status → schema → fields → content → WER/BLEU → LLM judge), then compare runs, find the weak slices and calibrate your judges. Everything runs on your machine: no account and no server to host.
 
-## Principles
+## Quick start
 
-- **Nothing is blocked.** Forms cover the common cases; every step has a script escape hatch (request hooks, response parsers, WebSocket session scripts, custom checks).
-- **One engine, three front doors.** The desktop UI, the `kalibra` CLI and the MCP server all call the same operations, so a coding agent can do anything the UI can.
-- **Your data stays local.** A workspace is a folder: `kalibra.db` (SQLite) plus content-addressed files. Secrets live in the OS keychain-backed store, never in definitions.
+```bash
+npx kalibra
+```
 
-## Quick start (development)
+Starts Kalibra and opens it in your browser. Needs Node.js 22.13+. Your workspace lives in `~/Kalibra/default`.
 
-Requires Node.js 22.13+ (macOS, Linux or Windows).
+## Develop
 
 ```bash
 npm install
-npm run dev                  # engine :4317 + UI http://localhost:5173 + demo apps :4400
-npm run demo -- --seed       # (in another terminal, once) fill ./.kalibra-dev with demo data
+npm run dev                 # engine :4317 + UI http://localhost:5173 + demo apps :4400
+npm run demo -- --seed      # once: demo datasets, targets and suites in ./.kalibra-dev
+npm test && npm run typecheck
 ```
 
-The demo apps are a bank support chatbot (JSON and SSE) and a speech-to-text service (multipart upload and streaming WebSocket) with deliberate mistakes, so every check has something to find.
+The demo apps are a bank support chatbot (JSON + SSE) and a speech-to-text service (upload + streaming WebSocket) with deliberate mistakes, so every check has something to catch.
 
-## Desktop app
+## Highlights
 
-```bash
-npm run build                # web UI + CLI + Electron bundle
-npm run start -w @kalibra/desktop
-```
+- **Data:** typed datasets with versions and a review queue; generate text rows, images and speech with any model; audio variants (noise, phone line, echo…); a safety pack mapped to OWASP/NIST/MITRE ATLAS.
+- **Any app:** HTTP (cURL import, multipart, SSE), WebSocket audio streaming with every knob, model targets, custom scripts. Or import outputs you produced elsewhere.
+- **Honest scoring:** layered checks with gates, WER/CER with normalizers, LLM judges with image/audio attachments, refusal and PII checks, confidence intervals, corpus WER, significance tests.
+- **Trust your judge:** blind human labelling, kappa, corrected pass rates.
+- **Agents welcome:** an MCP server so Claude Code, Codex, Cursor or Gemini CLI can fill datasets, set up targets and run evals. You drive your own agent; Kalibra never launches one.
+- **Never blocked:** every structured option has a script escape hatch.
 
-The workspace defaults to `~/Kalibra/default` (override with `KALIBRA_DIR`). Installers (`.dmg`, `.exe`, AppImage) are not packaged yet.
+## Docs
 
-## CLI
-
-```bash
-node packages/cli/dist/kalibra.mjs serve --open                  # engine + UI in your browser
-node packages/cli/dist/kalibra.mjs run --dataset "Voice commands" --target "Demo STT (batch upload)" --suite "STT checks (batch)" --min-pass 0.8
-node packages/cli/dist/kalibra.mjs ops                           # every operation
-node packages/cli/dist/kalibra.mjs op list_datasets
-```
-
-`run` exits non-zero when the run fails or the pass rate is below `--min-pass`, so it drops into CI.
-
-## Coding agents (MCP)
-
-Open **Coding agents** in the app for the exact command for your setup. With Claude Code:
-
-```bash
-claude mcp add kalibra -- node /path/to/kalibra.mjs mcp --dir ~/Kalibra/default
-```
-
-Then ask in your own words, e.g. *"Create 50 synthetic rows for the Kalibra dataset 'Support questions'"*. The agent reads the schema, submits rows in batches, gets per-row validation errors back, and the rows appear live in the app for review. Kalibra never launches or calls an agent; you drive your own.
+- In the app: sidebar → **Docs** (short, illustrated guides).
+- For developers: [docs/](docs/README.md): [overview](docs/overview.md) · [architecture](docs/architecture.md) · [engine](docs/engine.md) · [data model](docs/data-model.md) · [targets & checks](docs/targets-and-checks.md) · [build & run](docs/build-and-run.md) · [testing](docs/testing.md) · [MCP](docs/mcp-and-agents.md) · [contributing](docs/contributing.md)
+- Product: [features](docs/features.md) · [roadmap](docs/roadmap.md) · [competitor matrix](docs/competitors.md)
 
 ## Repository layout
 
 ```
 packages/
-  core/     engine: operation registry, datasets, targets (HTTP/SSE/WebSocket/audio), checks, runner, providers
-  server/   HTTP API + live events (SSE) + file serving; the desktop runs it on 127.0.0.1 with a token
-  web/      React UI (Vite, Tailwind)
-  cli/      kalibra serve | run | op | mcp
+  core/     engine: operations, datasets, targets, checks, runner, jobs, providers, audio
+  server/   HTTP API + live events + file serving
+  web/      React UI
+  cli/      kalibra serve | run | op | mcp  (published as `kalibra` on npm)
   desktop/  Electron shell
   demo/     mock apps under test + demo data
-docs/research/   market research and product analysis
-```
-
-## Tests
-
-```bash
-npm test         # unit tests + an end-to-end run against the demo apps
-npm run typecheck
+docs/       developer docs and research
 ```
 
 ## License

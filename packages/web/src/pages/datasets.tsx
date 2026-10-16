@@ -157,6 +157,7 @@ export function DatasetDetailPage() {
       actions={
         <>
           <Menu
+            align="start"
             trigger={
               <Button variant="primary" icon={<Plus className="size-4" />}>
                 Add rows
@@ -193,7 +194,7 @@ export function DatasetDetailPage() {
               Fill with a coding agent
             </MenuItem>
           </Menu>
-          <Menu trigger={<Button icon={<Download className="size-4" />}>Export</Button>}>
+          <Menu align="start" trigger={<Button icon={<Download className="size-4" />}>Export</Button>}>
             <MenuItem hint="Opens in spreadsheets; files export as names" onSelect={() => exportAs('csv')}>
               CSV
             </MenuItem>

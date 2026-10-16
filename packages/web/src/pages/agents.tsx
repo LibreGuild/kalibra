@@ -27,6 +27,8 @@ const EXAMPLES = [
   { text: '/kalibra:generate-rows', hint: 'Built-in prompt: asks for the dataset and count, then fills it.' },
   { text: 'Read this repo, find the /transcribe endpoint and create a Kalibra target for it. Test it with one row.', hint: 'Agent-assisted setup from your own codebase.' },
   { text: 'Add a check to the "STT checks (streaming)" suite: WER must be under 10% for rows tagged en-IN.', hint: 'Edits a suite; the change shows up here instantly.' },
+  { text: 'Make phone-line and noisy-café variants of every clip in "Voice commands", then rerun the streaming STT suite and compare.', hint: 'Audio augmentation + run + comparison in one go.' },
+  { text: 'Create a safety pack for our banking assistant (prompt injection, data leaks, account takeover) and run it against the chat API.', hint: 'Builds the dataset and suite, then reports what slipped through.' },
   { text: 'Run "Voice commands" through "Demo STT (batch upload)" with "STT checks (batch)", then explain the worst failures.', hint: 'Runs, waits and reports.' },
 ];
 
