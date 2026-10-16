@@ -79,7 +79,7 @@ export function SuitesPage() {
               render: (s) => (
                 <div className="min-w-0">
                   <div className="truncate font-medium">{s.name}</div>
-                  {s.description && <div className="truncate text-[12.5px] text-ink-muted">{s.description}</div>}
+                  {s.description && <div className="truncate text-[0.78125rem] text-ink-muted">{s.description}</div>}
                 </div>
               ),
             },
@@ -167,8 +167,8 @@ function NewSuiteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
                   template === t.id ? 'border-accent bg-accent-soft/50' : 'border-line hover:bg-hover',
                 )}
               >
-                <div className="text-[13.5px] font-medium">{t.label}</div>
-                <div className="mt-0.5 text-[12.5px] text-ink-muted">{t.description}</div>
+                <div className="text-[0.84375rem] font-medium">{t.label}</div>
+                <div className="mt-0.5 text-[0.78125rem] text-ink-muted">{t.description}</div>
               </button>
             ))}
           </div>
@@ -316,9 +316,9 @@ export function SuiteEditorPage() {
               {presentLayers.map((layer) => (
                 <section key={layer.id}>
                   <div className="mb-2 flex items-center gap-2">
-                    <span className="grid size-5 place-items-center rounded-md bg-raised text-[11px] font-semibold tabular-nums text-ink-muted">{layer.id}</span>
-                    <span className="text-[13px] font-semibold">{layer.name}</span>
-                    <span className="text-[12.5px] text-ink-faint">{layer.hint}</span>
+                    <span className="grid size-5 place-items-center rounded-md bg-raised text-[0.6875rem] font-semibold tabular-nums text-ink-muted">{layer.id}</span>
+                    <span className="text-[0.8125rem] font-semibold">{layer.name}</span>
+                    <span className="text-[0.78125rem] text-ink-faint">{layer.hint}</span>
                   </div>
                   <div className="flex flex-col gap-2">
                     {checks.map((c, idx) =>
@@ -347,7 +347,7 @@ export function SuiteEditorPage() {
               ))}
               {checks.some((c) => !typeOf(c.type)) && (
                 <section>
-                  <div className="mb-2 text-[13px] font-semibold text-bad">Unknown check types</div>
+                  <div className="mb-2 text-[0.8125rem] font-semibold text-bad">Unknown check types</div>
                   <div className="flex flex-col gap-2">
                     {checks.map((c, idx) =>
                       typeOf(c.type) ? null : (

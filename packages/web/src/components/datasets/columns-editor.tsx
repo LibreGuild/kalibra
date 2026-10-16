@@ -81,7 +81,7 @@ export function ColumnsEditor({ value, onChange }: { value: ColumnDef[]; onChang
   return (
     <div className="flex flex-col gap-2">
       {value.length > 0 && (
-        <div className="grid grid-cols-[160px_150px_minmax(0,1fr)_86px_92px] gap-2 px-1 text-[12px] font-medium text-ink-faint">
+        <div className="grid grid-cols-[160px_150px_minmax(0,1fr)_86px_92px] gap-2 px-1 text-[0.75rem] font-medium text-ink-faint">
           <span className="flex items-center gap-1">
             Name <HelpTip>Used in templates as {'{{name}}'}, for example in a request body or a check.</HelpTip>
           </span>
@@ -122,11 +122,11 @@ export function ColumnsEditor({ value, onChange }: { value: ColumnDef[]; onChang
               </Tip>
             </div>
           </div>
-          {errors[i] && <div className="mt-1 px-1 text-[12px] text-bad">{errors[i]}</div>}
+          {errors[i] && <div className="mt-1 px-1 text-[0.75rem] text-bad">{errors[i]}</div>}
           {c.type === 'text' &&
             (showEnum.has(i) ? (
               <div className="mt-2 flex items-center gap-2">
-                <span className="flex w-[160px] shrink-0 items-center gap-1 px-1 text-[12px] text-ink-muted">
+                <span className="flex w-[160px] shrink-0 items-center gap-1 px-1 text-[0.75rem] text-ink-muted">
                   Allowed values <HelpTip>Limit this column to a fixed set of values, such as labels or categories. Leave empty for free text.</HelpTip>
                 </span>
                 <div className="flex-1">
@@ -134,7 +134,7 @@ export function ColumnsEditor({ value, onChange }: { value: ColumnDef[]; onChang
                 </div>
               </div>
             ) : (
-              <button type="button" className="mt-1 px-1 text-[12px] text-ink-faint hover:text-accent-ink" onClick={() => setShowEnum(new Set([...showEnum, i]))}>
+              <button type="button" className="mt-1 px-1 text-[0.75rem] text-ink-faint hover:text-accent-ink" onClick={() => setShowEnum(new Set([...showEnum, i]))}>
                 + Limit to allowed values
               </button>
             ))}

@@ -32,7 +32,7 @@ export function ModelForm({ value, onChange }: { value: ModelConfig; onChange: (
     <>
       <Section title="Model" help="Tests a model directly, without your app in between. Useful for comparing models, prompt versions, or a provider's speech-to-text against your own.">
         {connections.data && connections.data.length === 0 && (
-          <div className="rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
+          <div className="rounded-lg bg-warn-soft px-3 py-2 text-[0.78125rem] text-warn">
             No connections yet. <Link to="/connections" className="font-medium underline">Add one on the Connections page</Link>.
           </div>
         )}

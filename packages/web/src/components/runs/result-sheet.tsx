@@ -26,7 +26,7 @@ export interface CheckResultView {
 
 export function AlignmentDiff({ ops }: { ops: { op: 'equal' | 'sub' | 'del' | 'ins'; ref?: string; hyp?: string }[] }) {
   return (
-    <div className="rounded-lg border border-line bg-raised px-3 py-2.5 font-mono text-[12.5px] leading-7">
+    <div className="rounded-lg border border-line bg-raised px-3 py-2.5 font-mono text-[0.78125rem] leading-7">
       {ops.map((o, i) => {
         const sep = i > 0 ? ' ' : '';
         if (o.op === 'equal') return <span key={i}>{sep}{o.ref}</span>;
@@ -58,7 +58,7 @@ export function AlignmentDiff({ ops }: { ops: { op: 'equal' | 'sub' | 'del' | 'i
 
 function Legend() {
   return (
-    <div className="flex flex-wrap gap-3 text-[11.5px] text-ink-faint">
+    <div className="flex flex-wrap gap-3 text-[0.71875rem] text-ink-faint">
       <span><span className="rounded bg-bad-soft px-1 text-bad line-through">word</span> missing / replaced (reference)</span>
       <span><span className="rounded bg-ok-soft px-1 text-ok">word</span> what the app said instead</span>
       <span><span className="rounded bg-ok-soft px-1 text-ok underline">word</span> extra word</span>
@@ -74,7 +74,7 @@ function CheckDetails({ c }: { c: CheckResultView }) {
       <div className="mt-2.5 flex flex-col gap-2">
         <AlignmentDiff ops={d.ops} />
         <Legend />
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-muted tabular-nums">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-ink-muted tabular-nums">
           <span>{d.hits ?? 0} correct</span>
           <span>{d.subs ?? 0} substituted</span>
           <span>{d.dels ?? 0} deleted</span>
@@ -83,7 +83,7 @@ function CheckDetails({ c }: { c: CheckResultView }) {
           {d.normalizer && <span>normalizer: {d.normalizer}</span>}
           {d.opsTruncated && <span className="text-warn">alignment truncated</span>}
         </div>
-        <details className="text-[12.5px]">
+        <details className="text-[0.78125rem]">
           <summary className="cursor-pointer text-ink-muted hover:text-ink">Normalized texts</summary>
           <div className="mt-2 grid gap-2">
             <div><span className="text-ink-faint">Reference: </span><span className="font-mono">{d.normalizedRef}</span></div>
@@ -96,9 +96,9 @@ function CheckDetails({ c }: { c: CheckResultView }) {
   if (c.type === 'llm_judge' && (d.reasoning || d.verdicts)) {
     return (
       <div className="mt-2.5 flex flex-col gap-2">
-        {d.reasoning && <div className="whitespace-pre-wrap rounded-lg bg-raised px-3 py-2 text-[13px]">{d.reasoning}</div>}
+        {d.reasoning && <div className="whitespace-pre-wrap rounded-lg bg-raised px-3 py-2 text-[0.8125rem]">{d.reasoning}</div>}
         {Array.isArray(d.verdicts) && d.verdicts.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-muted">
+          <div className="flex flex-wrap items-center gap-1.5 text-[0.75rem] text-ink-muted">
             Votes:
             {d.verdicts.map((v: string, i: number) => (
               <Badge key={i} tone={v === 'pass' ? 'ok' : 'bad'}>{v}</Badge>
@@ -106,12 +106,12 @@ function CheckDetails({ c }: { c: CheckResultView }) {
           </div>
         )}
         {d.usage && (
-          <div className="text-[12px] text-ink-faint">
+          <div className="text-[0.75rem] text-ink-faint">
             {d.usage.model} · {d.usage.inputTokens ?? '?'} in / {d.usage.outputTokens ?? '?'} out tokens · {ms(d.usage.latencyMs)}
           </div>
         )}
         {d.prompt && (
-          <details className="text-[12.5px]">
+          <details className="text-[0.78125rem]">
             <summary className="cursor-pointer text-ink-muted hover:text-ink">Prompt sent to the judge</summary>
             <CodeBlock value={d.prompt} className="mt-2" maxHeight={260} />
           </details>
@@ -120,7 +120,7 @@ function CheckDetails({ c }: { c: CheckResultView }) {
     );
   }
   return (
-    <details className="mt-2 text-[12.5px]">
+    <details className="mt-2 text-[0.78125rem]">
       <summary className="cursor-pointer text-ink-muted hover:text-ink">Details</summary>
       <CodeBlock value={d} className="mt-2" maxHeight={260} />
     </details>
@@ -135,15 +135,15 @@ export function CheckList({ checks }: { checks: CheckResultView[] }) {
         <div key={c.id} className={clsx('rounded-lg border px-3.5 py-2.5', c.status === 'fail' || c.status === 'error' ? 'border-bad/30' : 'border-line')}>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={c.status} />
-            <span className="text-[13.5px] font-medium">{c.name}</span>
-            <span className="text-[12px] text-ink-faint">layer {c.layer}{c.gate ? ' · gate' : ''}</span>
-            <span className="ml-auto text-[12.5px] tabular-nums text-ink-muted">
+            <span className="text-[0.84375rem] font-medium">{c.name}</span>
+            <span className="text-[0.75rem] text-ink-faint">layer {c.layer}{c.gate ? ' · gate' : ''}</span>
+            <span className="ml-auto text-[0.78125rem] tabular-nums text-ink-muted">
               {c.value !== undefined && c.value !== null && <>value {formatMetric(c.type, c.value)}</>}
               {c.threshold !== undefined && c.threshold !== null && <> · limit {formatMetric(c.type, c.threshold)}</>}
               {c.durationMs ? <> · {ms(c.durationMs)}</> : null}
             </span>
           </div>
-          {c.reason && <div className="mt-1 text-[13px] text-ink-muted">{c.reason}</div>}
+          {c.reason && <div className="mt-1 text-[0.8125rem] text-ink-muted">{c.reason}</div>}
           <CheckDetails c={c} />
         </div>
       ))}
@@ -154,7 +154,7 @@ export function CheckList({ checks }: { checks: CheckResultView[] }) {
 function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
     <section>
-      <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">{title}</h4>
+      <h4 className="mb-2 text-[0.75rem] font-semibold uppercase tracking-wide text-ink-faint">{title}</h4>
       {children}
     </section>
   );
@@ -162,12 +162,12 @@ function Section({ title, children }: { title: ReactNode; children: ReactNode })
 
 function KeyValues({ data }: { data: Record<string, unknown> }) {
   const entries = Object.entries(data ?? {});
-  if (!entries.length) return <div className="text-[13px] text-ink-faint">None</div>;
+  if (!entries.length) return <div className="text-[0.8125rem] text-ink-faint">None</div>;
   return (
     <div className="divide-y divide-line rounded-lg border border-line">
       {entries.map(([k, v]) => (
-        <div key={k} className="grid grid-cols-[140px_1fr] gap-3 px-3 py-2 text-[13px]">
-          <div className="truncate font-mono text-[12px] text-ink-muted">{k}</div>
+        <div key={k} className="grid grid-cols-[140px_1fr] gap-3 px-3 py-2 text-[0.8125rem]">
+          <div className="truncate font-mono text-[0.75rem] text-ink-muted">{k}</div>
           <div className="min-w-0 break-words">
             <CellValue value={v} full />
           </div>
@@ -181,7 +181,7 @@ function MessagesTimeline({ messages }: { messages: { t: number; dir: 'in' | 'ou
   return (
     <div className="flex flex-col gap-1">
       {messages.map((m, i) => (
-        <div key={i} className="grid grid-cols-[64px_32px_1fr] items-start gap-2 text-[12px]">
+        <div key={i} className="grid grid-cols-[64px_32px_1fr] items-start gap-2 text-[0.75rem]">
           <span className="text-right tabular-nums text-ink-faint">{Math.round(m.t)} ms</span>
           <Badge tone={m.dir === 'out' ? 'accent' : 'info'}>{m.dir === 'out' ? '→' : '←'}</Badge>
           <span className="min-w-0 break-all font-mono text-ink">
@@ -226,7 +226,7 @@ export function ResultSheet({ resultId, onClose, title }: { resultId: string | n
             <TabPanel value="overview" className="flex flex-col gap-6 pt-4">
               {r.error && <ErrorBox error={{ message: r.error }} />}
               <Section title="Checks">
-                {r.checks?.length ? <CheckList checks={r.checks} /> : <div className="text-[13px] text-ink-faint">No checks ran.</div>}
+                {r.checks?.length ? <CheckList checks={r.checks} /> : <div className="text-[0.8125rem] text-ink-faint">No checks ran.</div>}
               </Section>
               <Section title="Outputs">
                 <KeyValues data={r.outputs ?? {}} />
@@ -240,16 +240,16 @@ export function ResultSheet({ resultId, onClose, title }: { resultId: string | n
             </TabPanel>
             <TabPanel value="response" className="flex flex-col gap-4 pt-4">
               {!r.response ? (
-                <div className="text-[13px] text-ink-faint">No response recorded.</div>
+                <div className="text-[0.8125rem] text-ink-faint">No response recorded.</div>
               ) : (
                 <>
                   {r.response.status !== undefined && (
-                    <div className="text-[13px]">
+                    <div className="text-[0.8125rem]">
                       Status <span className="font-mono font-semibold">{r.response.status}</span>
                     </div>
                   )}
                   {r.response.headers && (
-                    <details className="text-[12.5px]">
+                    <details className="text-[0.78125rem]">
                       <summary className="cursor-pointer text-ink-muted hover:text-ink">Headers</summary>
                       <CodeBlock value={r.response.headers} className="mt-2" maxHeight={240} />
                     </details>
@@ -272,19 +272,19 @@ export function ResultSheet({ resultId, onClose, title }: { resultId: string | n
             <TabPanel value="metrics" className="pt-4">
               <div className="divide-y divide-line rounded-lg border border-line">
                 {Object.entries(r.metrics ?? {}).map(([k, v]) => (
-                  <div key={k} className="flex justify-between px-3 py-2 text-[13px]">
-                    <span className="font-mono text-[12px] text-ink-muted">{k}</span>
+                  <div key={k} className="flex justify-between px-3 py-2 text-[0.8125rem]">
+                    <span className="font-mono text-[0.75rem] text-ink-muted">{k}</span>
                     <span className="tabular-nums">{k.endsWith('_ms') ? ms(v as number) : String(v)}</span>
                   </div>
                 ))}
-                {Object.keys(r.metrics ?? {}).length === 0 && <div className="px-3 py-4 text-[13px] text-ink-faint">No metrics.</div>}
+                {Object.keys(r.metrics ?? {}).length === 0 && <div className="px-3 py-4 text-[0.8125rem] text-ink-faint">No metrics.</div>}
               </div>
             </TabPanel>
             <TabPanel value="logs" className="pt-4">
               {(r.logs ?? []).length === 0 ? (
-                <div className="text-[13px] text-ink-faint">No logs.</div>
+                <div className="text-[0.8125rem] text-ink-faint">No logs.</div>
               ) : (
-                <div className="flex flex-col gap-1 font-mono text-[12px]">
+                <div className="flex flex-col gap-1 font-mono text-[0.75rem]">
                   {r.logs.map((l: any, i: number) => (
                     <div key={i} className={clsx('break-words', l.level === 'error' ? 'text-bad' : l.level === 'warn' ? 'text-warn' : 'text-ink-muted')}>
                       <span className="mr-2 text-ink-faint">{new Date(l.at).toLocaleTimeString()}</span>

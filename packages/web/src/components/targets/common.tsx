@@ -34,15 +34,15 @@ export function Section({
       <div className={clsx('flex items-center justify-between gap-3 px-5', shown ? 'pt-4 pb-3' : 'py-3.5')}>
         <div className="flex min-w-0 items-center gap-1.5">
           {collapsible ? (
-            <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-[13.5px] font-semibold text-ink" aria-expanded={open}>
+            <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-[0.84375rem] font-semibold text-ink" aria-expanded={open}>
               <ChevronRight className={clsx('size-4 text-ink-faint transition-transform', open && 'rotate-90')} />
               {title}
             </button>
           ) : (
-            <h3 className="text-[13.5px] font-semibold text-ink">{title}</h3>
+            <h3 className="text-[0.84375rem] font-semibold text-ink">{title}</h3>
           )}
           {help && <HelpTip>{help}</HelpTip>}
-          {!shown && summary && <span className="ml-1 truncate text-[12.5px] text-ink-faint">{summary}</span>}
+          {!shown && summary && <span className="ml-1 truncate text-[0.78125rem] text-ink-faint">{summary}</span>}
         </div>
         {action}
       </div>
@@ -143,7 +143,7 @@ export function ExtractorsEditor({ value, onChange, expressionScope }: { value: 
   return (
     <div className="flex flex-col gap-2">
       {value.length > 0 && (
-        <div className="grid grid-cols-[150px_150px_1fr_32px] gap-2 text-[12px] font-medium text-ink-faint">
+        <div className="grid grid-cols-[150px_150px_1fr_32px] gap-2 text-[0.75rem] font-medium text-ink-faint">
           <span>Field name</span>
           <span>Taken from</span>
           <span className="flex items-center gap-1">
@@ -160,7 +160,7 @@ export function ExtractorsEditor({ value, onChange, expressionScope }: { value: 
           <div key={i} className="grid grid-cols-[150px_150px_1fr_32px] items-center gap-2">
             <Input mono value={x.name} placeholder="output" onChange={(e) => set(i, { name: e.target.value.replace(/[^A-Za-z0-9_]/g, '_') })} />
             <Select value={x.from} onChange={(v) => set(i, { from: v as Extractor['from'] })} options={FROM_OPTIONS.map((o) => ({ value: o.value, label: o.label, hint: o.hint }))} />
-            {needsPath ? <Input mono value={x.path} placeholder={from?.placeholder} onChange={(e) => set(i, { path: e.target.value })} /> : <span className="text-[12.5px] text-ink-faint">No path needed</span>}
+            {needsPath ? <Input mono value={x.path} placeholder={from?.placeholder} onChange={(e) => set(i, { path: e.target.value })} /> : <span className="text-[0.78125rem] text-ink-faint">No path needed</span>}
             <Button variant="ghost" size="icon-sm" aria-label="Remove output" onClick={() => onChange(value.filter((_, j) => j !== i))}>
               <Trash2 className="size-3.5" />
             </Button>
@@ -193,11 +193,11 @@ export function MessagesEditor({ value, onChange, addLabel = 'Add message', empt
   };
   return (
     <div className="flex flex-col gap-3">
-      {value.length === 0 && emptyHint && <div className="text-[12.5px] text-ink-faint">{emptyHint}</div>}
+      {value.length === 0 && emptyHint && <div className="text-[0.78125rem] text-ink-faint">{emptyHint}</div>}
       {value.map((m, i) => (
         <div key={i} className="rounded-lg border border-line bg-raised/50 p-3">
           <div className="mb-2 flex items-center gap-2">
-            <span className="text-[12px] font-medium text-ink-faint">#{i + 1}</span>
+            <span className="text-[0.75rem] font-medium text-ink-faint">#{i + 1}</span>
             <div className="w-40">
               <Select
                 size="sm"
@@ -210,14 +210,14 @@ export function MessagesEditor({ value, onChange, addLabel = 'Add message', empt
                 ]}
               />
             </div>
-            <div className="flex items-center gap-1.5 text-[12.5px] text-ink-muted">
+            <div className="flex items-center gap-1.5 text-[0.78125rem] text-ink-muted">
               <span>Wait before</span>
               <input
                 type="number"
                 min={0}
                 value={m.delayMs}
                 onChange={(e) => set(i, { delayMs: Number(e.target.value) || 0 })}
-                className="h-7 w-20 rounded-md border border-line-strong bg-surface px-2 text-[12.5px] tabular-nums focus:border-accent focus:outline-none"
+                className="h-7 w-20 rounded-md border border-line-strong bg-surface px-2 text-[0.78125rem] tabular-nums focus:border-accent focus:outline-none"
                 aria-label="Delay in milliseconds"
               />
               <span>ms</span>
@@ -275,26 +275,26 @@ export function TemplateHelp() {
     >
       <div className="flex flex-col gap-3">
         <div>
-          <div className="mb-1.5 text-[13px] font-semibold">Placeholders</div>
+          <div className="mb-1.5 text-[0.8125rem] font-semibold">Placeholders</div>
           <div className="flex flex-col gap-1">
             {SYNTAX.map(([code, text]) => (
-              <div key={code} className="grid grid-cols-[180px_1fr] gap-2 text-[12.5px]">
+              <div key={code} className="grid grid-cols-[180px_1fr] gap-2 text-[0.78125rem]">
                 <code className="truncate font-mono text-accent-ink">{code}</code>
                 <span className="text-ink-muted">{text}</span>
               </div>
             ))}
           </div>
-          <div className="mt-2 text-[12px] text-ink-faint">In JSON bodies and messages, {'{{var}}'} inside quotes is escaped for you.</div>
+          <div className="mt-2 text-[0.75rem] text-ink-faint">In JSON bodies and messages, {'{{var}}'} inside quotes is escaped for you.</div>
         </div>
         <div className="border-t border-line pt-3">
-          <div className="mb-1.5 text-[13px] font-semibold">Secrets</div>
+          <div className="mb-1.5 text-[0.8125rem] font-semibold">Secrets</div>
           {(secrets.data ?? []).length === 0 ? (
-            <div className="text-[12.5px] text-ink-faint">No secrets yet. Add them on the Connections page; values never leave this machine.</div>
+            <div className="text-[0.78125rem] text-ink-faint">No secrets yet. Add them on the Connections page; values never leave this machine.</div>
           ) : (
             <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
               {secrets.data!.map((s) => (
                 <div key={s} className="flex items-center justify-between gap-2">
-                  <code className="truncate font-mono text-[12.5px]">{`{{secret.${s}}}`}</code>
+                  <code className="truncate font-mono text-[0.78125rem]">{`{{secret.${s}}}`}</code>
                   <CopyButton text={`{{secret.${s}}}`} />
                 </div>
               ))}
@@ -309,7 +309,7 @@ export function TemplateHelp() {
 /** Small reference list shown next to script editors. */
 export function ScriptDocs({ items, returns }: { items: [string, string][]; returns?: ReactNode }) {
   return (
-    <div className="rounded-lg bg-raised px-3 py-2.5 text-[12.5px]">
+    <div className="rounded-lg bg-raised px-3 py-2.5 text-[0.78125rem]">
       <div className="mb-1 font-medium text-ink-muted">Available in the script</div>
       <div className="grid grid-cols-[130px_1fr] gap-x-3 gap-y-0.5">
         {items.map(([k, v]) => (

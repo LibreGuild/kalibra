@@ -49,9 +49,9 @@ const KIND_LABEL: Record<Kind, string> = { text: 'Text', image: 'Image', speech:
 /** One line describing a test result: reply text, or a small image / audio preview. */
 function TestResult({ r }: { r: any }) {
   if (!r) return null;
-  if (r.error) return <div className="text-[12.5px] text-bad">{r.error}</div>;
+  if (r.error) return <div className="text-[0.78125rem] text-bad">{r.error}</div>;
   return (
-    <div className="flex items-center gap-3 text-[12.5px] text-ink-muted">
+    <div className="flex items-center gap-3 text-[0.78125rem] text-ink-muted">
       <Badge tone="ok" dot>Works</Badge>
       <span>{r.latencyMs} ms</span>
       {r.file && r.kind === 'image' && <img src={fileUrl(r.file.hash)} alt="Test image" className="size-10 rounded border border-line object-cover" />}
@@ -147,7 +147,7 @@ export function ConnectionsPage() {
               <Card key={c.id} className="flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-[15px] font-semibold">{c.name}</div>
+                    <div className="truncate text-[0.9375rem] font-semibold">{c.name}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                       <Badge tone="accent">{label(c.spec.provider)}</Badge>
                       {(['text', 'image', 'speech', 'transcription'] as Kind[]).map((k) =>
@@ -175,9 +175,9 @@ export function ConnectionsPage() {
                     </MenuItem>
                   </Menu>
                 </div>
-                <div className="truncate font-mono text-[12px] text-ink-muted">{describe(c.spec)}</div>
+                <div className="truncate font-mono text-[0.75rem] text-ink-muted">{describe(c.spec)}</div>
                 <div className="mt-auto flex items-center justify-between border-t border-line pt-3">
-                  <span className="text-[12px] text-ink-faint">Updated {timeAgo(c.updatedAt)}</span>
+                  <span className="text-[0.75rem] text-ink-faint">Updated {timeAgo(c.updatedAt)}</span>
                   <Button size="sm" icon={<Zap className="size-3.5" />} onClick={() => test(c)}>
                     Test
                   </Button>
@@ -199,12 +199,12 @@ export function ConnectionsPage() {
             Secrets
           </SectionTitle>
           {(secrets.data ?? []).length === 0 ? (
-            <div className="text-[13px] text-ink-muted">No secrets stored. API keys you enter for connections are saved here automatically.</div>
+            <div className="text-[0.8125rem] text-ink-muted">No secrets stored. API keys you enter for connections are saved here automatically.</div>
           ) : (
             <ul className="divide-y divide-line">
               {secrets.data!.map((s) => (
                 <li key={s} className="flex items-center justify-between py-2">
-                  <span className="flex items-center gap-2 font-mono text-[12.5px]">
+                  <span className="flex items-center gap-2 font-mono text-[0.78125rem]">
                     <KeyRound className="size-3.5 text-ink-faint" />
                     {`{{secret.${s}}}`}
                   </span>
@@ -480,7 +480,7 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
 
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-raised/50 p-3.5">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+            <div className="flex items-center gap-1.5 text-[0.8125rem] font-semibold">
               Models
               <HelpTip>One connection can serve several kinds of models from the same account. Fill in the ones you use; leave the rest empty. Each Test makes one small real call.</HelpTip>
             </div>
@@ -524,7 +524,7 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
         </div>
 
         <details className="group">
-          <summary className="cursor-pointer text-[13px] font-medium text-ink-muted hover:text-ink">Extra headers</summary>
+          <summary className="cursor-pointer text-[0.8125rem] font-medium text-ink-muted hover:text-ink">Extra headers</summary>
           <div className="mt-2">
             <KeyValueEditor value={spec.headers} onChange={(h) => set({ headers: h })} keyPlaceholder="Header" valuePlaceholder="Value" addLabel="Add header" />
           </div>

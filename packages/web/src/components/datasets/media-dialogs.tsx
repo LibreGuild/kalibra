@@ -48,10 +48,10 @@ export function JobPanel({ job }: { job: JobRecord }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           {active(job) ? <LoaderCircle className="size-4 shrink-0 animate-spin text-accent" /> : <StatusBadge status={job.status === 'completed' ? 'completed' : job.status === 'cancelled' ? 'cancelled' : 'failed'} />}
-          <span className="truncate text-[13.5px] font-medium">{job.title}</span>
+          <span className="truncate text-[0.84375rem] font-medium">{job.title}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[12.5px] tabular-nums text-ink-muted">
+          <span className="text-[0.78125rem] tabular-nums text-ink-muted">
             {job.done} / {job.total || '…'}
           </span>
           {active(job) && (
@@ -72,7 +72,7 @@ export function JobPanel({ job }: { job: JobRecord }) {
       </div>
       <Progress value={pct} tone={job.status === 'failed' ? 'bad' : job.status === 'completed' && !r.failed ? 'ok' : 'accent'} />
       {!active(job) && (
-        <div className="flex flex-wrap gap-1.5 text-[12.5px]">
+        <div className="flex flex-wrap gap-1.5 text-[0.78125rem]">
           {!!r.created && <Badge tone="ok">{r.created} new rows</Badge>}
           {!!r.updated && <Badge tone="ok">{r.updated} rows updated</Badge>}
           {!!r.skipped && <Badge>{r.skipped} skipped</Badge>}
@@ -82,7 +82,7 @@ export function JobPanel({ job }: { job: JobRecord }) {
       )}
       {job.error && <ErrorBox error={new Error(job.error)} />}
       {job.errors.length > 0 && (
-        <ul className="max-h-36 overflow-y-auto rounded-md bg-surface px-3 py-2 text-[12.5px] text-bad">
+        <ul className="max-h-36 overflow-y-auto rounded-md bg-surface px-3 py-2 text-[0.78125rem] text-bad">
           {job.errors.slice(0, 20).map((e, i) => (
             <li key={i} className="truncate">
               {e.item ? <span className="text-ink-faint">{e.item}: </span> : null}
@@ -112,7 +112,7 @@ export function DatasetJobsStrip({ datasetId }: { datasetId: string }) {
         <div key={j.id} className="relative">
           <JobPanel job={j} />
           {!active(j) && (
-            <button className="absolute right-3 top-3 text-[12px] text-ink-faint hover:text-ink" onClick={() => setHidden(new Set([...hidden, j.id]))}>
+            <button className="absolute right-3 top-3 text-[0.75rem] text-ink-faint hover:text-ink" onClick={() => setHidden(new Set([...hidden, j.id]))}>
               Dismiss
             </button>
           )}
@@ -199,7 +199,7 @@ function previewTemplate(tpl: string, row: RowRecord) {
 function ColumnChips({ columns, onInsert }: { columns: ColumnDef[]; onInsert: (s: string) => void }) {
   if (!columns.length) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1 text-[12px] text-ink-faint">
+    <div className="flex flex-wrap items-center gap-1 text-[0.75rem] text-ink-faint">
       Insert:
       {columns.map((c) => (
         <button key={c.key} type="button" onClick={() => onInsert(`{{${c.key}}}`)} className="rounded border border-line bg-raised px-1.5 font-mono text-ink-muted hover:border-line-strong hover:text-ink">
@@ -232,7 +232,7 @@ function useSampleRows(datasetId: string, open: boolean) {
 
 function NoConnections() {
   return (
-    <div className="rounded-lg border border-line bg-raised p-3.5 text-[13px] text-ink-muted">
+    <div className="rounded-lg border border-line bg-raised p-3.5 text-[0.8125rem] text-ink-muted">
       No model connections yet. <Link to="/connections" className="font-medium text-accent-ink hover:underline">Add a connection</Link> (for example OpenAI with an image or speech model) to use this.
     </div>
   );
@@ -304,7 +304,7 @@ function JobDialog({
       footer={
         jobId ? (
           <>
-            {!finished && <span className="mr-auto self-center text-[12.5px] text-ink-faint">You can close this window; the job keeps running and shows above the rows.</span>}
+            {!finished && <span className="mr-auto self-center text-[0.78125rem] text-ink-faint">You can close this window; the job keeps running and shows above the rows.</span>}
             <Button variant={finished ? 'primary' : 'secondary'} onClick={() => close(false)}>
               {finished ? 'Done' : 'Close'}
             </Button>
@@ -319,7 +319,7 @@ function JobDialog({
         )
       }
     >
-      {jobId ? job.data ? <JobPanel job={job.data} /> : <div className="text-[13px] text-ink-muted">Starting…</div> : <div className="flex flex-col gap-5">{children}<ErrorBox error={error} /></div>}
+      {jobId ? job.data ? <JobPanel job={job.data} /> : <div className="text-[0.8125rem] text-ink-muted">Starting…</div> : <div className="flex flex-col gap-5">{children}<ErrorBox error={error} /></div>}
     </Dialog>
   );
 }
@@ -408,7 +408,7 @@ export function GenerateImagesDialog({ open, onOpenChange, ds, selectedIds }: { 
           <ScopeChoice value={scope} onChange={setScope} selectedCount={selectedIds.length} emptyLabel="Only rows without an image" />
           {targetRows.length > 0 && template && (
             <Field label="Preview">
-              <ul className="flex flex-col gap-1 rounded-lg bg-raised px-3 py-2 text-[12.5px] text-ink-muted">
+              <ul className="flex flex-col gap-1 rounded-lg bg-raised px-3 py-2 text-[0.78125rem] text-ink-muted">
                 {targetRows.slice(0, 3).map((r) => (
                   <li key={r.id} className="truncate">
                     <span className="text-ink-faint">#{r.seq}</span> {previewTemplate(template, r)}
@@ -454,7 +454,7 @@ export function GenerateImagesDialog({ open, onOpenChange, ds, selectedIds }: { 
         )}
       </div>
       {count > 0 && (
-        <div className="text-[12.5px] text-ink-faint">
+        <div className="text-[0.78125rem] text-ink-faint">
           {count} image{count === 1 ? '' : 's'}
           {isOpenAI ? ` at ${quality} quality` : ''} — each one is a paid call to your provider.
         </div>
@@ -553,7 +553,7 @@ export function GenerateSpeechDialog({ open, onOpenChange, ds, selectedIds }: { 
       <ScopeChoice value={scope} onChange={setScope} selectedCount={selectedIds.length} emptyLabel="Only rows without audio" />
       {targetRows.length > 0 && template && (
         <Field label="Preview">
-          <ul className="flex flex-col gap-1 rounded-lg bg-raised px-3 py-2 text-[12.5px] text-ink-muted">
+          <ul className="flex flex-col gap-1 rounded-lg bg-raised px-3 py-2 text-[0.78125rem] text-ink-muted">
             {targetRows.slice(0, 3).map((r, i) => (
               <li key={r.id} className="truncate">
                 <span className="text-ink-faint">#{r.seq}</span> {voices.length ? <Badge className="mr-1">{voices[i % voices.length]}</Badge> : null}
@@ -563,7 +563,7 @@ export function GenerateSpeechDialog({ open, onOpenChange, ds, selectedIds }: { 
           </ul>
         </Field>
       )}
-      <div className="rounded-lg bg-raised px-3 py-2 text-[12.5px] text-ink-muted">
+      <div className="rounded-lg bg-raised px-3 py-2 text-[0.78125rem] text-ink-muted">
         Synthetic speech is cleaner than real recordings. Keep some real audio in the set, and use <b>Make audio variants</b> to add noise or a phone line.
       </div>
     </JobDialog>
@@ -612,7 +612,7 @@ export function TranscribeDialog({ open, onOpenChange, ds, selectedIds }: { open
       }}
     >
       {list && list.length === 0 && <NoConnections />}
-      {audioCols.length === 0 && <div className="rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn">This dataset has no audio column yet.</div>}
+      {audioCols.length === 0 && <div className="rounded-lg bg-warn-soft px-3 py-2 text-[0.78125rem] text-warn">This dataset has no audio column yet.</div>}
       <div className="grid grid-cols-2 gap-4">
         <Field label="Connection" help="A provider with a transcription model, e.g. OpenAI (gpt-4o-transcribe) or Google.">
           <ConnectionPicker value={connectionId} onChange={setConnectionId} />
@@ -718,7 +718,7 @@ export function AudioVariantsDialog({ open, onOpenChange, ds, selectedIds }: { o
         ).jobId
       }
     >
-      {audioCols.length === 0 && <div className="rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn">This dataset has no audio column yet.</div>}
+      {audioCols.length === 0 && <div className="rounded-lg bg-warn-soft px-3 py-2 text-[0.78125rem] text-warn">This dataset has no audio column yet.</div>}
       <div className="grid grid-cols-2 gap-4">
         <Field label="Audio column" help="The recordings to transform. Other columns are copied to the new rows unchanged.">
           <Select value={source} onChange={setSource} options={audioCols.map((c) => ({ value: c.key, label: c.key }))} />
@@ -737,13 +737,13 @@ export function AudioVariantsDialog({ open, onOpenChange, ds, selectedIds }: { o
             <li key={ri} className="flex flex-wrap items-center gap-3 px-3 py-2">
               <input type="checkbox" className="size-4 accent-[var(--k-accent)]" checked={r.on} onChange={(e) => setRecipes((rs) => rs.map((x, i) => (i === ri ? { ...x, on: e.target.checked } : x)))} aria-label={`Use ${r.name}`} />
               <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-medium">{r.name}</div>
-                <div className="text-[12px] text-ink-faint">{r.hint}</div>
+                <div className="text-[0.84375rem] font-medium">{r.name}</div>
+                <div className="text-[0.75rem] text-ink-faint">{r.hint}</div>
               </div>
               <div className="flex items-center gap-2">
                 {r.effects.flatMap((e, ei) =>
                   (PARAMS[e.type] ?? []).map((p) => (
-                    <label key={`${ei}-${p.key}`} className="flex items-center gap-1 text-[12px] text-ink-muted">
+                    <label key={`${ei}-${p.key}`} className="flex items-center gap-1 text-[0.75rem] text-ink-muted">
                       {p.label}
                       <HelpTip>{p.help}</HelpTip>
                       <input
@@ -752,7 +752,7 @@ export function AudioVariantsDialog({ open, onOpenChange, ds, selectedIds }: { o
                         value={(e as any)[p.key]}
                         disabled={!r.on}
                         onChange={(ev) => setEffect(ri, ei, p.key, Number(ev.target.value))}
-                        className="h-7 w-16 rounded-md border border-line-strong bg-surface px-1.5 text-[12.5px] tabular-nums focus:border-accent focus:outline-none disabled:opacity-50"
+                        className="h-7 w-16 rounded-md border border-line-strong bg-surface px-1.5 text-[0.78125rem] tabular-nums focus:border-accent focus:outline-none disabled:opacity-50"
                       />
                     </label>
                   )),
@@ -766,7 +766,7 @@ export function AudioVariantsDialog({ open, onOpenChange, ds, selectedIds }: { o
         <Switch checked={includeAugmented} onChange={setIncludeAugmented} />
       </Field>
       {total > 0 && (
-        <div className="text-[12.5px] text-ink-faint">
+        <div className="text-[0.78125rem] text-ink-faint">
           {sourceCount} recording{sourceCount === 1 ? '' : 's'} × {chosen.length} variant{chosen.length === 1 ? '' : 's'} = {total} new rows. Processing happens on this machine; no model calls.
         </div>
       )}

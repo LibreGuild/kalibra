@@ -30,7 +30,7 @@ function useRefreshRows() {
 export function ResultSummary({ result, extra }: { result: AddRowsResult; extra?: ReactNode }) {
   const added = Array.isArray(result.added) ? result.added.length : result.added;
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-raised p-3 text-[13px]">
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-raised p-3 text-[0.8125rem]">
       <div className="flex items-center gap-2 font-medium">
         <CircleCheck className="size-4 text-ok" /> {added} row{added === 1 ? '' : 's'} added
         {result.rejected.length > 0 && <span className="text-bad">· {result.rejected.length} rejected</span>}
@@ -81,7 +81,7 @@ function DropZone({ accept, multiple, onFiles, children }: { accept?: string; mu
         if (files.length) onFiles(multiple ? files : files.slice(0, 1));
       }}
       className={clsx(
-        'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-4 py-7 text-center text-[13px] text-ink-muted transition-colors',
+        'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-4 py-7 text-center text-[0.8125rem] text-ink-muted transition-colors',
         over ? 'border-accent bg-accent-soft/50' : 'border-line-strong bg-raised hover:border-ink-faint',
       )}
     >
@@ -176,8 +176,8 @@ export function NewDatasetDialog({ open, onOpenChange }: { open: boolean; onOpen
                   template === t.id ? 'border-accent bg-accent-soft/50' : 'border-line bg-surface hover:bg-hover',
                 )}
               >
-                <div className="text-[13px] font-medium">{t.label}</div>
-                <div className="mt-0.5 text-[12px] leading-snug text-ink-muted">{t.hint}</div>
+                <div className="text-[0.8125rem] font-medium">{t.label}</div>
+                <div className="mt-0.5 text-[0.75rem] leading-snug text-ink-muted">{t.hint}</div>
               </button>
             ))}
           </div>
@@ -342,7 +342,7 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
       }
     >
       {fileColumns.length === 0 ? (
-        <div className="rounded-lg border border-line bg-raised p-4 text-[13.5px] text-ink-muted">
+        <div className="rounded-lg border border-line bg-raised p-4 text-[0.84375rem] text-ink-muted">
           This dataset has no audio, image or file column yet. Add one in <b>Columns & instructions</b> (type “Audio file” or “Image file”), then come back.
         </div>
       ) : (
@@ -358,13 +358,13 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
 
           <DropZone accept={accept} multiple onFiles={addFiles}>
             <span className="font-medium text-ink">Drop files here or click to choose</span>
-            <span className="text-[12px]">You can select many files at once.</span>
+            <span className="text-[0.75rem]">You can select many files at once.</span>
           </DropZone>
 
           {items.length > 0 && (
             <div className="max-h-48 overflow-y-auto rounded-lg border border-line">
               {items.map((it, i) => (
-                <div key={it.file.name} className="flex items-center gap-2 border-b border-line/70 px-3 py-1.5 text-[13px] last:border-b-0">
+                <div key={it.file.name} className="flex items-center gap-2 border-b border-line/70 px-3 py-1.5 text-[0.8125rem] last:border-b-0">
                   {it.status === 'uploading' ? (
                     <LoaderCircle className="size-3.5 animate-spin text-ink-faint" />
                   ) : it.status === 'done' ? (
@@ -375,9 +375,9 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
                     <span className="size-3.5 rounded-full border border-line-strong" />
                   )}
                   <span className="min-w-0 flex-1 truncate">{it.file.name}</span>
-                  {csv && nameCol && !referenced.has(it.file.name) && <span className="text-[12px] text-warn">not in CSV</span>}
-                  {it.error && <span className="truncate text-[12px] text-bad">{it.error}</span>}
-                  <span className="text-[12px] tabular-nums text-ink-faint">{bytes(it.file.size)}</span>
+                  {csv && nameCol && !referenced.has(it.file.name) && <span className="text-[0.75rem] text-warn">not in CSV</span>}
+                  {it.error && <span className="truncate text-[0.75rem] text-bad">{it.error}</span>}
+                  <span className="text-[0.75rem] tabular-nums text-ink-faint">{bytes(it.file.size)}</span>
                   {!busy && it.status !== 'done' && (
                     <button type="button" className="text-ink-faint hover:text-ink" aria-label="Remove" onClick={() => setItems(items.filter((_, j) => j !== i))}>
                       <X className="size-3.5" />
@@ -390,7 +390,7 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
 
           <div className="rounded-lg border border-line p-3.5">
             <div className="mb-2.5 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 text-[13px] font-medium">
+              <div className="flex items-center gap-1.5 text-[0.8125rem] font-medium">
                 <FileSpreadsheet className="size-4 text-ink-muted" /> Labels CSV (optional)
                 <HelpTip>A CSV with one line per file: a column with the file name, plus columns like the correct transcript. Values are matched to files by name.</HelpTip>
               </div>
@@ -399,16 +399,16 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
                   Remove
                 </Button>
               ) : (
-                <label className="inline-flex h-7 cursor-pointer items-center rounded-md border border-line-strong px-2.5 text-[13px] font-medium hover:bg-hover">
+                <label className="inline-flex h-7 cursor-pointer items-center rounded-md border border-line-strong px-2.5 text-[0.8125rem] font-medium hover:bg-hover">
                   Choose CSV
                   <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && pickCsv(e.target.files[0])} />
                 </label>
               )}
             </div>
-            {!csv && <div className="text-[12.5px] text-ink-faint">Example: <span className="font-mono">file,transcript</span> then <span className="font-mono">clip01.wav,turn left at the light</span></div>}
+            {!csv && <div className="text-[0.78125rem] text-ink-faint">Example: <span className="font-mono">file,transcript</span> then <span className="font-mono">clip01.wav,turn left at the light</span></div>}
             {csv && (
               <div className="flex flex-col gap-3">
-                <div className="text-[12.5px] text-ink-muted">
+                <div className="text-[0.78125rem] text-ink-muted">
                   {csv.file.name} · {csv.rows.length} lines
                   {notInCsv > 0 && <span className="text-warn"> · {notInCsv} uploaded file{notInCsv === 1 ? ' is' : 's are'} not listed and will be skipped</span>}
                 </div>
@@ -425,7 +425,7 @@ export function UploadFilesDialog({ open, onOpenChange, datasetId, columns }: { 
                       inline
                       label={
                         <span>
-                          <span className="font-mono text-[12.5px]">{h}</span> <span className="font-normal text-ink-faint">→</span>
+                          <span className="font-mono text-[0.78125rem]">{h}</span> <span className="font-normal text-ink-faint">→</span>
                         </span>
                       }
                     >
@@ -514,7 +514,7 @@ export function ImportDialog({ open, onOpenChange, datasetId }: { open: boolean;
     >
       <div className="flex flex-col gap-5">
         {file ? (
-          <div className="flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2.5 text-[13px]">
+          <div className="flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2.5 text-[0.8125rem]">
             <FileSpreadsheet className="size-4 text-ink-muted" />
             <span className="min-w-0 flex-1 truncate">{file.name}</span>
             <span className="text-ink-faint">{bytes(file.size)}</span>
@@ -527,7 +527,7 @@ export function ImportDialog({ open, onOpenChange, datasetId }: { open: boolean;
         ) : (
           <DropZone accept=".csv,.tsv,.jsonl,.ndjson,.json,text/csv,application/json" onFiles={(f) => setFile(f[0])}>
             <span className="font-medium text-ink">Drop a file here or click to choose</span>
-            <span className="text-[12px]">OpenAI Evals JSONL ({'{"item": {…}}'} per line) works too.</span>
+            <span className="text-[0.75rem]">OpenAI Evals JSONL ({'{"item": {…}}'} per line) works too.</span>
           </DropZone>
         )}
         <Field
@@ -623,7 +623,7 @@ export function GenerateDialog({ open, onOpenChange, datasetId }: { open: boolea
     >
       <div className="flex flex-col gap-5">
         {none && (
-          <div className="rounded-lg border border-line bg-raised p-3.5 text-[13px] text-ink-muted">
+          <div className="rounded-lg border border-line bg-raised p-3.5 text-[0.8125rem] text-ink-muted">
             No model connections yet. <Link to="/connections" className="font-medium text-accent-ink hover:underline">Add a connection</Link>, or let your coding agent fill this
             dataset for free through MCP — see <Link to="/agents" className="font-medium text-accent-ink hover:underline">Coding agents</Link>.
           </div>
@@ -648,7 +648,7 @@ export function GenerateDialog({ open, onOpenChange, datasetId }: { open: boolea
           <Textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder="Optional guidance for this batch" />
         </Field>
         {busy && (
-          <div className="flex items-center gap-2 text-[13px] text-ink-muted">
+          <div className="flex items-center gap-2 text-[0.8125rem] text-ink-muted">
             <LoaderCircle className="size-4 animate-spin" /> Writing rows… this can take a minute for larger batches.
           </div>
         )}

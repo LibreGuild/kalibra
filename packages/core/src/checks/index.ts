@@ -5,6 +5,7 @@ import { isJsonCheck, jsonPathCheck, jsonSchemaCheck } from './structure.js';
 import { containsCheck, equalsCheck, numericCheck, regexCheck, similarityCheck } from './content.js';
 import { bleuCheck, chrfCheck, keywordRecallCheck, rougeLCheck, tokenF1Check, werCheck } from './reference.js';
 import { expressionCheck, llmJudgeCheck, scriptCheck } from './judgment.js';
+import { piiLeakCheck, refusalCheck } from './safety.js';
 
 export * from './types.js';
 export { statusMatches } from './transport.js';
@@ -29,6 +30,8 @@ export const CHECK_TYPES: CheckType[] = [
   rougeLCheck,
   chrfCheck,
   tokenF1Check,
+  refusalCheck,
+  piiLeakCheck,
   llmJudgeCheck,
   scriptCheck,
   expressionCheck,

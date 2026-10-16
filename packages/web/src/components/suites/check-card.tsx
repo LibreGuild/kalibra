@@ -142,7 +142,7 @@ function ConfigField({ field, value, onChange }: { field: CheckFieldMeta; value:
               }
             }}
           />
-          {jsonError && <div className="text-[12px] text-bad">Invalid JSON: {jsonError}</div>}
+          {jsonError && <div className="text-[0.75rem] text-bad">Invalid JSON: {jsonError}</div>}
         </>
       );
       break;
@@ -198,7 +198,7 @@ export function CheckCard({
         </Tip>
         <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left" aria-expanded={open}>
           <ChevronRight className={clsx('size-4 shrink-0 text-ink-faint transition-transform', open && 'rotate-90')} />
-          <span className="truncate text-[13.5px] font-medium">{title}</span>
+          <span className="truncate text-[0.84375rem] font-medium">{title}</span>
           <Badge className="font-mono">{check.type}</Badge>
           {!type && <Badge tone="bad">Unknown type</Badge>}
           {check.applyWhen.trim() && (
@@ -210,12 +210,12 @@ export function CheckCard({
           )}
         </button>
         <div className="flex shrink-0 items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[12.5px] text-ink-muted">
+          <label className="flex items-center gap-1.5 text-[0.78125rem] text-ink-muted">
             Gate
             <HelpTip>A gate must pass for later layers to run on that row. Use it for cheap must-haves (status, schema) so failures don't pay for slower checks like LLM judges.</HelpTip>
             <Switch checked={check.gate} onChange={(v) => set({ gate: v })} label="Gate" />
           </label>
-          <label className="flex items-center gap-1.5 text-[12.5px] text-ink-muted">
+          <label className="flex items-center gap-1.5 text-[0.78125rem] text-ink-muted">
             <Tip content="Weight in the row score. Only matters with the weighted pass rule.">
               <span>Weight</span>
             </Tip>
@@ -225,7 +225,7 @@ export function CheckCard({
               step="any"
               value={check.weight}
               onChange={(e) => set({ weight: Math.max(0, Number(e.target.value) || 0) })}
-              className="h-7 w-14 rounded-md border border-line-strong bg-surface px-1.5 text-[12.5px] tabular-nums focus:border-accent focus:outline-none"
+              className="h-7 w-14 rounded-md border border-line-strong bg-surface px-1.5 text-[0.78125rem] tabular-nums focus:border-accent focus:outline-none"
               aria-label="Weight"
             />
           </label>
@@ -255,7 +255,7 @@ export function CheckCard({
       </div>
       {open && (
         <div className="border-t border-line px-4 py-4">
-          {type?.description && <p className="mb-4 text-[13px] text-ink-muted">{type.description}</p>}
+          {type?.description && <p className="mb-4 text-[0.8125rem] text-ink-muted">{type.description}</p>}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3.5">
             <Field label="Name" help="Shown in results. Leave empty to use the check type's name.">
               <Input value={check.name} placeholder={type?.label ?? check.type} onChange={(e) => set({ name: e.target.value })} />
@@ -299,7 +299,7 @@ export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boo
       <div className="flex flex-col gap-5">
         {groups.map(([cat, list]) => (
           <div key={cat}>
-            <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
+            <div className="mb-2 text-[0.75rem] font-semibold uppercase tracking-wide text-ink-faint">
               {CATEGORY_LABEL[cat] ?? cat} · layer {list[0]?.layer}
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -316,15 +316,15 @@ export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boo
                 >
                   <Plus className="mt-0.5 size-3.5 shrink-0 text-accent" />
                   <div className="min-w-0">
-                    <div className="text-[13.5px] font-medium">{t.label}</div>
-                    <div className="mt-0.5 line-clamp-2 text-[12.5px] text-ink-muted">{t.description}</div>
+                    <div className="text-[0.84375rem] font-medium">{t.label}</div>
+                    <div className="mt-0.5 line-clamp-2 text-[0.78125rem] text-ink-muted">{t.description}</div>
                   </div>
                 </button>
               ))}
             </div>
           </div>
         ))}
-        {groups.length === 0 && <div className="py-6 text-center text-[13px] text-ink-muted">No check matches “{q}”.</div>}
+        {groups.length === 0 && <div className="py-6 text-center text-[0.8125rem] text-ink-muted">No check matches “{q}”.</div>}
       </div>
     </Dialog>
   );

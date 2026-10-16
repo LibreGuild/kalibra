@@ -30,7 +30,7 @@ function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: s
         aria-label={label}
         className={({ isActive }) =>
           clsx(
-            'relative flex h-9 items-center rounded-lg text-[13.5px] font-medium transition-colors',
+            'relative flex h-9 items-center rounded-lg text-[0.84375rem] font-medium transition-colors',
             collapsed ? 'justify-center' : 'gap-2.5 px-2.5',
             isActive ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-ink-muted hover:bg-hover hover:text-ink',
           )
@@ -41,7 +41,7 @@ function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: s
             {isActive && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-accent" />}
             <Icon className={clsx('size-4 shrink-0', isActive && 'text-accent-ink')} />
             {!collapsed && <span className="flex-1 truncate">{label}</span>}
-            {!!count && (collapsed ? <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-warn" /> : <span className="rounded-md bg-warn-soft px-1.5 text-[11px] font-semibold tabular-nums text-warn">{count}</span>)}
+            {!!count && (collapsed ? <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-warn" /> : <span className="rounded-md bg-warn-soft px-1.5 text-[0.6875rem] font-semibold tabular-nums text-warn">{count}</span>)}
           </>
         )}
       </NavLink>
@@ -89,8 +89,8 @@ export function AppShell() {
     <div className="flex h-full">
       <aside className={clsx('flex shrink-0 flex-col border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
         <div className={clsx('mb-5 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
-          <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[15px] font-bold text-on-accent">K</div>
-          {!collapsed && <span className="text-[17px] font-bold tracking-tight">Kalibra</span>}
+          <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent">K</div>
+          {!collapsed && <span className="text-[1.0625rem] font-bold tracking-tight">Kalibra</span>}
         </div>
         <nav className="flex flex-col gap-0.5">
           {NAV.map((n) => (
@@ -109,7 +109,7 @@ export function AppShell() {
               type="button"
               onClick={toggle}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className={clsx('flex h-8 w-full items-center rounded-lg text-[13px] text-ink-faint hover:bg-hover hover:text-ink', collapsed ? 'justify-center' : 'gap-2.5 px-2.5')}
+              className={clsx('flex h-8 w-full items-center rounded-lg text-[0.8125rem] text-ink-faint hover:bg-hover hover:text-ink', collapsed ? 'justify-center' : 'gap-2.5 px-2.5')}
             >
               {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
               {!collapsed && 'Collapse'}
@@ -148,10 +148,10 @@ export function Page({
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <h1 className="truncate text-[24px] font-bold tracking-tight">{title}</h1>
+            <h1 className="truncate text-[1.5rem] font-bold tracking-tight">{title}</h1>
             {badge}
           </div>
-          {description && <p className="mt-1 max-w-2xl text-[13.5px] text-ink-muted">{description}</p>}
+          {description && <p className="mt-1 max-w-2xl text-[0.84375rem] text-ink-muted">{description}</p>}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
@@ -162,7 +162,7 @@ export function Page({
 
 export function BackLink({ to, children }: { to: string; children: ReactNode }) {
   return (
-    <NavLink to={to} className="text-[13px] text-ink-muted hover:text-ink">
+    <NavLink to={to} className="text-[0.8125rem] text-ink-muted hover:text-ink">
       ← {children}
     </NavLink>
   );

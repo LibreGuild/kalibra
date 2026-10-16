@@ -149,7 +149,7 @@ body {
 }
 
 .cm-editor {
-  font-size: 12.5px;
+  font-size: 0.78125rem;
 }
 .cm-editor.cm-focused {
   outline: none !important;

@@ -105,7 +105,7 @@ export function TryPanel({ spec, targetId }: { spec: TargetSpec; targetId: strin
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="flex items-center gap-1.5 text-[13.5px] font-semibold">
+        <h3 className="flex items-center gap-1.5 text-[0.84375rem] font-semibold">
           Try it
           <HelpTip>Calls your app once with the settings on the left, even before you save. Nothing is stored.</HelpTip>
         </h3>
@@ -161,18 +161,18 @@ export function TryPanel({ spec, targetId }: { spec: TargetSpec; targetId: strin
               <Badge tone={result.response.status < 400 ? 'ok' : 'bad'}>HTTP {result.response.status}</Badge>
             )}
             {result.retryable && <Badge tone="warn">Retryable</Badge>}
-            <span className="text-[12px] text-ink-faint">row {result.rowId}</span>
+            <span className="text-[0.75rem] text-ink-faint">row {result.rowId}</span>
           </div>
-          {result.error && <div className="rounded-lg border border-bad/30 bg-bad-soft px-3 py-2 text-[13px] break-words text-bad">{result.error}</div>}
+          {result.error && <div className="rounded-lg border border-bad/30 bg-bad-soft px-3 py-2 text-[0.8125rem] break-words text-bad">{result.error}</div>}
 
           <div className="grid grid-cols-3 gap-2">
             {KEY_METRICS.filter(([k]) => result.metrics[k] !== undefined).map(([k, label, help]) => (
               <div key={k} className="rounded-lg bg-raised px-3 py-2">
-                <div className="flex items-center gap-1 text-[11.5px] font-medium text-ink-muted">
+                <div className="flex items-center gap-1 text-[0.71875rem] font-medium text-ink-muted">
                   {label}
                   <HelpTip>{help}</HelpTip>
                 </div>
-                <div className="text-[15px] font-semibold tabular-nums">{k === 'rtf' ? result.metrics[k].toFixed(2) : ms(result.metrics[k])}</div>
+                <div className="text-[0.9375rem] font-semibold tabular-nums">{k === 'rtf' ? result.metrics[k].toFixed(2) : ms(result.metrics[k])}</div>
               </div>
             ))}
           </div>
@@ -189,24 +189,24 @@ export function TryPanel({ spec, targetId }: { spec: TargetSpec; targetId: strin
           >
             <TabPanel value="outputs" className="pt-3">
               {Object.keys(result.outputs ?? {}).length === 0 ? (
-                <div className="text-[13px] text-ink-muted">No outputs. Check the Outputs section: add a field named “output”.</div>
+                <div className="text-[0.8125rem] text-ink-muted">No outputs. Check the Outputs section: add a field named “output”.</div>
               ) : (
                 <div className="flex flex-col gap-3">
                   {Object.entries(result.outputs).map(([k, v]) => (
                     <div key={k}>
-                      <div className="mb-1 flex items-center gap-2 text-[12px] font-medium text-ink-muted">
+                      <div className="mb-1 flex items-center gap-2 text-[0.75rem] font-medium text-ink-muted">
                         <code className="font-mono">{k}</code>
                         {k === 'output' && <Badge tone="accent">main</Badge>}
                       </div>
-                      <div className="rounded-lg bg-raised px-3 py-2 text-[13px] break-words">
+                      <div className="rounded-lg bg-raised px-3 py-2 text-[0.8125rem] break-words">
                         <CellValue value={v} full />
                       </div>
                     </div>
                   ))}
                   {otherMetrics.length > 0 && (
                     <div>
-                      <div className="mb-1 text-[12px] font-medium text-ink-muted">Other metrics</div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[12.5px]">
+                      <div className="mb-1 text-[0.75rem] font-medium text-ink-muted">Other metrics</div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[0.78125rem]">
                         {otherMetrics.map(([k, v]) => (
                           <div key={k} className="flex justify-between gap-2">
                             <code className="font-mono text-ink-muted">{k}</code>
@@ -224,28 +224,28 @@ export function TryPanel({ spec, targetId }: { spec: TargetSpec; targetId: strin
                 {messages.length > 0 && <MessageTimeline messages={messages} />}
                 {result.response?.headers && Object.keys(result.response.headers).length > 0 && (
                   <div>
-                    <div className="mb-1 text-[12px] font-medium text-ink-muted">Headers</div>
+                    <div className="mb-1 text-[0.75rem] font-medium text-ink-muted">Headers</div>
                     <CodeBlock value={result.response.headers} maxHeight={160} />
                   </div>
                 )}
                 {(result.response?.body !== undefined || result.response?.text !== undefined) && (
                   <div>
-                    <div className="mb-1 text-[12px] font-medium text-ink-muted">Body</div>
+                    <div className="mb-1 text-[0.75rem] font-medium text-ink-muted">Body</div>
                     <CodeBlock value={result.response.body !== undefined ? result.response.body : result.response.text} />
                   </div>
                 )}
-                {!result.response && <div className="text-[13px] text-ink-muted">No response was received.</div>}
+                {!result.response && <div className="text-[0.8125rem] text-ink-muted">No response was received.</div>}
               </div>
             </TabPanel>
             <TabPanel value="request" className="pt-3">
-              <div className="mb-1 text-[12px] text-ink-faint">Secret values are masked.</div>
+              <div className="mb-1 text-[0.75rem] text-ink-faint">Secret values are masked.</div>
               <CodeBlock value={result.request ?? 'No request was recorded.'} />
             </TabPanel>
             <TabPanel value="logs" className="pt-3">
               {result.logs.length === 0 ? (
-                <div className="text-[13px] text-ink-muted">No log lines.</div>
+                <div className="text-[0.8125rem] text-ink-muted">No log lines.</div>
               ) : (
-                <div className="flex max-h-80 flex-col gap-0.5 overflow-y-auto rounded-lg bg-raised p-2 font-mono text-[12px]">
+                <div className="flex max-h-80 flex-col gap-0.5 overflow-y-auto rounded-lg bg-raised p-2 font-mono text-[0.75rem]">
                   {result.logs.map((l, i) => (
                     <div key={i} className={clsx('break-words', l.level === 'error' && 'text-bad', l.level === 'warn' && 'text-warn')}>
                       <span className="text-ink-faint">{l.level.padEnd(5)}</span> {l.message}
@@ -269,18 +269,18 @@ function rowPreview(data: Record<string, unknown>) {
 function MessageTimeline({ messages }: { messages: NonNullable<TestResult['response']>['messages'] & {} }) {
   return (
     <div>
-      <div className="mb-1 text-[12px] font-medium text-ink-muted">Messages ({messages.length})</div>
+      <div className="mb-1 text-[0.75rem] font-medium text-ink-muted">Messages ({messages.length})</div>
       <div className="flex max-h-80 flex-col overflow-y-auto rounded-lg border border-line">
         {messages.map((m, i) => {
           const final = isFinalish(m.data);
           return (
-            <div key={i} className="grid grid-cols-[60px_18px_88px_1fr] items-start gap-2 border-b border-line/60 px-2.5 py-1.5 text-[12px] last:border-b-0">
+            <div key={i} className="grid grid-cols-[60px_18px_88px_1fr] items-start gap-2 border-b border-line/60 px-2.5 py-1.5 text-[0.75rem] last:border-b-0">
               <span className="tabular-nums text-ink-faint">{m.t} ms</span>
               {m.dir === 'out' ? <ArrowUpRight className="mt-0.5 size-3.5 text-info" aria-label="sent" /> : <ArrowDownLeft className="mt-0.5 size-3.5 text-ok" aria-label="received" />}
               <span className="truncate text-ink-muted">
                 {m.kind}
                 {final !== undefined && (
-                  <span className={clsx('ml-1 rounded px-1 text-[11px]', final ? 'bg-ok-soft text-ok' : 'bg-raised text-ink-faint')}>{final ? 'final' : 'partial'}</span>
+                  <span className={clsx('ml-1 rounded px-1 text-[0.6875rem]', final ? 'bg-ok-soft text-ok' : 'bg-raised text-ink-faint')}>{final ? 'final' : 'partial'}</span>
                 )}
               </span>
               <span className="min-w-0 truncate font-mono text-ink">{typeof m.data === 'string' ? m.data : JSON.stringify(m.data)}</span>

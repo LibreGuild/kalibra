@@ -100,7 +100,7 @@ export function WsForm({ value, onChange }: { value: WsConfig; onChange: (c: WsC
         action={<Switch checked={a.enabled} onChange={(enabled) => setAudio({ enabled })} label="Stream audio" />}
       >
         {!a.enabled ? (
-          <div className="text-[12.5px] text-ink-faint">Off. Turn on to stream an audio column (for speech-to-text and voice apps).</div>
+          <div className="text-[0.78125rem] text-ink-faint">Off. Turn on to stream an audio column (for speech-to-text and voice apps).</div>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3">

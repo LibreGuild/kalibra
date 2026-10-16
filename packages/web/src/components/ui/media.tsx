@@ -65,12 +65,12 @@ export function AudioPlayer({ file, compact }: { file: FileValue; compact?: bool
         {playing ? <Pause className="size-3" /> : <Play className="ml-0.5 size-3" />}
       </button>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[12.5px] text-ink-muted">{file.name ?? 'audio'}</div>
+        <div className="truncate text-[0.78125rem] text-ink-muted">{file.name ?? 'audio'}</div>
         <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-raised">
           <div className="h-full bg-accent" style={{ width: `${progress * 100}%` }} />
         </div>
       </div>
-      {!compact && duration != null && <span className="text-[12px] tabular-nums text-ink-faint">{duration.toFixed(1)}s</span>}
+      {!compact && duration != null && <span className="text-[0.75rem] tabular-nums text-ink-faint">{duration.toFixed(1)}s</span>}
       <audio ref={ref} src={fileUrl(file.blob)} preload="none" />
     </div>
   );
@@ -105,8 +105,8 @@ export function CellValue({ value, type, full }: { value: unknown; type?: string
       <div className="flex flex-col gap-1.5">
         {value.map((m: any, i) => (
           <div key={i} className="rounded-lg bg-raised px-2.5 py-1.5">
-            <div className="text-[11.5px] font-semibold uppercase tracking-wide text-ink-faint">{m.role}</div>
-            <div className="whitespace-pre-wrap text-[13px]">{typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}</div>
+            <div className="text-[0.71875rem] font-semibold uppercase tracking-wide text-ink-faint">{m.role}</div>
+            <div className="whitespace-pre-wrap text-[0.8125rem]">{typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}</div>
           </div>
         ))}
       </div>
@@ -116,13 +116,13 @@ export function CellValue({ value, type, full }: { value: unknown; type?: string
     return (
       <span className="inline-flex flex-wrap gap-1">
         {value.map((v, i) => (
-          <span key={i} className="rounded bg-raised px-1.5 text-[12px]">{v}</span>
+          <span key={i} className="rounded bg-raised px-1.5 text-[0.75rem]">{v}</span>
         ))}
       </span>
     );
   }
   if (typeof value === 'object') {
-    return full ? <pre className="font-mono text-[12px] whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre> : <span className="font-mono text-[12px] text-ink-muted">{preview(value, 80)}</span>;
+    return full ? <pre className="font-mono text-[0.75rem] whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre> : <span className="font-mono text-[0.75rem] text-ink-muted">{preview(value, 80)}</span>;
   }
   return full ? <span className="whitespace-pre-wrap">{String(value)}</span> : <span className="line-clamp-2">{String(value)}</span>;
 }

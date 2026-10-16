@@ -47,8 +47,8 @@ export function Toaster() {
           <div key={t.id} role="status" className="pointer-events-auto flex items-start gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-3 shadow-card">
             <Icon className={clsx('mt-0.5 size-4 shrink-0', t.kind === 'success' && 'text-ok', t.kind === 'error' && 'text-bad', t.kind === 'info' && 'text-info')} />
             <div className="min-w-0 flex-1">
-              <div className="text-[13.5px] font-medium">{t.title}</div>
-              {t.body && <div className="mt-0.5 text-[12.5px] break-words text-ink-muted">{t.body}</div>}
+              <div className="text-[0.84375rem] font-medium">{t.title}</div>
+              {t.body && <div className="mt-0.5 text-[0.78125rem] break-words text-ink-muted">{t.body}</div>}
             </div>
             <button className="text-ink-faint hover:text-ink" onClick={() => dismiss(t.id)} aria-label="Dismiss">
               <X className="size-3.5" />

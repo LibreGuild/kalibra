@@ -71,7 +71,7 @@ export function AgentsPage() {
                   ]}
                 />
                 <CodeBlock className="mt-3" value={(snip as any)[client]} />
-                <p className="mt-2 text-[12.5px] text-ink-faint">
+                <p className="mt-2 text-[0.78125rem] text-ink-faint">
                   {client === 'claude' ? 'Run this in your terminal, then restart Claude Code (or run /mcp) to load the tools.' : 'Add this to the config file, then restart the agent.'}
                 </p>
               </>
@@ -84,8 +84,8 @@ export function AgentsPage() {
               {EXAMPLES.map((e) => (
                 <li key={e.text} className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
                   <div className="min-w-0">
-                    <div className="font-mono text-[12.5px]">{e.text}</div>
-                    <div className="mt-0.5 text-[12.5px] text-ink-faint">{e.hint}</div>
+                    <div className="font-mono text-[0.78125rem]">{e.text}</div>
+                    <div className="mt-0.5 text-[0.78125rem] text-ink-faint">{e.hint}</div>
                   </div>
                   <CopyButton text={e.text} />
                 </li>
@@ -100,11 +100,11 @@ export function AgentsPage() {
             <div className="flex flex-col gap-4">
               {tools.map(([cat, list]) => (
                 <div key={cat}>
-                  <div className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">{cat}</div>
+                  <div className="mb-1.5 text-[0.75rem] font-semibold uppercase tracking-wide text-ink-faint">{cat}</div>
                   <div className="flex flex-wrap gap-1.5">
                     {list.map((o) => (
                       <Tip key={o.name} content={o.description}>
-                        <span className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-0.5 font-mono text-[12px]">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-0.5 font-mono text-[0.75rem]">
                           {o.readOnly && <Eye className="size-3 text-ink-faint" />}
                           {o.destructive && <Trash2 className="size-3 text-bad" />}
                           {o.name}
@@ -121,7 +121,7 @@ export function AgentsPage() {
         <Card className="h-fit">
           <SectionTitle help="Changes made through MCP, with the client that made them. Rows added by agents also wait for your review.">Agent activity</SectionTitle>
           {(activity.data ?? []).length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center text-[13px] text-ink-muted">
+            <div className="flex flex-col items-center gap-2 py-6 text-center text-[0.8125rem] text-ink-muted">
               <Bot className="size-6 text-ink-faint" />
               No agent activity yet.
             </div>
@@ -129,8 +129,8 @@ export function AgentsPage() {
             <ul className="flex flex-col gap-3">
               {activity.data!.map((a) => (
                 <li key={a.id} className="min-w-0">
-                  <div className="truncate text-[13px]">{a.summary}</div>
-                  <div className="flex items-center gap-1.5 text-[12px] text-ink-faint">
+                  <div className="truncate text-[0.8125rem]">{a.summary}</div>
+                  <div className="flex items-center gap-1.5 text-[0.75rem] text-ink-faint">
                     <Badge tone="accent">{a.actor?.client ?? 'agent'}</Badge> {timeAgo(a.at)}
                   </div>
                 </li>

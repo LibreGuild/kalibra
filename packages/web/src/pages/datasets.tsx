@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { AudioLines, Bot, Captions, Check, Database, Download, Ellipsis, FileSpreadsheet, Image as ImageIcon, Plus, Save, Search, Sparkles, Trash2, Undo2, Upload, Waves, X } from 'lucide-react';
+import { AudioLines, Bot, Captions, Check, Database, Download, Ellipsis, FileSpreadsheet, Image as ImageIcon, Plus, Save, Search, ShieldAlert, Sparkles, Trash2, Undo2, Upload, Waves, X } from 'lucide-react';
 import { ApiError, fileUrl, op, useOp } from '../lib/api';
 import { actorLabel, dateTime, timeAgo } from '../lib/format';
 import { BackLink, Page } from '../components/layout/shell';
@@ -14,6 +14,7 @@ import { DataTable, SimpleTable, type Column } from '../components/ui/table';
 import { toast, toastError } from '../components/ui/toast';
 import { ColumnsEditor, columnErrors } from '../components/datasets/columns-editor';
 import { GenerateDialog, ImportDialog, NewDatasetDialog, SaveVersionDialog, UploadFilesDialog } from '../components/datasets/dialogs';
+import { SafetyPackDialog } from '../components/datasets/safety-dialog';
 import { RowSheet } from '../components/datasets/row-sheet';
 import { AudioVariantsDialog, DatasetJobsStrip, GenerateImagesDialog, GenerateSpeechDialog, TranscribeDialog } from '../components/datasets/media-dialogs';
 import type { ColumnDef, DatasetSchemaResp, RowRecord, RowStatus } from '../components/datasets/types';
@@ -24,6 +25,7 @@ export function DatasetsPage() {
   const navigate = useNavigate();
   const q = useOp<any[]>('list_datasets');
   const [creating, setCreating] = useState(false);
+  const [safety, setSafety] = useState(false);
 
   const columns: Column<any>[] = [
     {
@@ -33,7 +35,7 @@ export function DatasetsPage() {
       render: (d) => (
         <div className="min-w-0">
           <div className="truncate font-medium">{d.name}</div>
-          {d.description && <div className="truncate text-[12.5px] text-ink-muted">{d.description}</div>}
+          {d.description && <div className="truncate text-[0.78125rem] text-ink-muted">{d.description}</div>}
         </div>
       ),
     },
@@ -61,9 +63,14 @@ export function DatasetsPage() {
       title="Datasets"
       description="Test cases for your AI app: inputs, expected answers, recordings and images. Every column can be sent to your app and compared against."
       actions={
-        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-          New dataset
-        </Button>
+        <>
+          <Button icon={<ShieldAlert className="size-4" />} onClick={() => setSafety(true)}>
+            Safety pack
+          </Button>
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+            New dataset
+          </Button>
+        </>
       }
     >
       {q.isLoading ? (
@@ -86,6 +93,7 @@ export function DatasetsPage() {
         <SimpleTable rows={q.data} columns={columns} rowKey={(d) => d.id} onRowClick={(d) => navigate(`/datasets/${d.id}`)} />
       )}
       <NewDatasetDialog open={creating} onOpenChange={setCreating} />
+      <SafetyPackDialog open={safety} onOpenChange={setSafety} />
     </Page>
   );
 }
@@ -365,11 +373,11 @@ function RowsTab({
         r.tags.length ? (
           <span className="flex flex-wrap gap-1">
             {r.tags.slice(0, 3).map((t) => (
-              <span key={t} className="rounded bg-raised px-1.5 text-[12px] text-ink-muted">
+              <span key={t} className="rounded bg-raised px-1.5 text-[0.75rem] text-ink-muted">
                 {t}
               </span>
             ))}
-            {r.tags.length > 3 && <span className="text-[12px] text-ink-faint">+{r.tags.length - 3}</span>}
+            {r.tags.length > 3 && <span className="text-[0.75rem] text-ink-faint">+{r.tags.length - 3}</span>}
           </span>
         ) : (
           <span className="text-ink-faint">—</span>
@@ -392,7 +400,7 @@ function RowsTab({
     <div className="flex flex-col gap-3">
       {selected.size > 0 ? (
         <div className="sticky top-0 z-20 flex h-11 items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft px-3">
-          <span className="text-[13.5px] font-medium">{selected.size} selected</span>
+          <span className="text-[0.84375rem] font-medium">{selected.size} selected</span>
           <div className="ml-2 flex items-center gap-1.5">
             <Button size="sm" icon={<Check className="size-3.5" />} loading={busy} onClick={() => bulk('approved')}>
               Approve
@@ -591,7 +599,7 @@ function ColumnsTab({ ds, onSaved }: { ds: DatasetSchemaResp; onSaved: () => voi
             Discard
           </Button>
         )}
-        <span className="text-[12.5px] text-ink-faint">{dirty ? 'Unsaved changes' : `Revision ${baseRevision}`}</span>
+        <span className="text-[0.78125rem] text-ink-faint">{dirty ? 'Unsaved changes' : `Revision ${baseRevision}`}</span>
       </div>
     </div>
   );
@@ -612,7 +620,7 @@ function VersionsTab({ datasetId }: { datasetId: string }) {
   if (q.error) return <ErrorBox error={q.error} />;
   return (
     <div className="flex flex-col gap-3">
-      <p className="max-w-2xl text-[13px] text-ink-muted">
+      <p className="max-w-2xl text-[0.8125rem] text-ink-muted">
         A version freezes the rows exactly as they were, so run results stay comparable even after you edit the dataset. Every run saves one automatically when the rows have changed.
       </p>
       <SimpleTable rows={q.data ?? []} columns={columns} rowKey={(v) => v.id} empty="No versions yet. Use “Save version” or start a run." />

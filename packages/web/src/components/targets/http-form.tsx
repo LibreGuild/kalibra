@@ -196,7 +196,7 @@ function PartsEditor({ value, onChange }: { value: MultipartPart[]; onChange: (v
   return (
     <div className="flex flex-col gap-2">
       {value.length > 0 && (
-        <div className="grid grid-cols-[130px_100px_1fr_120px_32px] gap-2 text-[12px] font-medium text-ink-faint">
+        <div className="grid grid-cols-[130px_100px_1fr_120px_32px] gap-2 text-[0.75rem] font-medium text-ink-faint">
           <span>Field name</span>
           <span>Kind</span>
           <span>Value</span>
@@ -222,7 +222,7 @@ function PartsEditor({ value, onChange }: { value: MultipartPart[]; onChange: (v
           </Button>
         </div>
       ))}
-      <div className="text-[12px] text-ink-faint">File parts take a file column, e.g. {'{{audio}}'}; the file name defaults to the uploaded name.</div>
+      <div className="text-[0.75rem] text-ink-faint">File parts take a file column, e.g. {'{{audio}}'}; the file name defaults to the uploaded name.</div>
       <div>
         <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => onChange([...value, { name: '', kind: 'text', value: '', filename: '', contentType: '' }])}>
           Add part
@@ -267,7 +267,7 @@ function CurlDialog({ open, onOpenChange, onImport }: { open: boolean; onOpenCha
       }
     >
       <Textarea mono rows={10} value={text} onChange={(e) => setText(e.target.value)} placeholder={"curl -X POST https://api.example.com/chat \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"message\": \"hello\"}'"} />
-      <div className="mt-2 text-[12.5px] text-ink-faint">After importing, replace literal values with {'{{column}}'} placeholders and move tokens into secrets.</div>
+      <div className="mt-2 text-[0.78125rem] text-ink-faint">After importing, replace literal values with {'{{column}}'} placeholders and move tokens into secrets.</div>
     </Dialog>
   );
 }

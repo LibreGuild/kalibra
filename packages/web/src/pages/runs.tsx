@@ -13,6 +13,7 @@ import { DataTable, SimpleTable } from '../components/ui/table';
 import { toast, toastError } from '../components/ui/toast';
 import { ImportOutputsDialog, NewRunDialog } from '../components/runs/dialogs';
 import { ResultSheet } from '../components/runs/result-sheet';
+import { BreakdownCard } from '../components/runs/breakdown';
 import { firstPreviewValue, formatMetric, formatMetricKey } from '../components/runs/format';
 import { op, useOp } from '../lib/api';
 import { actorLabel, ms, pct, preview, timeAgo } from '../lib/format';
@@ -174,7 +175,7 @@ export function RunsPage() {
                     <span className="truncate font-medium">{r.name}</span>
                     {r.kind === 'imported' && <Badge tone="info">Imported</Badge>}
                   </div>
-                  <div className="truncate text-[12.5px] text-ink-muted">
+                  <div className="truncate text-[0.78125rem] text-ink-muted">
                     {[names.dataset.get(r.datasetId ?? ''), r.kind === 'imported' ? 'imported outputs' : names.target.get(r.targetId ?? ''), names.suite.get(r.suiteId ?? '')].map((x) => x ?? '—').join(' · ')}
                   </div>
                 </div>
@@ -189,7 +190,7 @@ export function RunsPage() {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2">
                       <StatusBadge status={r.status} />
-                      <span className="text-[12px] tabular-nums text-ink-faint">
+                      <span className="text-[0.75rem] tabular-nums text-ink-faint">
                         {r.done}/{r.total}
                       </span>
                     </div>
@@ -316,7 +317,7 @@ export function RunDetailPage() {
       badge={
         <>
           <StatusBadge status={r.status} />
-          {r.name !== `Run #${r.number}` && <span className="text-[13px] tabular-nums text-ink-faint">#{r.number}</span>}
+          {r.name !== `Run #${r.number}` && <span className="text-[0.8125rem] tabular-nums text-ink-faint">#{r.number}</span>}
           {r.kind === 'imported' && <Badge tone="info">Imported outputs</Badge>}
         </>
       }
@@ -368,7 +369,7 @@ export function RunDetailPage() {
       <div className="flex flex-col gap-6">
         {active && (
           <Card>
-            <div className="mb-2 flex items-center justify-between text-[13px]">
+            <div className="mb-2 flex items-center justify-between text-[0.8125rem]">
               <span className="font-medium">Running…</span>
               <span className="tabular-nums text-ink-muted">
                 {r.done} of {r.total} rows
@@ -412,7 +413,7 @@ export function RunDetailPage() {
             <SectionTitle help="Click a check to list only the rows where it failed.">Checks</SectionTitle>
           </div>
           {(s.checks ?? []).length === 0 ? (
-            <div className="px-5 pb-5 text-[13px] text-ink-muted">{active ? 'Waiting for the first results…' : 'No check results.'}</div>
+            <div className="px-5 pb-5 text-[0.8125rem] text-ink-muted">{active ? 'Waiting for the first results…' : 'No check results.'}</div>
           ) : (
             <div className="px-5 pb-5">
               <SimpleTable
@@ -430,7 +431,7 @@ export function RunDetailPage() {
                     render: (c) => (
                       <div className="min-w-0">
                         <div className="truncate font-medium">{c.name}</div>
-                        <div className="truncate font-mono text-[11.5px] text-ink-faint">{c.type}</div>
+                        <div className="truncate font-mono text-[0.71875rem] text-ink-faint">{c.type}</div>
                       </div>
                     ),
                   },
@@ -481,6 +482,20 @@ export function RunDetailPage() {
           )}
         </Card>
 
+        {(s.completed ?? 0) > 0 && (
+          <BreakdownCard
+            runId={r.id}
+            datasetId={r.datasetId}
+            checks={(s.checks ?? []).map((c) => ({ id: c.id, name: c.name }))}
+            onFilter={(value) => {
+              setCheckId(null);
+              setFilter('all');
+              setSearch(value);
+              document.getElementById('run-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+        )}
+
         {s.metrics && Object.keys(s.metrics).length > 0 && (
           <Card padded={false}>
             <div className="px-5 pt-4">
@@ -491,7 +506,7 @@ export function RunDetailPage() {
                 rows={Object.entries(s.metrics).map(([key, v]) => ({ key, ...v }))}
                 rowKey={(m) => m.key}
                 columns={[
-                  { key: 'k', header: 'Metric', width: 'minmax(180px, 2fr)', render: (m) => <span className="font-mono text-[12.5px]">{m.key}</span> },
+                  { key: 'k', header: 'Metric', width: 'minmax(180px, 2fr)', render: (m) => <span className="font-mono text-[0.78125rem]">{m.key}</span> },
                   { key: 'count', header: 'Count', width: '80px', align: 'right', render: (m) => <span className="tabular-nums text-ink-muted">{m.count}</span> },
                   ...(['mean', 'p50', 'p95', 'p99', 'max'] as const).map((f) => ({
                     key: f,
@@ -506,7 +521,7 @@ export function RunDetailPage() {
           </Card>
         )}
 
-        <section>
+        <section id="run-results" className="scroll-mt-4">
           <SectionTitle help="Every row of the run. Click a row for its inputs, outputs, each check's reasoning, the raw request/response and logs.">Results</SectionTitle>
           <div className="mb-3 flex flex-wrap items-center gap-2.5">
             <Segmented
@@ -668,7 +683,7 @@ export function ComparePage() {
         <ErrorBox error={cmp.error} />
       ) : (
         <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center gap-2 text-[13.5px]">
+          <div className="flex flex-wrap items-center gap-2 text-[0.84375rem]">
             <Badge>Baseline</Badge>
             <span className="font-medium">#{cmp.data.base.number} {cmp.data.base.name}</span>
             <span className="text-ink-muted">({pct(cmp.data.base.passRate)})</span>
@@ -686,7 +701,7 @@ export function ComparePage() {
           </div>
 
           <Card>
-            <div className="flex flex-wrap items-center gap-2 text-[13.5px]">
+            <div className="flex flex-wrap items-center gap-2 text-[0.84375rem]">
               <span className="font-medium">
                 {p == null ? 'No rows flipped between pass and fail.' : p < 0.05 ? `Likely a real change (p = ${p.toFixed(3)}).` : `Could be noise (p = ${p.toFixed(2)}).`}
               </span>
@@ -788,7 +803,7 @@ export function ComparePage() {
                   key: 'failing',
                   header: 'Failing now',
                   width: 'minmax(160px, 1.2fr)',
-                  render: (x) => <span className="line-clamp-2 text-[12.5px] text-bad">{x.next?.failing?.join(', ') || <span className="text-ink-faint">—</span>}</span>,
+                  render: (x) => <span className="line-clamp-2 text-[0.78125rem] text-bad">{x.next?.failing?.join(', ') || <span className="text-ink-faint">—</span>}</span>,
                 },
               ]}
             />

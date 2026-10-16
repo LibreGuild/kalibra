@@ -6,14 +6,14 @@ import { HelpTip } from './overlay';
 import { Button } from './button';
 
 const control =
-  'w-full rounded-lg border border-line-strong bg-surface px-2.5 text-[13.5px] text-ink placeholder:text-ink-faint transition-colors hover:border-ink-faint focus:border-accent/60 focus:outline-none focus:ring-[3px] focus:ring-accent/12 disabled:opacity-60';
+  'w-full rounded-lg border border-line-strong bg-surface px-2.5 text-[0.84375rem] text-ink placeholder:text-ink-faint transition-colors hover:border-ink-faint focus:border-accent/60 focus:outline-none focus:ring-[3px] focus:ring-accent/12 disabled:opacity-60';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }>(function Input({ className, mono, ...rest }, ref) {
-  return <input ref={ref} className={clsx(control, 'h-8.5', mono && 'font-mono text-[12.5px]', className)} {...rest} />;
+  return <input ref={ref} className={clsx(control, 'h-8.5', mono && 'font-mono text-[0.78125rem]', className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement> & { mono?: boolean }>(function Textarea({ className, mono, rows = 3, ...rest }, ref) {
-  return <textarea ref={ref} rows={rows} className={clsx(control, 'py-2 leading-relaxed', mono && 'font-mono text-[12.5px]', className)} {...rest} />;
+  return <textarea ref={ref} rows={rows} className={clsx(control, 'py-2 leading-relaxed', mono && 'font-mono text-[0.78125rem]', className)} {...rest} />;
 });
 
 /** Label + optional (?) help + hint + error, wrapped around any control. */
@@ -38,14 +38,14 @@ export function Field({
   return (
     <div className={clsx('min-w-0', inline ? 'flex items-center justify-between gap-4' : 'flex flex-col gap-1.5', className)} id={id}>
       {label && (
-        <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
+        <div className="flex items-center gap-1.5 text-[0.8125rem] font-medium text-ink">
           <span>{label}</span>
           {help && <HelpTip>{help}</HelpTip>}
         </div>
       )}
       {children}
-      {hint && !error && <div className="text-[12px] text-ink-faint">{hint}</div>}
-      {error && <div className="text-[12px] text-bad">{error}</div>}
+      {hint && !error && <div className="text-[0.75rem] text-ink-faint">{hint}</div>}
+      {error && <div className="text-[0.75rem] text-bad">{error}</div>}
     </div>
   );
 }
@@ -75,7 +75,7 @@ export function Select({
 }) {
   return (
     <S.Root value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <S.Trigger className={clsx(control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[13px]' : 'h-8.5', className)}>
+      <S.Trigger className={clsx(control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[0.8125rem]' : 'h-8.5', className)}>
         <span className="truncate">
           <S.Value placeholder={<span className="text-ink-faint">{placeholder}</span>} />
         </span>
@@ -85,13 +85,13 @@ export function Select({
         <S.Content position="popper" sideOffset={4} className="z-[60] max-h-80 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-line bg-surface shadow-card">
           <S.Viewport className="p-1">
             {options.map((o) => (
-              <S.Item key={o.value} value={o.value} className="relative flex cursor-default items-start rounded-md py-1.5 pr-2 pl-7 text-[13.5px] outline-none select-none data-[highlighted]:bg-hover">
+              <S.Item key={o.value} value={o.value} className="relative flex cursor-default items-start rounded-md py-1.5 pr-2 pl-7 text-[0.84375rem] outline-none select-none data-[highlighted]:bg-hover">
                 <S.ItemIndicator className="absolute left-2 top-2">
                   <Check className="size-3.5 text-accent" />
                 </S.ItemIndicator>
                 <div className="min-w-0">
                   <S.ItemText>{o.label}</S.ItemText>
-                  {o.hint && <div className="text-[12px] text-ink-faint">{o.hint}</div>}
+                  {o.hint && <div className="text-[0.75rem] text-ink-faint">{o.hint}</div>}
                 </div>
               </S.Item>
             ))}
@@ -127,12 +127,12 @@ export function Segmented<T extends string>({ value, onChange, options, size = '
           onClick={() => onChange(o.value)}
           className={clsx(
             'inline-flex items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors',
-            size === 'sm' ? 'h-6 text-[12.5px]' : 'h-7 text-[13px]',
+            size === 'sm' ? 'h-6 text-[0.78125rem]' : 'h-7 text-[0.8125rem]',
             value === o.value ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:text-ink',
           )}
         >
           {o.label}
-          {o.count !== undefined && <span className="text-[11.5px] text-ink-faint tabular-nums">{o.count}</span>}
+          {o.count !== undefined && <span className="text-[0.71875rem] text-ink-faint tabular-nums">{o.count}</span>}
         </button>
       ))}
     </div>
@@ -178,7 +178,7 @@ export function TagInput({ value, onChange, placeholder = 'Add tag…' }: { valu
   return (
     <div className={clsx(control, 'flex min-h-8.5 flex-wrap items-center gap-1 py-1')}>
       {value.map((t) => (
-        <span key={t} className="inline-flex items-center gap-1 rounded-md bg-raised px-1.5 py-0.5 text-[12px]">
+        <span key={t} className="inline-flex items-center gap-1 rounded-md bg-raised px-1.5 py-0.5 text-[0.75rem]">
           {t}
           <button type="button" className="text-ink-faint hover:text-ink" onClick={() => onChange(value.filter((x) => x !== t))} aria-label={`Remove ${t}`}>
             ×
@@ -186,7 +186,7 @@ export function TagInput({ value, onChange, placeholder = 'Add tag…' }: { valu
         </span>
       ))}
       <input
-        className="min-w-24 flex-1 bg-transparent text-[13px] outline-none"
+        className="min-w-24 flex-1 bg-transparent text-[0.8125rem] outline-none"
         placeholder={placeholder}
         onKeyDown={(e) => {
           const el = e.currentTarget;

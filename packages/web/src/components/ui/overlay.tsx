@@ -20,7 +20,7 @@ export function Tip({ content, children, side = 'top' }: { content: ReactNode; c
           side={side}
           sideOffset={6}
           collisionPadding={12}
-          className="z-[100] max-w-xs rounded-lg bg-ink px-2.5 py-1.5 text-[12.5px] leading-snug text-canvas shadow-card animate-in fade-in"
+          className="z-[100] max-w-xs rounded-lg bg-ink px-2.5 py-1.5 text-[0.78125rem] leading-snug text-canvas shadow-card animate-in fade-in"
         >
           {content}
           <T.Arrow className="fill-ink" />
@@ -73,8 +73,8 @@ export function Dialog({
         >
           <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
             <div className="min-w-0">
-              <D.Title className="text-[15px] font-semibold">{title}</D.Title>
-              {description && <D.Description className="mt-0.5 text-[13px] text-ink-muted">{description}</D.Description>}
+              <D.Title className="text-[0.9375rem] font-semibold">{title}</D.Title>
+              {description && <D.Description className="mt-0.5 text-[0.8125rem] text-ink-muted">{description}</D.Description>}
             </div>
             <D.Close asChild>
               <Button variant="ghost" size="icon-sm" aria-label="Close">
@@ -118,8 +118,8 @@ export function Sheet({
         >
           <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-3.5">
             <div className="min-w-0">
-              <D.Title className="truncate text-[15px] font-semibold">{title}</D.Title>
-              {subtitle ? <D.Description className="truncate text-[12.5px] text-ink-muted">{subtitle}</D.Description> : <D.Description className="sr-only">Details</D.Description>}
+              <D.Title className="truncate text-[0.9375rem] font-semibold">{title}</D.Title>
+              {subtitle ? <D.Description className="truncate text-[0.78125rem] text-ink-muted">{subtitle}</D.Description> : <D.Description className="sr-only">Details</D.Description>}
             </div>
             <div className="flex items-center gap-1.5">
               {actions}
@@ -161,7 +161,7 @@ export function useConfirm() {
         </>
       }
     >
-      <div className="text-[13.5px] text-ink-muted">{state?.body ?? 'This moves the item to the trash.'}</div>
+      <div className="text-[0.84375rem] text-ink-muted">{state?.body ?? 'This moves the item to the trash.'}</div>
     </Dialog>
   );
   return { ask, element };
@@ -187,14 +187,14 @@ export function MenuItem({ icon, children, onSelect, danger, hint }: { icon?: Re
     <M.Item
       onSelect={onSelect}
       className={clsx(
-        'flex cursor-default items-start gap-2.5 rounded-md px-2.5 py-1.5 text-[13.5px] outline-none data-[highlighted]:bg-hover',
+        'flex cursor-default items-start gap-2.5 rounded-md px-2.5 py-1.5 text-[0.84375rem] outline-none data-[highlighted]:bg-hover',
         danger ? 'text-bad' : 'text-ink',
       )}
     >
       {icon && <span className="mt-0.5 text-ink-muted [&>svg]:size-4">{icon}</span>}
       <span className="min-w-0">
         <span className="block">{children}</span>
-        {hint && <span className="block text-[12px] text-ink-faint">{hint}</span>}
+        {hint && <span className="block text-[0.75rem] text-ink-faint">{hint}</span>}
       </span>
     </M.Item>
   );

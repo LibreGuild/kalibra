@@ -31,12 +31,12 @@ const kappaTone = (k: number | null) => (k === null ? 'neutral' : k > 0.6 ? 'ok'
 function Metric({ label, value, help, sub }: { label: string; value: string; help: string; sub?: string }) {
   return (
     <div className="rounded-lg bg-raised px-3 py-2.5">
-      <div className="flex items-center gap-1 text-[12px] font-medium text-ink-muted">
+      <div className="flex items-center gap-1 text-[0.75rem] font-medium text-ink-muted">
         {label}
         <HelpTip>{help}</HelpTip>
       </div>
-      <div className="mt-0.5 text-[18px] font-semibold tabular-nums">{value}</div>
-      {sub && <div className="text-[11.5px] text-ink-faint">{sub}</div>}
+      <div className="mt-0.5 text-[1.125rem] font-semibold tabular-nums">{value}</div>
+      {sub && <div className="text-[0.71875rem] text-ink-faint">{sub}</div>}
     </div>
   );
 }
@@ -45,14 +45,14 @@ function Metric({ label, value, help, sub }: { label: string; value: string; hel
 function ConfusionGrid({ c }: { c: Agreement['confusion'] }) {
   const cell = (n: number, agree: boolean, tip: string) => (
     <Tip content={tip}>
-      <div className={clsx('flex h-14 flex-col items-center justify-center rounded-lg text-[18px] font-semibold tabular-nums', agree ? 'bg-ok-soft text-ok' : n > 0 ? 'bg-bad-soft text-bad' : 'bg-raised text-ink-faint')}>
+      <div className={clsx('flex h-14 flex-col items-center justify-center rounded-lg text-[1.125rem] font-semibold tabular-nums', agree ? 'bg-ok-soft text-ok' : n > 0 ? 'bg-bad-soft text-bad' : 'bg-raised text-ink-faint')}>
         {n}
-        <span className="text-[10.5px] font-medium uppercase tracking-wide opacity-80">{agree ? 'agree' : 'disagree'}</span>
+        <span className="text-[0.65625rem] font-medium uppercase tracking-wide opacity-80">{agree ? 'agree' : 'disagree'}</span>
       </div>
     </Tip>
   );
   return (
-    <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-1.5 text-[12px]">
+    <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-1.5 text-[0.75rem]">
       <div />
       <div className="text-center font-medium text-ink-muted">Check: pass</div>
       <div className="text-center font-medium text-ink-muted">Check: fail</div>
@@ -82,22 +82,22 @@ export function AgreementPanel({
       <Card>
         <SectionTitle
           help="How often your labels match the check. Only your own labels count (labels made by coding agents are excluded)."
-          action={loading ? <Spinner /> : data ? <span className="text-[12px] text-ink-faint">{data.n} labeled{data.scope === 'suite' ? ` · ${data.runs} runs` : ''}</span> : null}
+          action={loading ? <Spinner /> : data ? <span className="text-[0.75rem] text-ink-faint">{data.n} labeled{data.scope === 'suite' ? ` · ${data.runs} runs` : ''}</span> : null}
         >
           Agreement
         </SectionTitle>
         {!data || data.n === 0 ? (
-          <div className="text-[13px] text-ink-muted">Label a few rows and the numbers appear here. Aim for about 50 passes and 50 fails for a trustworthy picture.</div>
+          <div className="text-[0.8125rem] text-ink-muted">Label a few rows and the numbers appear here. Aim for about 50 passes and 50 fails for a trustworthy picture.</div>
         ) : (
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-2">
               <Metric label="Agreement" value={pct(data.agreement)} help="Share of labeled rows where you and the check gave the same verdict." />
               <div className="rounded-lg bg-raised px-3 py-2.5">
-                <div className="flex items-center gap-1 text-[12px] font-medium text-ink-muted">
+                <div className="flex items-center gap-1 text-[0.75rem] font-medium text-ink-muted">
                   Cohen's kappa
                   <HelpTip>Agreement after removing what you'd expect by pure chance. 1 = perfect, 0 = no better than chance. Above 0.6 is usually good enough to trust a judge.</HelpTip>
                 </div>
-                <div className="mt-0.5 text-[18px] font-semibold tabular-nums">{data.kappa === null ? '–' : data.kappa.toFixed(2)}</div>
+                <div className="mt-0.5 text-[1.125rem] font-semibold tabular-nums">{data.kappa === null ? '–' : data.kappa.toFixed(2)}</div>
                 <Badge tone={kappaTone(data.kappa) as any} className="mt-0.5">{data.kappaBand}</Badge>
               </div>
               <Metric label="Catches passes" value={pct(data.tpr)} help="True positive rate: of the rows you passed, how many the check also passed. Low = the check is too strict." sub="TPR" />
@@ -107,28 +107,28 @@ export function AgreementPanel({
             <ConfusionGrid c={data.confusion} />
 
             <div className="rounded-lg border border-line px-3 py-2.5">
-              <div className="flex items-center gap-1 text-[12px] font-medium text-ink-muted">
+              <div className="flex items-center gap-1 text-[0.75rem] font-medium text-ink-muted">
                 Corrected pass rate
                 <HelpTip>
                   The check's own pass rate, adjusted for the mistakes it makes on your labels. This is a better estimate of how often outputs are really good.
                 </HelpTip>
               </div>
               <div className="mt-1 flex items-baseline gap-2">
-                <span className="text-[18px] font-semibold tabular-nums">{pct(data.correctedPassRate)}</span>
+                <span className="text-[1.125rem] font-semibold tabular-nums">{pct(data.correctedPassRate)}</span>
                 {data.correctedPassRateCi && (
-                  <span className="text-[12px] tabular-nums text-ink-faint">
+                  <span className="text-[0.75rem] tabular-nums text-ink-faint">
                     95% CI {pct(data.correctedPassRateCi[0])}–{pct(data.correctedPassRateCi[1])}
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 text-[12px] text-ink-faint">
+              <div className="mt-0.5 text-[0.75rem] text-ink-faint">
                 Check says {pct(data.observedPassRate)} over {data.judged} rows · you passed {pct(data.humanPassRate)} of your labels
               </div>
-              {data.correctionNote && <div className="mt-1 text-[12px] text-warn">{data.correctionNote}</div>}
+              {data.correctionNote && <div className="mt-1 text-[0.75rem] text-warn">{data.correctionNote}</div>}
             </div>
 
             {data.warnings.map((w) => (
-              <div key={w} className="flex gap-2 rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
+              <div key={w} className="flex gap-2 rounded-lg bg-warn-soft px-3 py-2 text-[0.78125rem] text-warn">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                 {w}
               </div>
@@ -142,7 +142,7 @@ export function AgreementPanel({
           Disagreements {data?.disagreements.length ? <span className="font-normal text-ink-faint">({data.disagreements.length})</span> : null}
         </SectionTitle>
         {!data?.disagreements.length ? (
-          <div className="text-[13px] text-ink-muted">None yet.</div>
+          <div className="text-[0.8125rem] text-ink-muted">None yet.</div>
         ) : (
           <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
             {data.disagreements.map((d) => (
@@ -150,7 +150,7 @@ export function AgreementPanel({
                 <button
                   type="button"
                   onClick={() => onOpenDisagreement(d.resultId, d.runId)}
-                  className={clsx('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-hover', activeResultId === d.resultId && 'bg-accent-soft')}
+                  className={clsx('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.78125rem] hover:bg-hover', activeResultId === d.resultId && 'bg-accent-soft')}
                 >
                   <span className="text-ink-muted">You</span>
                   <Badge tone={d.human === 'pass' ? 'ok' : 'bad'}>{d.human}</Badge>

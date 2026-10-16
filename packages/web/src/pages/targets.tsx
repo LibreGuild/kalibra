@@ -74,7 +74,7 @@ export function TargetsPage() {
               render: (t) => (
                 <div className="min-w-0">
                   <div className="truncate font-medium">{t.name}</div>
-                  {t.description && <div className="truncate text-[12.5px] text-ink-muted">{t.description}</div>}
+                  {t.description && <div className="truncate text-[0.78125rem] text-ink-muted">{t.description}</div>}
                 </div>
               ),
             },
@@ -88,7 +88,7 @@ export function TargetsPage() {
               key: 'endpoint',
               header: 'Calls',
               width: 'minmax(220px, 1.6fr)',
-              render: (t) => <span className="block truncate font-mono text-[12.5px] text-ink-muted">{endpointOf(t.spec)}</span>,
+              render: (t) => <span className="block truncate font-mono text-[0.78125rem] text-ink-muted">{endpointOf(t.spec)}</span>,
             },
             { key: 'version', header: 'Version', width: '90px', render: (t) => <span className="tabular-nums text-ink-muted">v{t.version}</span> },
             {
@@ -168,8 +168,8 @@ function NewTargetDialog({ open, onOpenChange, onCreated }: { open: boolean; onO
                 <Icon className="size-4" />
               </div>
               <div className="min-w-0">
-                <div className="text-[13.5px] font-semibold">{title}</div>
-                <div className="text-[12.5px] text-ink-muted">{text}</div>
+                <div className="text-[0.84375rem] font-semibold">{title}</div>
+                <div className="text-[0.78125rem] text-ink-muted">{text}</div>
               </div>
             </button>
           ))}
@@ -336,7 +336,7 @@ export function TargetEditorPage() {
       }
     >
       {conflict && (
-        <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 text-[13px] text-warn">
+        <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 text-[0.8125rem] text-warn">
           <span>This target was changed elsewhere (in another window, the CLI or by a coding agent). Reload to see the latest version; your unsaved edits will be replaced.</span>
           <Button size="sm" onClick={reload}>
             Reload
@@ -398,7 +398,7 @@ export function TargetEditorPage() {
           </>
         }
       >
-        <div className="text-[13.5px] text-ink-muted">You changed this target but did not save. Leaving now loses those changes.</div>
+        <div className="text-[0.84375rem] text-ink-muted">You changed this target but did not save. Leaving now loses those changes.</div>
       </Dialog>
       {confirm.element}
     </Page>
@@ -417,17 +417,17 @@ function VersionsPopover({ id, current, onRestore }: { id: string; current: numb
         </Button>
       }
     >
-      <div className="mb-2 text-[13px] font-semibold">Version history</div>
-      <div className="mb-2 text-[12px] text-ink-faint">Every save is kept. Runs record the exact version they used.</div>
+      <div className="mb-2 text-[0.8125rem] font-semibold">Version history</div>
+      <div className="mb-2 text-[0.75rem] text-ink-faint">Every save is kept. Runs record the exact version they used.</div>
       <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
         {(versions.data ?? []).map((v) => (
           <div key={v.version} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-hover">
             <div className="min-w-0">
-              <div className="text-[13px] font-medium">
+              <div className="text-[0.8125rem] font-medium">
                 v{v.version}
-                {v.version === current && <span className="ml-1.5 text-[12px] font-normal text-ink-faint">current</span>}
+                {v.version === current && <span className="ml-1.5 text-[0.75rem] font-normal text-ink-faint">current</span>}
               </div>
-              <div className="truncate text-[12px] text-ink-faint">
+              <div className="truncate text-[0.75rem] text-ink-faint">
                 {dateTime(v.createdAt)} · {actorLabel(v.actor)}
               </div>
             </div>
@@ -449,7 +449,7 @@ function VersionsPopover({ id, current, onRestore }: { id: string; current: numb
             )}
           </div>
         ))}
-        {versions.isLoading && <div className="px-2 py-1 text-[12.5px] text-ink-faint">Loading…</div>}
+        {versions.isLoading && <div className="px-2 py-1 text-[0.78125rem] text-ink-faint">Loading…</div>}
       </div>
     </Popover>
   );

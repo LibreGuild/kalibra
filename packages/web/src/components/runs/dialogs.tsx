@@ -95,7 +95,7 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
           <Input value={name} placeholder="e.g. Baseline before prompt change" onChange={(e) => setName(e.target.value)} />
         </Field>
 
-        <button type="button" onClick={() => setAdvanced(!advanced)} className="flex items-center gap-1.5 self-start text-[13px] font-medium text-ink-muted hover:text-ink">
+        <button type="button" onClick={() => setAdvanced(!advanced)} className="flex items-center gap-1.5 self-start text-[0.8125rem] font-medium text-ink-muted hover:text-ink">
           <ChevronRight className={clsx('size-4 transition-transform', advanced && 'rotate-90')} /> Advanced settings
         </button>
         {advanced && (
@@ -121,7 +121,7 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
             <Field label="Include rows that are" className="col-span-2" help="Rows waiting for review or still drafts can be left out, so only approved test cases count.">
               <div className="flex flex-wrap gap-4">
                 {STATUSES.map((s) => (
-                  <label key={s.value} className="flex items-center gap-2 text-[13.5px]">
+                  <label key={s.value} className="flex items-center gap-2 text-[0.84375rem]">
                     <input
                       type="checkbox"
                       className="size-3.5 accent-[var(--k-accent)]"
@@ -221,7 +221,7 @@ export function ImportOutputsDialog({ open, onOpenChange }: { open: boolean; onO
         <Field label="Outputs file" help="CSV, JSONL or JSON. One record per dataset row.">
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-line-strong px-4 py-3 hover:bg-hover">
             <Upload className="size-4 text-ink-muted" />
-            <span className="text-[13.5px]">
+            <span className="text-[0.84375rem]">
               {uploading ? 'Uploading…' : file ? (
                 <>
                   <span className="font-medium">{file.name}</span> <span className="text-ink-faint">· {bytes(file.size)}</span>

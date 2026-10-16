@@ -221,7 +221,7 @@ export function CalibratePage() {
 
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex min-w-0 flex-col gap-3">
-              <div className="flex items-center justify-between text-[13px] text-ink-muted">
+              <div className="flex items-center justify-between text-[0.8125rem] text-ink-muted">
                 <span>
                   <span className="font-semibold tabular-nums text-ink">{agreement.data?.n ?? 0}</span> labeled
                   {strategy !== 'disagreements' && (
@@ -231,7 +231,7 @@ export function CalibratePage() {
                   )}
                   {labeledHere > 0 && <span className="text-ink-faint"> · {labeledHere} this session</span>}
                 </span>
-                <span className="flex items-center gap-1 text-[12px] text-ink-faint">
+                <span className="flex items-center gap-1 text-[0.75rem] text-ink-faint">
                   Keys: P pass · F fail · S skip · U undo
                   <HelpTip>Shortcuts work whenever you're not typing in the note box.</HelpTip>
                 </span>

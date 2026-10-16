@@ -83,9 +83,9 @@ export function SettingsPage() {
               />
             </Field>
             <div className="rounded-lg border border-line bg-raised p-4">
-              <div className="text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Preview</div>
-              <p className="mt-1.5 text-[14px] leading-relaxed">
-                Transfer 1,500 rupees to Priya on Monday. Row <span className="font-mono text-[12.5px]">row_0O1lI</span> failed: WER 9.1% (1 substitution: <s className="text-bad">fifth</s> <span className="text-ok">fifths</span>).
+              <div className="text-[0.75rem] font-semibold uppercase tracking-wide text-ink-faint">Preview</div>
+              <p className="mt-1.5 text-[0.875rem] leading-relaxed">
+                Transfer 1,500 rupees to Priya on Monday. Row <span className="font-mono text-[0.78125rem]">row_0O1lI</span> failed: WER 9.1% (1 substitution: <s className="text-bad">fifth</s> <span className="text-ok">fifths</span>).
               </p>
             </div>
           </div>
@@ -98,10 +98,10 @@ export function SettingsPage() {
           ) : (
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between gap-3 rounded-lg bg-raised px-3 py-2">
-                <code className="truncate font-mono text-[12.5px]">{ws.data?.dir}</code>
+                <code className="truncate font-mono text-[0.78125rem]">{ws.data?.dir}</code>
                 <CopyButton text={ws.data?.dir ?? ''} />
               </div>
-              <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-[13.5px] sm:grid-cols-3">
+              <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-[0.84375rem] sm:grid-cols-3">
                 {[
                   ['Datasets', ws.data?.datasets],
                   ['Rows', ws.data?.rows],
@@ -124,7 +124,7 @@ export function SettingsPage() {
 
         <Card>
           <SectionTitle>About</SectionTitle>
-          <div className="text-[13.5px] text-ink-muted">
+          <div className="text-[0.84375rem] text-ink-muted">
             Kalibra {meta.data?.version ?? ''} · {meta.data?.mode === 'desktop' ? 'desktop app' : meta.data?.mode === 'dev' ? 'development mode' : 'local server'} · MIT licensed, open source. Your data stays on this machine; Kalibra only
             contacts the apps and model providers you configure.
           </div>

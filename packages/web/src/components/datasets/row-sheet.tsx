@@ -63,7 +63,7 @@ function FileInput({ column, value, onChange }: { column: ColumnDef; value: unkn
   const accept = column.type === 'audio' ? 'audio/*' : column.type === 'image' ? 'image/*' : undefined;
   return (
     <div className="flex flex-col gap-2">
-      {isFileValue(value) ? <CellValue value={value} type={column.type} full /> : <span className="text-[13px] text-ink-faint">No file yet</span>}
+      {isFileValue(value) ? <CellValue value={value} type={column.type} full /> : <span className="text-[0.8125rem] text-ink-faint">No file yet</span>}
       <div>
         <Button size="sm" icon={<Upload className="size-3.5" />} loading={busy} onClick={() => ref.current?.click()}>
           {isFileValue(value) ? 'Replace file' : 'Upload file'}
@@ -99,7 +99,7 @@ function ColumnInput({ column, value, onChange }: { column: ColumnDef; value: un
       return <Input type="number" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />;
     case 'boolean':
       return (
-        <div className="flex items-center gap-2 text-[13px] text-ink-muted">
+        <div className="flex items-center gap-2 text-[0.8125rem] text-ink-muted">
           <Switch checked={value === true} onChange={onChange} label={column.key} />
           {value === true ? 'true' : 'false'}
         </div>
@@ -144,7 +144,7 @@ function Provenance({ row }: { row: RowRecord }) {
     ['Revision', String(row.rev)],
   ];
   return (
-    <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
+    <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[0.78125rem]">
       {items
         .filter(([, v]) => v)
         .map(([k, v]) => (
@@ -240,15 +240,15 @@ export function RowSheet({
       }
     >
       <div className="flex flex-col gap-5 px-5 py-4">
-        {columns.length === 0 && <div className="text-[13px] text-ink-muted">This dataset has no columns yet. Add some in “Columns & instructions”.</div>}
+        {columns.length === 0 && <div className="text-[0.8125rem] text-ink-muted">This dataset has no columns yet. Add some in “Columns & instructions”.</div>}
         {columns.map((c) => (
           <Field
             key={c.key}
             label={
               <span className="flex items-center gap-2">
-                <span className="font-mono text-[12.5px]">{c.key}</span>
-                <span className="text-[11.5px] font-normal text-ink-faint">{COLUMN_TYPES.find((t) => t.value === c.type)?.label}</span>
-                {c.required && <span className="text-[11.5px] font-normal text-accent-ink">required</span>}
+                <span className="font-mono text-[0.78125rem]">{c.key}</span>
+                <span className="text-[0.71875rem] font-normal text-ink-faint">{COLUMN_TYPES.find((t) => t.value === c.type)?.label}</span>
+                {c.required && <span className="text-[0.71875rem] font-normal text-accent-ink">required</span>}
               </span>
             }
             help={c.description || undefined}
@@ -259,10 +259,10 @@ export function RowSheet({
 
         {extraKeys.length > 0 && (
           <Field label="Other values" help="Values in this row that don't match any column. They are kept as they are and can still be used in templates.">
-            <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised p-2.5 text-[13px]">
+            <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised p-2.5 text-[0.8125rem]">
               {extraKeys.map((k) => (
                 <div key={k} className="grid grid-cols-[140px_minmax(0,1fr)] gap-2">
-                  <span className="font-mono text-[12px] text-ink-muted">{k}</span>
+                  <span className="font-mono text-[0.75rem] text-ink-muted">{k}</span>
                   <CellValue value={current!.data[k]} />
                 </div>
               ))}
@@ -283,7 +283,7 @@ export function RowSheet({
 
         {current && (
           <div className="border-t border-line pt-4">
-            <div className="mb-2 text-[12.5px] font-semibold text-ink-muted">Where this row came from</div>
+            <div className="mb-2 text-[0.78125rem] font-semibold text-ink-muted">Where this row came from</div>
             <Provenance row={current} />
           </div>
         )}
