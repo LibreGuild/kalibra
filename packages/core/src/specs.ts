@@ -189,12 +189,22 @@ export const ScriptTarget = z.object({
 
 export const ModelTarget = z.object({
   kind: z.literal('model'),
+  task: z
+    .enum(['text', 'image', 'speech', 'transcription'])
+    .default('text')
+    .describe('text: chat/completion; image: generate an image from the prompt; speech: read the prompt aloud (TTS); transcription: speech-to-text of an audio column'),
   connectionId: z.string().default(''),
   model: z.string().default(''),
   system: z.string().default(''),
-  prompt: z.string().default('{{input}}'),
+  prompt: z.string().default('{{input}}').describe('Text prompt, image prompt, or the text to speak, depending on the task'),
   temperature: z.number().min(0).max(2).optional(),
   maxOutputTokens: z.number().int().positive().optional(),
+  size: z.string().default('').describe('Image size, e.g. 1024x1024'),
+  aspectRatio: z.string().default('').describe('Image aspect ratio, e.g. 16:9'),
+  quality: z.enum(['', 'low', 'medium', 'high', 'auto']).default('').describe('Image quality (OpenAI / Azure)'),
+  voice: z.string().default('').describe('Speech voice, e.g. alloy'),
+  instructions: z.string().default('').describe('Speech instructions (tone, accent, pace)'),
+  audio: z.string().default('{{audio}}').describe('Transcription: template resolving to the audio file column'),
 });
 
 export const TargetSpec = z.object({

@@ -4,9 +4,10 @@ import { Page } from '../components/layout/shell';
 import { Button } from '../components/ui/button';
 import { Badge, Card, EmptyState, ErrorBox, Loading, SectionTitle } from '../components/ui/display';
 import { Field, Input, KeyValueEditor, Select, Switch, type KV } from '../components/ui/form';
-import { Dialog, Menu, MenuItem, MenuSeparator, useConfirm } from '../components/ui/overlay';
+import { Dialog, HelpTip, Menu, MenuItem, MenuSeparator, Tip, useConfirm } from '../components/ui/overlay';
+import { AudioPlayer } from '../components/ui/media';
 import { toast, toastError } from '../components/ui/toast';
-import { op, useOp, useOpMutation } from '../lib/api';
+import { fileUrl, op, useOp, useOpMutation } from '../lib/api';
 import { timeAgo } from '../lib/format';
 
 interface ConnSpec {
@@ -15,11 +16,50 @@ interface ConnSpec {
   apiKeySecret: string;
   headers: KV[];
   defaultModel: string;
+  imageModel: string;
+  speechModel: string;
+  transcriptionModel: string;
   models: string[];
   options: Record<string, any>;
 }
 
-const EMPTY: ConnSpec = { provider: 'openai', baseUrl: '', apiKeySecret: '', headers: [], defaultModel: '', models: [], options: {} };
+const EMPTY: ConnSpec = { provider: 'openai', baseUrl: '', apiKeySecret: '', headers: [], defaultModel: '', imageModel: '', speechModel: '', transcriptionModel: '', models: [], options: {} };
+
+interface ProviderInfo {
+  id: string;
+  label: string;
+  hint: string;
+  defaultModel: string;
+  media: string[];
+}
+
+type Kind = 'text' | 'image' | 'speech' | 'transcription';
+const KIND_FIELD: Record<Kind, keyof ConnSpec> = { text: 'defaultModel', image: 'imageModel', speech: 'speechModel', transcription: 'transcriptionModel' };
+/** Mirrors the engine's inferModelKind: guesses what a model id is for. */
+function guessKind(model: string): Kind {
+  const m = model.toLowerCase();
+  if (/(^|[-_/])(gpt-image|dall-e|imagen|flux|stable-diffusion|sdxl|nova-canvas|titan-image)|image-(generation|preview)|-image$/.test(m)) return 'image';
+  if (/transcri|whisper|(^|[-_])stt([-_]|$)|speech-to-text|chirp/.test(m)) return 'transcription';
+  if (/(^|[-_])tts([-_]|$)|text-to-speech|-tts-|speech/.test(m)) return 'speech';
+  return 'text';
+}
+
+const KIND_LABEL: Record<Kind, string> = { text: 'Text', image: 'Image', speech: 'Speech', transcription: 'Transcription' };
+
+/** One line describing a test result: reply text, or a small image / audio preview. */
+function TestResult({ r }: { r: any }) {
+  if (!r) return null;
+  if (r.error) return <div className="text-[12.5px] text-bad">{r.error}</div>;
+  return (
+    <div className="flex items-center gap-3 text-[12.5px] text-ink-muted">
+      <Badge tone="ok" dot>Works</Badge>
+      <span>{r.latencyMs} ms</span>
+      {r.file && r.kind === 'image' && <img src={fileUrl(r.file.hash)} alt="Test image" className="size-10 rounded border border-line object-cover" />}
+      {r.file && r.kind === 'speech' && <div className="w-48"><AudioPlayer file={{ blob: r.file.hash, name: 'test.wav', mime: r.file.mime }} compact /></div>}
+      {r.reply && <span className="truncate">“{r.reply}”</span>}
+    </div>
+  );
+}
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'connection';
 
@@ -56,19 +96,20 @@ function describe(s: ConnSpec) {
 
 export function ConnectionsPage() {
   const list = useOp<any[]>('list_connections');
-  const providers = useOp<{ id: string; label: string; defaultModel: string }[]>('list_providers');
+  const providers = useOp<ProviderInfo[]>('list_providers');
   const secrets = useOp<string[]>('list_secrets');
   const [editing, setEditing] = useState<any | null>(null);
   const [secretOpen, setSecretOpen] = useState(false);
   const confirm = useConfirm();
   const del = useOpMutation('delete_connection', { invalidate: ['list_connections'] });
   const delSecret = useOpMutation('delete_secret', { invalidate: ['list_secrets'] });
-  const label = (id: string) => providers.data?.find((p) => p.id === id)?.label.split(' (')[0] ?? id;
+  const label = (id: string) => providers.data?.find((p) => p.id === id)?.label ?? id;
 
   const test = async (c: any) => {
     try {
       const r = await op('test_connection', { id: c.id });
-      toast.success(`${c.name} works`, `${r.model} replied "${r.reply}" in ${r.latencyMs} ms`);
+      const what = r.kind === 'image' ? 'drew a test image' : r.kind === 'speech' ? 'spoke a test sentence' : `replied "${r.reply}"`;
+      toast.success(`${c.name} works`, `${r.model} ${what} in ${r.latencyMs} ms`);
     } catch (e) {
       toastError(e, `${c.name} failed`);
     }
@@ -109,7 +150,15 @@ export function ConnectionsPage() {
                     <div className="truncate text-[15px] font-semibold">{c.name}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                       <Badge tone="accent">{label(c.spec.provider)}</Badge>
-                      {c.spec.defaultModel && <Badge>{c.spec.defaultModel}</Badge>}
+                      {(['text', 'image', 'speech', 'transcription'] as Kind[]).map((k) =>
+                        c.spec[KIND_FIELD[k]] ? (
+                          <Tip key={k} content={`${KIND_LABEL[k]} model`}>
+                            <span>
+                              <Badge>{k === 'text' ? '' : `${KIND_LABEL[k]}: `}{c.spec[KIND_FIELD[k]]}</Badge>
+                            </span>
+                          </Tip>
+                        ) : null,
+                      )}
                     </div>
                   </div>
                   <Menu trigger={<Button variant="ghost" size="icon-sm" aria-label="More"><MoreHorizontal className="size-4" /></Button>}>
@@ -182,9 +231,15 @@ export function ConnectionsPage() {
   );
 }
 
-function ConnectionDialog({ initial, providers, onClose }: { initial: any; providers: { id: string; label: string; defaultModel: string }[]; onClose: () => void }) {
+function ConnectionDialog({ initial, providers, onClose }: { initial: any; providers: ProviderInfo[]; onClose: () => void }) {
   const [name, setName] = useState<string>(initial.name ?? '');
-  const [spec, setSpec] = useState<ConnSpec>({ ...EMPTY, ...initial.spec, options: { ...(initial.spec?.options ?? {}) } });
+  const [spec, setSpec] = useState<ConnSpec>(() => {
+    const s: ConnSpec = { ...EMPTY, ...initial.spec, options: { ...(initial.spec?.options ?? {}) } };
+    // Older connections kept an image/speech model in the text slot; move it where it belongs.
+    const kind = guessKind(s.defaultModel);
+    if (kind !== 'text' && !s[KIND_FIELD[kind]]) return { ...s, [KIND_FIELD[kind]]: s.defaultModel, defaultModel: '' };
+    return s;
+  });
   const [apiKey, setApiKey] = useState('');
   const [extraSecrets, setExtraSecrets] = useState<Record<string, string>>({});
   const [models, setModels] = useState<string[] | null>(null);
@@ -230,21 +285,24 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
     }
   };
 
-  const test = async () => {
-    setBusy('test');
-    setError(null);
+  const [results, setResults] = useState<Partial<Record<Kind, any>>>({});
+  const [testing, setTesting] = useState<Kind | null>(null);
+  const testKind = async (kind: Kind) => {
+    setTesting(kind);
+    setResults((r) => ({ ...r, [kind]: undefined }));
     try {
       const finalSpec = await persistSecrets();
       setSpec(finalSpec);
       setApiKey('');
-      const r = await op('test_connection', { spec: finalSpec });
-      toast.success('It works', `${r.model} replied "${r.reply}" in ${r.latencyMs} ms`);
-    } catch (e) {
-      setError(e);
+      const r = await op('test_connection', { spec: finalSpec, kind, model: finalSpec[KIND_FIELD[kind]] });
+      setResults((x) => ({ ...x, [kind]: r }));
+    } catch (e: any) {
+      setResults((x) => ({ ...x, [kind]: { error: e?.message ?? String(e) } }));
     } finally {
-      setBusy(null);
+      setTesting(null);
     }
   };
+  const media = providers.find((p) => p.id === spec.provider)?.media ?? [];
 
   const loadModels = async () => {
     setBusy('models');
@@ -281,9 +339,6 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
       width="lg"
       footer={
         <>
-          <Button onClick={test} loading={busy === 'test'} icon={<Zap className="size-4" />} disabled={!spec.defaultModel}>
-            Test
-          </Button>
           <div className="flex-1" />
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} loading={busy === 'save'} disabled={!name.trim()}>
@@ -300,8 +355,8 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
           <Field label="Provider">
             <Select
               value={spec.provider}
-              onChange={(v) => set({ provider: v, options: {}, defaultModel: spec.defaultModel || providers.find((p) => p.id === v)?.defaultModel || '' })}
-              options={providers.map((p) => ({ value: p.id, label: p.label }))}
+              onChange={(v) => set({ provider: v, options: {} })}
+              options={providers.map((p) => ({ value: p.id, label: p.label, hint: p.hint }))}
             />
           </Field>
         </div>
@@ -423,19 +478,49 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
           </Field>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-          <Field label="Default model" help={spec.provider === 'azure' ? 'Your deployment name.' : 'Used unless a check or generator picks another. You can type any model id.'}>
-            {models && models.length > 0 ? (
-              <Select value={spec.defaultModel} onChange={(v) => set({ defaultModel: v })} options={models.map((m) => ({ value: m, label: m }))} />
-            ) : (
-              <Input mono value={spec.defaultModel} onChange={(e) => set({ defaultModel: e.target.value })} placeholder="model id" />
+        <div className="flex flex-col gap-3 rounded-lg border border-line bg-raised/50 p-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+              Models
+              <HelpTip>One connection can serve several kinds of models from the same account. Fill in the ones you use; leave the rest empty. Each Test makes one small real call.</HelpTip>
+            </div>
+            {['openai', 'anthropic', 'openai_compatible', 'google'].includes(spec.provider) && (
+              <Button size="sm" variant="ghost" onClick={loadModels} loading={busy === 'models'}>
+                {models ? `${models.length} models listed` : 'List available models'}
+              </Button>
             )}
-          </Field>
-          {['openai', 'anthropic', 'openai_compatible'].includes(spec.provider) && (
-            <Button onClick={loadModels} loading={busy === 'models'}>
-              List models
-            </Button>
-          )}
+          </div>
+          {(['text', ...media] as Kind[]).map((kind) => {
+            const field = KIND_FIELD[kind];
+            const help =
+              kind === 'text'
+                ? spec.provider === 'azure' ? 'Your chat deployment name. Used for LLM judges and text generation.' : 'Used for LLM judges, model targets and generating rows.'
+                : kind === 'image'
+                  ? 'Used to generate image datasets and by image model targets, e.g. gpt-image-2, imagen-4.0-generate-001.'
+                  : kind === 'speech'
+                    ? 'Text-to-speech, used to turn transcripts into audio test data, e.g. gpt-4o-mini-tts.'
+                    : 'Speech-to-text, used to draft reference transcripts or as a baseline target, e.g. gpt-4o-transcribe.';
+            return (
+              <div key={kind} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <Field label={`${KIND_LABEL[kind]} model`} help={help}>
+                  <Input mono list={`models-${kind}`} value={(spec as any)[field] ?? ''} onChange={(e) => set({ [field]: e.target.value } as any)} placeholder={kind === 'text' ? 'model id' : 'optional'} />
+                </Field>
+                <Button onClick={() => testKind(kind)} loading={testing === kind} disabled={!(spec as any)[field]} icon={<Zap className="size-3.5" />}>
+                  Test
+                </Button>
+                {results[kind] && (
+                  <div className="sm:col-span-2">
+                    <TestResult r={results[kind]} />
+                  </div>
+                )}
+                <datalist id={`models-${kind}`}>
+                  {(models ?? []).map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+              </div>
+            );
+          })}
         </div>
 
         <details className="group">

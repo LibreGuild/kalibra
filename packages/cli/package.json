@@ -1,16 +1,37 @@
 {
   "name": "kalibra",
   "version": "0.1.0",
-  "description": "Kalibra: local-first, open-source evaluation for AI applications",
+  "description": "Local-first, open-source evaluation for AI applications: datasets, HTTP/WebSocket targets, layered checks (WER, LLM judge, \u2026), runs and comparisons. Run with `npx kalibra`.",
   "license": "MIT",
   "type": "module",
   "bin": {
     "kalibra": "dist/kalibra.mjs"
   },
-  "scripts": {
-    "build": "node build.mjs"
+  "files": [
+    "dist/kalibra.mjs",
+    "dist/web",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
   },
-  "dependencies": {
+  "keywords": [
+    "llm",
+    "evals",
+    "evaluation",
+    "ai",
+    "testing",
+    "speech-to-text",
+    "wer",
+    "llm-as-judge",
+    "mcp"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs"
+  },
+  "devDependencies": {
     "@kalibra/core": "0.1.0",
     "@kalibra/server": "0.1.0",
     "@modelcontextprotocol/sdk": "^1.32.1"

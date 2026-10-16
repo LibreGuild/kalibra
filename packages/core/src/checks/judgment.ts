@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { render, toText } from '../template.js';
+import { render, renderValue, toText } from '../template.js';
+import type { MediaFile } from '../providers/types.js';
 import { evalExpression, runScript } from '../script.js';
 import { defineCheck, errorOutcome, fail, pass, round, verdict } from './common.js';
 
@@ -59,6 +60,7 @@ export const llmJudgeCheck = defineCheck({
     prompt: z.string().default(DEFAULT_JUDGE_PROMPT),
     repetitions: z.number().int().min(1).max(9).default(1),
     temperature: z.number().min(0).max(2).default(0),
+    attachments: z.array(z.string()).default([]),
   }),
   fields: [
     { key: 'connectionId', label: 'Connection', kind: 'connection', help: 'Which model provider grades the output. Add providers on the Connections page.' },
@@ -80,12 +82,20 @@ export const llmJudgeCheck = defineCheck({
     },
     { key: 'repetitions', label: 'Repetitions', kind: 'number', default: 1, help: 'Ask the judge several times and take the majority vote. Use 3 or 5 when single verdicts flip between runs.' },
     { key: 'temperature', label: 'Temperature', kind: 'number', default: 0, help: 'Randomness of the judge. 0 is the most consistent.' },
+    {
+      key: 'attachments',
+      label: 'Attachments',
+      kind: 'list',
+      default: [],
+      help: 'Images or audio the judge should see, e.g. {{output}} for a generated image or {{image}} for an input photo. Needs a judge model that accepts files.',
+    },
   ],
   async run(cfg, ctx) {
     if (!cfg.connectionId) return errorOutcome('Choose a connection for the judge');
     const reference = toText(await render(cfg.reference, ctx.scope, ctx.env));
     const scope = { ...ctx.scope, criteria: cfg.criteria, reference };
     const prompt = await render(cfg.prompt, scope, ctx.env);
+    const files = await loadAttachments(cfg.attachments, ctx);
     const runs: JudgeAnswer[] = [];
     let inputTokens = 0;
     let outputTokens = 0;
@@ -100,6 +110,7 @@ export const llmJudgeCheck = defineCheck({
         temperature: cfg.temperature,
         schema: JUDGE_SCHEMA,
         schemaName: 'judgement',
+        files: files.length ? files.map((f) => f.file) : undefined,
         signal: ctx.signal,
       });
       runs.push(r.value);
@@ -122,6 +133,7 @@ export const llmJudgeCheck = defineCheck({
         meanScore: scores.length ? round(scores.reduce((a, b) => a + b, 0) / scores.length) : undefined,
         usage: { model, inputTokens, outputTokens, latencyMs },
         prompt,
+        attachments: files.map((f) => ({ name: f.name, mime: f.file.mime, bytes: f.file.data.byteLength })),
       },
     });
   },
@@ -202,3 +214,28 @@ export const expressionCheck = defineCheck({
     return verdict(!!v, { reason: v ? 'True' : `False (${toText(v).slice(0, 80) || String(v)})` });
   },
 });
+
+/** Resolves attachment templates to files; non-file values (or missing ones) are skipped. */
+async function loadAttachments(templates: string[], ctx: Parameters<typeof llmJudgeCheck.run>[1]): Promise<{ name: string; file: MediaFile }[]> {
+  const out: { name: string; file: MediaFile }[] = [];
+  for (const tpl of templates.map((s) => s.trim()).filter(Boolean)) {
+    const v = await renderValue(tpl, ctx.scope, ctx.env).catch(() => undefined);
+    for (const item of Array.isArray(v) ? v : [v]) {
+      if (!item || typeof item !== 'object' || typeof (item as any).blob !== 'string' || !ctx.env.loadFile) continue;
+      const data = await ctx.env.loadFile(item);
+      out.push({ name: (item as any).name ?? tpl, file: { data, mime: (item as any).mime || guessMime(data) } });
+    }
+  }
+  return out;
+}
+
+function guessMime(b: Uint8Array): string {
+  const head = Buffer.from(b.subarray(0, 12)).toString('latin1');
+  if (b[0] === 0x89 && head.slice(1, 4) === 'PNG') return 'image/png';
+  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'image/webp';
+  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WAVE') return 'audio/wav';
+  if (head.startsWith('ID3') || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return 'audio/mpeg';
+  if (head.startsWith('%PDF')) return 'application/pdf';
+  return 'application/octet-stream';
+}

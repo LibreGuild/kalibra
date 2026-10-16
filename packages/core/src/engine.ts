@@ -14,6 +14,7 @@ import { FileSecretStore, FsBlobStore, type BlobStore, type SecretStore } from '
 import type { TemplateEnv } from './template.js';
 import { nowIso } from './util.js';
 import { ALL_OPS } from './ops/index.js';
+import { Jobs } from './jobs.js';
 
 export interface EngineOptions {
   /** Workspace directory: holds kalibra.db and blobs/. */
@@ -33,6 +34,8 @@ export class Engine {
   readonly repos: { datasets: DatasetRepo; defs: DefRepo; runs: RunRepo };
   readonly runner: Runner;
   readonly llm: LlmClient;
+  /** Background jobs (media generation, augmentation, …). */
+  readonly jobs: Jobs;
 
   constructor(opts: EngineOptions) {
     this.dir = resolve(opts.dir);
@@ -42,6 +45,7 @@ export class Engine {
     this.secrets = opts.secrets ?? new FileSecretStore(join(this.dir, 'secrets.json'));
     this.repos = { datasets: new DatasetRepo(this.db), defs: new DefRepo(this.db), runs: new RunRepo(this.db) };
     this.llm = createLlmClient((id) => ConnectionSpec.parse(this.repos.defs.get('connection', id).spec), this.secrets);
+    this.jobs = new Jobs(this.events);
     this.registry.add(...ALL_OPS);
     this.runner = new Runner(this);
     this.runner.recover();
@@ -70,6 +74,7 @@ export class Engine {
   }
 
   close() {
+    this.jobs.cancelAll();
     for (const r of this.db.all("SELECT id FROM runs WHERE status = 'running'")) this.runner.cancel(r.id);
     this.db.close();
   }

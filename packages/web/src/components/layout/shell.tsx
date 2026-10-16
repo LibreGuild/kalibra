@@ -1,9 +1,8 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router';
 import clsx from 'clsx';
-import { Bot, Crosshair, Database, Home, ListChecks, Monitor, Moon, Play, Plug, Settings, Sun } from 'lucide-react';
+import { BookOpen, Bot, Crosshair, Database, Home, ListChecks, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings } from 'lucide-react';
 import { useLiveEvents, useOp } from '../../lib/api';
-import { useTheme, type ThemeChoice } from '../../lib/theme';
 import { Tip } from '../ui/overlay';
 
 const NAV = [
@@ -14,83 +13,108 @@ const NAV = [
   { to: '/runs', label: 'Runs', icon: Play, hint: 'Run a dataset through a target and score it with a suite' },
 ];
 const NAV2 = [
-  { to: '/connections', label: 'Connections', icon: Plug, hint: 'Model providers used for judges and data generation' },
+  { to: '/connections', label: 'Connections', icon: Plug, hint: 'Model providers for judges, generation, images and speech' },
   { to: '/agents', label: 'Coding agents', icon: Bot, hint: 'Let Claude Code, Codex, Cursor and others drive Kalibra through MCP' },
-  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, workspace and storage' },
+  { to: '/docs', label: 'Docs', icon: BookOpen, hint: 'Short, illustrated guides to every feature' },
+  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, reading font, text size, workspace' },
 ];
 
-function NavItem({ to, label, icon: Icon, end, hint, count }: { to: string; label: string; icon: any; end?: boolean; hint: string; count?: number }) {
+function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: string; label: string; icon: any; end?: boolean; hint: string; count?: number; collapsed: boolean }) {
   return (
-    <Tip content={hint} side="right">
+    <Tip content={collapsed ? <><b>{label}</b><br />{hint}</> : hint} side="right">
+      {/* Wrapper div: the tooltip trigger merges classNames as strings, which would break NavLink's className function. */}
+      <div>
       <NavLink
         to={to}
         end={end}
+        aria-label={label}
         className={({ isActive }) =>
           clsx(
-            'group flex h-8.5 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] font-medium transition-colors',
-            isActive ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:bg-hover hover:text-ink',
+            'relative flex h-9 items-center rounded-lg text-[13.5px] font-medium transition-colors',
+            collapsed ? 'justify-center' : 'gap-2.5 px-2.5',
+            isActive ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-ink-muted hover:bg-hover hover:text-ink',
           )
         }
       >
-        <Icon className="size-4 shrink-0" />
-        <span className="flex-1 truncate">{label}</span>
-        {!!count && <span className="rounded-md bg-warn-soft px-1.5 text-[11px] font-semibold tabular-nums text-warn">{count}</span>}
+        {({ isActive }) => (
+          <>
+            {isActive && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-accent" />}
+            <Icon className={clsx('size-4 shrink-0', isActive && 'text-accent-ink')} />
+            {!collapsed && <span className="flex-1 truncate">{label}</span>}
+            {!!count && (collapsed ? <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-warn" /> : <span className="rounded-md bg-warn-soft px-1.5 text-[11px] font-semibold tabular-nums text-warn">{count}</span>)}
+          </>
+        )}
       </NavLink>
+      </div>
     </Tip>
   );
 }
 
-function ThemeSwitch() {
-  const { choice, setChoice } = useTheme();
-  const opts: { v: ThemeChoice; icon: any; label: string }[] = [
-    { v: 'light', icon: Sun, label: 'Light' },
-    { v: 'dark', icon: Moon, label: 'Dark' },
-    { v: 'system', icon: Monitor, label: 'Match system' },
-  ];
-  return (
-    <div className="flex rounded-lg border border-line bg-raised p-0.5" role="radiogroup" aria-label="Theme">
-      {opts.map(({ v, icon: Icon, label }) => (
-        <Tip key={v} content={label}>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={choice === v}
-            aria-label={label}
-            onClick={() => setChoice(v)}
-            className={clsx('grid h-6.5 flex-1 place-items-center rounded-md', choice === v ? 'bg-surface text-ink shadow-sm' : 'text-ink-faint hover:text-ink')}
-          >
-            <Icon className="size-3.5" />
-          </button>
-        </Tip>
-      ))}
-    </div>
-  );
-}
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem('kalibra.sidebar') === 'collapsed';
+  } catch {
+    return false;
+  }
+};
 
 export function AppShell() {
   useLiveEvents();
   const datasets = useOp<any[]>('list_datasets');
   const review = (datasets.data ?? []).reduce((n, d) => n + (d.reviewCount ?? 0), 0);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggle = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem('kalibra.sidebar', c ? 'expanded' : 'collapsed');
+      } catch {
+        /* preference lasts for this session */
+      }
+      return !c;
+    });
+
+  // ⌘\ / Ctrl+\ toggles the sidebar.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault();
+        toggle();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="flex h-full">
-      <aside className="flex w-[232px] shrink-0 flex-col border-r border-line bg-sidebar px-3 pt-4 pb-3">
-        <div className="mb-5 flex items-center gap-2 px-2">
-          <div className="grid size-7 place-items-center rounded-lg bg-accent font-serif text-[17px] font-semibold text-on-accent">K</div>
-          <span className="font-serif text-[19px] font-semibold tracking-tight">Kalibra</span>
+      <aside className={clsx('flex shrink-0 flex-col border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
+        <div className={clsx('mb-5 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
+          <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[15px] font-bold text-on-accent">K</div>
+          {!collapsed && <span className="text-[17px] font-bold tracking-tight">Kalibra</span>}
         </div>
         <nav className="flex flex-col gap-0.5">
           {NAV.map((n) => (
-            <NavItem key={n.to} {...n} count={n.to === '/datasets' ? review : undefined} />
+            <NavItem key={n.to} {...n} collapsed={collapsed} count={n.to === '/datasets' ? review : undefined} />
           ))}
         </nav>
         <div className="my-3 h-px bg-line" />
         <nav className="flex flex-col gap-0.5">
           {NAV2.map((n) => (
-            <NavItem key={n.to} {...n} />
+            <NavItem key={n.to} {...n} collapsed={collapsed} />
           ))}
         </nav>
         <div className="mt-auto">
-          <ThemeSwitch />
+          <Tip content={collapsed ? 'Expand sidebar (⌘\\)' : 'Collapse sidebar (⌘\\)'} side="right">
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className={clsx('flex h-8 w-full items-center rounded-lg text-[13px] text-ink-faint hover:bg-hover hover:text-ink', collapsed ? 'justify-center' : 'gap-2.5 px-2.5')}
+            >
+              {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+              {!collapsed && 'Collapse'}
+            </button>
+          </Tip>
         </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto">
@@ -124,7 +148,7 @@ export function Page({
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <h1 className="truncate font-serif text-[26px] font-semibold tracking-tight">{title}</h1>
+            <h1 className="truncate text-[24px] font-bold tracking-tight">{title}</h1>
             {badge}
           </div>
           {description && <p className="mt-1 max-w-2xl text-[13.5px] text-ink-muted">{description}</p>}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Check, Database, Download, Ellipsis, FileSpreadsheet, Plus, Save, Search, Sparkles, Trash2, Undo2, Upload, X } from 'lucide-react';
+import { AudioLines, Bot, Captions, Check, Database, Download, Ellipsis, FileSpreadsheet, Image as ImageIcon, Plus, Save, Search, Sparkles, Trash2, Undo2, Upload, Waves, X } from 'lucide-react';
 import { ApiError, fileUrl, op, useOp } from '../lib/api';
 import { actorLabel, dateTime, timeAgo } from '../lib/format';
 import { BackLink, Page } from '../components/layout/shell';
@@ -15,6 +15,7 @@ import { toast, toastError } from '../components/ui/toast';
 import { ColumnsEditor, columnErrors } from '../components/datasets/columns-editor';
 import { GenerateDialog, ImportDialog, NewDatasetDialog, SaveVersionDialog, UploadFilesDialog } from '../components/datasets/dialogs';
 import { RowSheet } from '../components/datasets/row-sheet';
+import { AudioVariantsDialog, DatasetJobsStrip, GenerateImagesDialog, GenerateSpeechDialog, TranscribeDialog } from '../components/datasets/media-dialogs';
 import type { ColumnDef, DatasetSchemaResp, RowRecord, RowStatus } from '../components/datasets/types';
 
 /* Datasets list ──────────────────────────────────────────────────────────── */
@@ -91,7 +92,7 @@ export function DatasetsPage() {
 
 /* Dataset detail ─────────────────────────────────────────────────────────── */
 
-type Dlg = null | 'upload' | 'import' | 'generate' | 'version';
+type Dlg = null | 'upload' | 'import' | 'generate' | 'version' | 'images' | 'speech' | 'variants' | 'transcribe';
 
 export function DatasetDetailPage() {
   const { id = '' } = useParams();
@@ -102,6 +103,7 @@ export function DatasetDetailPage() {
   const [dialog, setDialog] = useState<Dlg>(null);
   const [sheetRow, setSheetRow] = useState<RowRecord | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const confirm = useConfirm();
 
   const exportAs = async (format: 'csv' | 'jsonl') => {
@@ -166,6 +168,19 @@ export function DatasetDetailPage() {
             <MenuItem icon={<Sparkles />} hint="Uses one of your model connections" onSelect={() => setDialog('generate')}>
               Generate with a model
             </MenuItem>
+            <MenuItem icon={<ImageIcon />} hint="GPT Image, Imagen… one image per row or prompt" onSelect={() => setDialog('images')}>
+              Generate images
+            </MenuItem>
+            <MenuItem icon={<AudioLines />} hint="Read text aloud with a text-to-speech model" onSelect={() => setDialog('speech')}>
+              Generate speech (TTS)
+            </MenuItem>
+            <MenuItem icon={<Waves />} hint="Noise, phone line, echo, fast speech…" onSelect={() => setDialog('variants')}>
+              Make audio variants
+            </MenuItem>
+            <MenuItem icon={<Captions />} hint="Fill a text column from the audio" onSelect={() => setDialog('transcribe')}>
+              Transcribe audio into a column
+            </MenuItem>
+            <MenuSeparator />
             <MenuItem icon={<Bot />} hint="Claude Code, Codex, Cursor… through MCP" onSelect={() => navigate('/agents')}>
               Fill with a coding agent
             </MenuItem>
@@ -205,7 +220,8 @@ export function DatasetDetailPage() {
         ]}
       >
         <TabPanel value="rows" className="pt-4">
-          <RowsTab ds={ds} onOpenRow={(r) => (setSheetRow(r), setSheetOpen(true))} onAddRow={() => (setSheetRow(null), setSheetOpen(true))} onUpload={() => setDialog('upload')} />
+          <DatasetJobsStrip datasetId={ds.id} />
+          <RowsTab ds={ds} onOpenRow={(r) => (setSheetRow(r), setSheetOpen(true))} onAddRow={() => (setSheetRow(null), setSheetOpen(true))} onUpload={() => setDialog('upload')} onSelectionChange={setSelectedIds} />
         </TabPanel>
         <TabPanel value="columns" className="pt-5">
           <ColumnsTab ds={ds} onSaved={() => schema.refetch()} />
@@ -220,6 +236,10 @@ export function DatasetDetailPage() {
       <ImportDialog open={dialog === 'import'} onOpenChange={(o) => setDialog(o ? 'import' : null)} datasetId={ds.id} />
       <GenerateDialog open={dialog === 'generate'} onOpenChange={(o) => setDialog(o ? 'generate' : null)} datasetId={ds.id} />
       <SaveVersionDialog open={dialog === 'version'} onOpenChange={(o) => setDialog(o ? 'version' : null)} datasetId={ds.id} />
+      {dialog === 'images' && <GenerateImagesDialog open onOpenChange={(o) => setDialog(o ? 'images' : null)} ds={ds} selectedIds={selectedIds} />}
+      {dialog === 'speech' && <GenerateSpeechDialog open onOpenChange={(o) => setDialog(o ? 'speech' : null)} ds={ds} selectedIds={selectedIds} />}
+      {dialog === 'variants' && <AudioVariantsDialog open onOpenChange={(o) => setDialog(o ? 'variants' : null)} ds={ds} selectedIds={selectedIds} />}
+      {dialog === 'transcribe' && <TranscribeDialog open onOpenChange={(o) => setDialog(o ? 'transcribe' : null)} ds={ds} selectedIds={selectedIds} />}
       {confirm.element}
     </Page>
   );
@@ -251,7 +271,19 @@ const COL_WIDTH: Record<string, string> = {
   file: 'minmax(160px, 1fr)',
 };
 
-function RowsTab({ ds, onOpenRow, onAddRow, onUpload }: { ds: DatasetSchemaResp; onOpenRow: (r: RowRecord) => void; onAddRow: () => void; onUpload: () => void }) {
+function RowsTab({
+  ds,
+  onOpenRow,
+  onAddRow,
+  onUpload,
+  onSelectionChange,
+}: {
+  ds: DatasetSchemaResp;
+  onOpenRow: (r: RowRecord) => void;
+  onAddRow: () => void;
+  onUpload: () => void;
+  onSelectionChange?: (ids: string[]) => void;
+}) {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [filter, setFilter] = useState<Filter>('all');
@@ -275,6 +307,7 @@ function RowsTab({ ds, onOpenRow, onAddRow, onUpload }: { ds: DatasetSchemaResp;
   const total = rowsQ.data?.pages[0]?.total ?? 0;
 
   useEffect(() => setSelected(new Set()), [filter, tag, search]);
+  useEffect(() => onSelectionChange?.([...selected]), [selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = ds.stats.byStatus;
   const refresh = () => {

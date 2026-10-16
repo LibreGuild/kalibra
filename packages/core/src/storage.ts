@@ -34,7 +34,8 @@ export class FsBlobStore implements BlobStore {
     const file = this.path(hash);
     if (!existsSync(file)) {
       await mkdir(dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.tmp`;
+      // Unique temp name: concurrent puts of identical content must not race on one temp file.
+      const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
       await writeFile(tmp, data);
       await rename(tmp, file);
     }

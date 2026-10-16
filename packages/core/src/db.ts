@@ -156,6 +156,22 @@ const MIGRATIONS: string[] = [
     summary TEXT NOT NULL DEFAULT ''
   );
   `,
+  // 2: human labels on results (ground truth for calibrating judges and other checks)
+  `
+  CREATE TABLE labels (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id),
+    result_id TEXT NOT NULL REFERENCES results(id),
+    check_id TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL CHECK (label IN ('pass', 'fail')),
+    note TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (result_id, check_id)
+  );
+  CREATE INDEX labels_run ON labels(run_id, check_id);
+  `,
 ];
 
 /** Thin synchronous wrapper over node:sqlite with cached statements and transactions. */

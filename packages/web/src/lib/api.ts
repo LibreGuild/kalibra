@@ -75,6 +75,7 @@ const INVALIDATE: Record<string, string[]> = {
   'run.updated': ['list_runs', 'get_run'],
   'result.updated': ['query_results'],
   activity: ['list_activity'],
+  'job.updated': ['get_job', 'list_jobs', 'list_rows', 'list_datasets'],
 };
 
 /** Subscribes to live engine events and refreshes what changed — including edits made by agents or the CLI. */

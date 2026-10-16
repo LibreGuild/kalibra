@@ -102,14 +102,24 @@ export interface ScriptConfig {
   timeoutMs: number;
 }
 
+export type ModelTask = 'text' | 'image' | 'speech' | 'transcription';
+
 export interface ModelConfig {
   kind: 'model';
+  /** text: prompt → reply; image: prompt → image; speech: prompt → audio; transcription: audio → text. */
+  task?: ModelTask;
   connectionId: string;
   model: string;
   system: string;
   prompt: string;
   temperature?: number;
   maxOutputTokens?: number;
+  size?: string;
+  aspectRatio?: string;
+  quality?: '' | 'low' | 'medium' | 'high' | 'auto';
+  voice?: string;
+  instructions?: string;
+  audio?: string;
 }
 
 export type TargetConfig = HttpConfig | WsConfig | ScriptConfig | ModelConfig;
@@ -218,7 +228,7 @@ return { output: body.answer, raw: body };
 }
 
 export function defaultModel(): ModelConfig {
-  return { kind: 'model', connectionId: '', model: '', system: '', prompt: '{{input}}' };
+  return { kind: 'model', task: 'text', connectionId: '', model: '', system: '', prompt: '{{input}}', size: '', aspectRatio: '', quality: '', voice: '', instructions: '', audio: '{{audio}}' };
 }
 
 export function defaultConfig(kind: TargetKind): TargetConfig {
@@ -296,6 +306,6 @@ export function endpointOf(spec: TargetSpec | undefined): string {
   if (!c) return '';
   if (c.kind === 'http') return `${c.method} ${c.url}`;
   if (c.kind === 'websocket') return c.url;
-  if (c.kind === 'model') return c.model || 'model not set';
+  if (c.kind === 'model') return `${c.task && c.task !== 'text' ? `${c.task} · ` : ''}${c.model || 'connection default model'}`;
   return 'custom script';
 }

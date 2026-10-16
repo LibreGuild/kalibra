@@ -8,7 +8,8 @@ export type EngineEvent =
   | { type: 'def.changed'; kind: string; id: string; actor?: Actor }
   | { type: 'run.updated'; runId: string; status: string; done: number; total: number }
   | { type: 'result.updated'; runId: string; resultId: string }
-  | { type: 'activity'; op: string; summary: string; actor: Actor };
+  | { type: 'activity'; op: string; summary: string; actor: Actor }
+  | { type: 'job.updated'; jobId: string; kind: string; status: string; done: number; total: number };
 
 export class EventBus {
   private emitter = new EventEmitter();

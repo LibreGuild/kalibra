@@ -6,3 +6,4 @@ out/
 .kalibra-dev/
 packages/demo/fixtures/audio/
 *.log
+packages/cli/LICENSE

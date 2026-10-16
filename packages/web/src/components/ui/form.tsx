@@ -36,7 +36,7 @@ export function Field({
 }) {
   const id = useId();
   return (
-    <div className={clsx(inline ? 'flex items-center justify-between gap-4' : 'flex flex-col gap-1.5', className)} id={id}>
+    <div className={clsx('min-w-0', inline ? 'flex items-center justify-between gap-4' : 'flex flex-col gap-1.5', className)} id={id}>
       {label && (
         <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
           <span>{label}</span>

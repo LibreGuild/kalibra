@@ -18,6 +18,7 @@ process.emitWarning = ((w: any, ...rest: any[]) => {
 const HELP = `Kalibra — local-first evaluation for AI applications
 
 Usage:
+  kalibra                                                                Start Kalibra and open it in your browser
   kalibra serve [--port 4317] [--host 127.0.0.1] [--no-token] [--open]   Start the engine + web UI
   kalibra mcp                                                            MCP server (stdio) for coding agents
   kalibra run --dataset D --target T --suite S [--name N] [--min-pass 0.9] [--json]
@@ -29,7 +30,13 @@ Options:
   --dev          Development mode (workspace ./.kalibra-dev, allows the Vite dev server)
 `;
 
+const VERSION = '0.1.0';
+
 async function main() {
+  if (typeof (process as any).getBuiltinModule !== 'function' || !(process as any).getBuiltinModule('node:sqlite')) {
+    console.error(`Kalibra needs Node.js 22.13 or newer (you have ${process.version}). Get it from https://nodejs.org`);
+    process.exit(1);
+  }
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
@@ -48,10 +55,11 @@ async function main() {
       help: { type: 'boolean', short: 'h', default: false },
     },
   });
-  const [cmd, ...rest] = positionals;
+  if (values.help) return void process.stdout.write(HELP);
+  // `npx kalibra` with no command: start and open the UI.
+  const [cmd = 'serve', ...rest] = positionals;
+  if (!positionals.length) values.open = true;
   const dir = values.dir ? resolve(values.dir) : defaultDir(values.dev);
-
-  if (!cmd || values.help) return void process.stdout.write(HELP);
 
   if (cmd === 'serve') {
     const engine = new Engine({ dir });
@@ -65,7 +73,7 @@ async function main() {
       token,
       staticDir,
       allowedOrigins: values.dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
-      meta: { mode: values.dev ? 'dev' : 'cli', version: '0.1.0', mcp: mcpCommand(dir) },
+      meta: { mode: values.dev ? 'dev' : 'cli', version: VERSION, mcp: mcpCommand(dir) },
     });
     writeEngineInfo(dir, { url: srv.url, token, pid: process.pid });
     const openUrl = token ? `${srv.url}/?token=${token}` : srv.url;
@@ -124,9 +132,10 @@ async function main() {
 /** How a coding agent should launch the MCP bridge for this workspace (shown on the Coding agents page). */
 function mcpCommand(dir: string) {
   const self = fileURLToPath(import.meta.url);
-  return self.endsWith('.ts')
-    ? { command: 'npx', args: ['tsx', self, 'mcp', '--dir', dir] }
-    : { command: process.execPath, args: [self, 'mcp', '--dir', dir] };
+  if (self.endsWith('.ts')) return { command: 'npx', args: ['tsx', self, 'mcp', '--dir', dir] };
+  // Launched through npx: the cached copy can be cleaned up, so point agents at npx too.
+  if (/[\\/]_npx[\\/]/.test(self)) return { command: 'npx', args: ['-y', `kalibra@${VERSION}`, 'mcp', '--dir', dir] };
+  return { command: process.execPath, args: [self, 'mcp', '--dir', dir] };
 }
 
 const fmtPct = (v: number | null | undefined) => (v == null ? '–' : `${(v * 100).toFixed(1)}%`);

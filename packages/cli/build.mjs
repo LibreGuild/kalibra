@@ -11,8 +11,11 @@ await build({
   format: 'esm',
   target: 'node22',
   banner: { js: "import { createRequire as __kalibraRequire } from 'node:module'; const require = __kalibraRequire(import.meta.url);" },
-  sourcemap: true,
+  sourcemap: false,
+  minify: true,
+  legalComments: 'none',
   logLevel: 'warning',
 });
-if (existsSync('../web/dist/index.html')) cpSync('../web/dist', 'dist/web', { recursive: true });
+if (existsSync('../web/dist/index.html')) cpSync('../web/dist', 'dist/web', { recursive: true, filter: (src) => !src.endsWith('.map') });
+cpSync('../../LICENSE', 'LICENSE');
 console.log('cli build ready: packages/cli/dist/kalibra.mjs');

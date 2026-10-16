@@ -1,69 +1,90 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/atkinson-hyperlegible-next';
 @import '@fontsource-variable/inter';
-@import '@fontsource-variable/source-serif-4';
+@import '@fontsource-variable/ibm-plex-sans';
 @import '@fontsource-variable/jetbrains-mono';
 
-/* Theme tokens. Warm neutrals with a clay-orange accent; light and dark share names. */
+/*
+ * Theme tokens. Warm stone/brown neutrals (a touch darker than Claude's) with a selectable accent
+ * (Settings → Appearance). Status colours (green pass, red fail, amber error) stay fixed.
+ */
 :root,
 [data-theme='light'] {
-  --k-canvas: #faf9f5;
-  --k-sidebar: #f3f1ea;
+  --k-canvas: #f8f6f1;
+  --k-sidebar: #f0ede5;
   --k-surface: #ffffff;
-  --k-raised: #f5f3ec;
-  --k-hover: #efede5;
-  --k-line: #e6e3d9;
-  --k-line-strong: #d2cec2;
-  --k-ink: #1f1e1d;
-  --k-ink-muted: #5f5d57;
-  --k-ink-faint: #8f8c83;
-  --k-accent: #c6613f;
-  --k-accent-hover: #b4532f;
-  --k-accent-ink: #a64f2f;
-  --k-accent-soft: #f7e7df;
+  --k-raised: #f4f1ea;
+  --k-hover: #ece8df;
+  --k-line: #e3dfd4;
+  --k-line-strong: #cfc9bc;
+  --k-ink: #1f1d1a;
+  --k-ink-muted: #5d5952;
+  --k-ink-faint: #8e897f;
   --k-on-accent: #ffffff;
-  --k-ok: #2f7a4b;
-  --k-ok-soft: #e2f0e6;
-  --k-bad: #b4372f;
-  --k-bad-soft: #f8e2df;
-  --k-warn: #96620a;
+  --k-ok: #2a7a49;
+  --k-ok-soft: #e2f0e5;
+  --k-bad: #b9372e;
+  --k-bad-soft: #f8e2de;
+  --k-warn: #94620a;
   --k-warn-soft: #f8edd5;
   --k-info: #2f63a8;
   --k-info-soft: #e1eaf6;
-  --k-shadow: 0 1px 2px rgb(31 30 29 / 0.05), 0 4px 16px rgb(31 30 29 / 0.06);
+  --k-shadow: 0 1px 2px rgb(31 29 26 / 0.05), 0 6px 20px rgb(31 29 26 / 0.07);
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --k-canvas: #262624;
-  --k-sidebar: #1f1e1d;
-  --k-surface: #2e2d2b;
-  --k-raised: #34332f;
-  --k-hover: #3a3935;
-  --k-line: #3d3c37;
-  --k-line-strong: #4f4d47;
-  --k-ink: #f3f1ea;
-  --k-ink-muted: #b8b5ab;
-  --k-ink-faint: #8a877e;
-  --k-accent: #d97757;
-  --k-accent-hover: #e48a6b;
-  --k-accent-ink: #e8957a;
-  --k-accent-soft: #432b22;
-  --k-on-accent: #1f1e1d;
-  --k-ok: #74c492;
-  --k-ok-soft: #1f3327;
+  --k-canvas: #1e1d1b;
+  --k-sidebar: #181715;
+  --k-surface: #262522;
+  --k-raised: #2c2b28;
+  --k-hover: #33312d;
+  --k-line: #36342f;
+  --k-line-strong: #48453f;
+  --k-ink: #f1eee7;
+  --k-ink-muted: #b6b1a6;
+  --k-ink-faint: #87827a;
+  --k-on-accent: #1b1714;
+  --k-ok: #73c391;
+  --k-ok-soft: #1c3125;
   --k-bad: #f08a7e;
-  --k-bad-soft: #42221f;
+  --k-bad-soft: #3f211e;
   --k-warn: #e3b562;
-  --k-warn-soft: #3d311b;
-  --k-info: #85afe6;
-  --k-info-soft: #1f2d40;
-  --k-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+  --k-warn-soft: #3a2f1a;
+  --k-info: #87b1e8;
+  --k-info-soft: #1e2b3d;
+  --k-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px rgb(0 0 0 / 0.35);
   color-scheme: dark;
 }
 
+/* Accents. Clay (a brighter take on Claude's orange) is the default. */
+:root, [data-accent='clay'] {
+  --k-accent: #d2643a; --k-accent-hover: #bf552d; --k-accent-ink: #ad4c27; --k-accent-soft: #f9e5da;
+}
+[data-theme='dark'], [data-theme='dark'][data-accent='clay'] {
+  --k-accent: #e8794f; --k-accent-hover: #f08d66; --k-accent-ink: #f39a77; --k-accent-soft: #3f2a20;
+}
+[data-accent='teal'] { --k-accent: #127c78; --k-accent-hover: #0d6965; --k-accent-ink: #0e6d69; --k-accent-soft: #dcf0ee; }
+[data-theme='dark'][data-accent='teal'] { --k-accent: #3fc1b6; --k-accent-hover: #5ad0c6; --k-accent-ink: #6fd8cf; --k-accent-soft: #173431; }
+[data-accent='sky'] { --k-accent: #2a6fd6; --k-accent-hover: #1f5fc0; --k-accent-ink: #2259b3; --k-accent-soft: #e2ecfb; }
+[data-theme='dark'][data-accent='sky'] { --k-accent: #6fa6ff; --k-accent-hover: #88b6ff; --k-accent-ink: #9cc2ff; --k-accent-soft: #1d2a40; }
+[data-accent='rose'] { --k-accent: #c63d6b; --k-accent-hover: #b0305b; --k-accent-ink: #a8325a; --k-accent-soft: #f9e2ea; }
+[data-theme='dark'][data-accent='rose'] { --k-accent: #f0729b; --k-accent-hover: #f58aad; --k-accent-ink: #f79bb9; --k-accent-soft: #40222d; }
+[data-accent='violet'] { --k-accent: #5a4bdf; --k-accent-hover: #4a3ccc; --k-accent-ink: #4636c4; --k-accent-soft: #ecebff; }
+[data-theme='dark'][data-accent='violet'] { --k-accent: #8c7ef7; --k-accent-hover: #9f93fb; --k-accent-ink: #b4abff; --k-accent-soft: #2a2546; }
+[data-theme='light'][data-accent] { --k-on-accent: #ffffff; }
+
+/* Reading font (Settings → Appearance). Atkinson Hyperlegible Next is built to tell similar glyphs apart: 0/O, 1/l/I. */
+:root {
+  --k-font: 'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif;
+  --k-scale: 1;
+}
+[data-font='inter'] { --k-font: 'Inter Variable', ui-sans-serif, system-ui, sans-serif; }
+[data-font='plex'] { --k-font: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif; }
+[data-font='system'] { --k-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+
 @theme {
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: 'Source Serif 4 Variable', ui-serif, Georgia, serif;
+  --font-sans: var(--k-font);
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --color-canvas: var(--k-canvas);
@@ -92,6 +113,11 @@
   --shadow-card: var(--k-shadow);
 }
 
+html {
+  /* Text size (Settings → Appearance) scales rem-based type and spacing together. */
+  font-size: calc(16px * var(--k-scale));
+}
+
 html,
 body,
 #root {
@@ -101,11 +127,10 @@ body,
 body {
   background: var(--k-canvas);
   color: var(--k-ink);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-family: var(--k-font);
+  font-size: 0.875rem;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: 'cv11', 'ss01';
 }
 
 ::selection {

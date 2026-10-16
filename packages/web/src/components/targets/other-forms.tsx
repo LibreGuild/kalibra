@@ -2,47 +2,120 @@ import { Link } from 'react-router';
 import { useOp } from '../../lib/api';
 import { ConnectionPicker } from '../pickers';
 import { CodeEditor } from '../ui/code';
-import { Field, Input, Textarea } from '../ui/form';
+import { Field, Input, Segmented, Select, Textarea } from '../ui/form';
 import { NumberInput, ScriptDocs, Section } from './common';
-import type { ModelConfig, ScriptConfig } from './model';
+import type { ModelConfig, ModelTask, ScriptConfig } from './model';
+
+const TASKS: { value: ModelTask; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'image', label: 'Image' },
+  { value: 'speech', label: 'Speech (TTS)' },
+  { value: 'transcription', label: 'Transcription' },
+];
+
+const TASK_HELP: Record<ModelTask, string> = {
+  text: 'Sends the prompt and keeps the reply as the output.',
+  image: 'Draws an image from the prompt; the image becomes the output, so checks like an LLM judge with attachments can grade it.',
+  speech: 'Reads the prompt aloud; the audio file becomes the output.',
+  transcription: "Transcribes an audio column; the text becomes the output. Handy as a baseline next to your own speech-to-text service.",
+};
+
+const modelFor = (spec: any, task: ModelTask) =>
+  (task === 'image' ? spec?.imageModel : task === 'speech' ? spec?.speechModel : task === 'transcription' ? spec?.transcriptionModel : '') || spec?.defaultModel || '';
 
 export function ModelForm({ value, onChange }: { value: ModelConfig; onChange: (c: ModelConfig) => void }) {
   const set = (patch: Partial<ModelConfig>) => onChange({ ...value, ...patch });
   const connections = useOp<any[]>('list_connections');
   const conn = connections.data?.find((c) => c.id === value.connectionId);
+  const task: ModelTask = value.task ?? 'text';
   return (
     <>
-      <Section title="Model" help="Tests a prompt directly against a model, without your app in between. Useful for comparing models and prompt versions.">
+      <Section title="Model" help="Tests a model directly, without your app in between. Useful for comparing models, prompt versions, or a provider's speech-to-text against your own.">
         {connections.data && connections.data.length === 0 && (
           <div className="rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
             No connections yet. <Link to="/connections" className="font-medium underline">Add one on the Connections page</Link>.
           </div>
         )}
+        <Field label="Task" help={TASK_HELP[task]}>
+          <Segmented<ModelTask> value={task} onChange={(t) => set({ task: t })} options={TASKS} />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Connection" help="The provider account to call (OpenAI, Anthropic, Bedrock, Vertex, a local model, …).">
+          <Field label="Connection" help="The provider account to call (OpenAI, Anthropic, Gemini, Bedrock, Vertex, a local model, …).">
             <ConnectionPicker value={value.connectionId} onChange={(connectionId) => set({ connectionId })} />
           </Field>
-          <Field label="Model" help="Model id as the provider names it. Leave empty to use the connection's default model.">
-            <Input mono value={value.model} placeholder={conn?.spec?.defaultModel || 'model id'} onChange={(e) => set({ model: e.target.value })} />
+          <Field label="Model" help="Model id as the provider names it. Leave empty to use the connection's model for this task.">
+            <Input mono value={value.model} placeholder={modelFor(conn?.spec, task) || 'model id'} onChange={(e) => set({ model: e.target.value })} />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Temperature" help="Randomness from 0 to 2. Leave empty for the model's default.">
-            <NumberInput value={value.temperature} min={0} step={0.1} placeholder="default" onChange={(temperature) => set({ temperature })} />
-          </Field>
-          <Field label="Max output tokens" help="Upper limit on the reply length. Leave empty for the model's default.">
-            <NumberInput value={value.maxOutputTokens} min={1} placeholder="default" onChange={(maxOutputTokens) => set({ maxOutputTokens })} />
-          </Field>
-        </div>
+        {task === 'text' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Temperature" help="Randomness from 0 to 2. Leave empty for the model's default.">
+              <NumberInput value={value.temperature} min={0} step={0.1} placeholder="default" onChange={(temperature) => set({ temperature })} />
+            </Field>
+            <Field label="Max output tokens" help="Upper limit on the reply length. Leave empty for the model's default.">
+              <NumberInput value={value.maxOutputTokens} min={1} placeholder="default" onChange={(maxOutputTokens) => set({ maxOutputTokens })} />
+            </Field>
+          </div>
+        )}
+        {task === 'image' && (
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Size" help="Pixel size, e.g. 1024x1024 or 1536x1024. Leave empty for the model default.">
+              <Input mono value={value.size ?? ''} placeholder="default" onChange={(e) => set({ size: e.target.value })} />
+            </Field>
+            <Field label="Aspect ratio" help="For models that take a ratio instead of a size (e.g. Imagen), like 16:9.">
+              <Input mono value={value.aspectRatio ?? ''} placeholder="default" onChange={(e) => set({ aspectRatio: e.target.value })} />
+            </Field>
+            <Field label="Quality" help="OpenAI / Azure image quality. Higher costs more and takes longer.">
+              <Select
+                value={value.quality || 'default'}
+                onChange={(q) => set({ quality: q === 'default' ? '' : (q as ModelConfig['quality']) })}
+                options={[
+                  { value: 'default', label: 'Default' },
+                  { value: 'low', label: 'Low' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'high', label: 'High' },
+                ]}
+              />
+            </Field>
+          </div>
+        )}
+        {task === 'speech' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Voice" help="Voice name as the provider calls it, e.g. alloy, coral or nova for OpenAI.">
+              <Input mono value={value.voice ?? ''} placeholder="provider default" onChange={(e) => set({ voice: e.target.value })} />
+            </Field>
+            <Field label="Speaking instructions" help="Tone, accent or pace for models that accept instructions. {{column}} placeholders work.">
+              <Input value={value.instructions ?? ''} placeholder="e.g. Calm, slightly slow" onChange={(e) => set({ instructions: e.target.value })} />
+            </Field>
+          </div>
+        )}
       </Section>
-      <Section title="Prompt" help="Templates with {{column}} placeholders. The reply becomes the main output.">
-        <Field label="System prompt" help="Optional instructions sent as the system message.">
-          <Textarea rows={3} value={value.system} placeholder="You are a helpful support assistant…" onChange={(e) => set({ system: e.target.value })} />
-        </Field>
-        <Field label="User prompt">
-          <CodeEditor value={value.prompt} onChange={(prompt) => set({ prompt })} minHeight={120} placeholder="{{input}}" />
-        </Field>
-      </Section>
+      {task === 'transcription' ? (
+        <Section title="Audio" help="Which column holds the audio to transcribe. The transcript becomes the main output.">
+          <Field label="Audio column" help="A template that resolves to an audio file, usually {{audio}}.">
+            <Input mono value={value.audio ?? '{{audio}}'} onChange={(e) => set({ audio: e.target.value })} />
+          </Field>
+        </Section>
+      ) : (
+        <Section
+          title={task === 'image' ? 'Image prompt' : task === 'speech' ? 'Text to speak' : 'Prompt'}
+          help={task === 'text' ? 'Templates with {{column}} placeholders. The reply becomes the main output.' : 'A template with {{column}} placeholders, rendered for every row.'}
+        >
+          {task === 'text' && (
+            <Field label="System prompt" help="Optional instructions sent as the system message.">
+              <Textarea rows={3} value={value.system} placeholder="You are a helpful support assistant…" onChange={(e) => set({ system: e.target.value })} />
+            </Field>
+          )}
+          <Field label={task === 'text' ? 'User prompt' : undefined}>
+            <CodeEditor
+              value={value.prompt}
+              onChange={(prompt) => set({ prompt })}
+              minHeight={task === 'text' ? 120 : 80}
+              placeholder={task === 'image' ? 'A product photo of {{item}} on a white background' : task === 'speech' ? '{{reference}}' : '{{input}}'}
+            />
+          </Field>
+        </Section>
+      )}
     </>
   );
 }

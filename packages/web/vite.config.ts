@@ -8,5 +8,5 @@ export default defineConfig({
     port: 5173,
     proxy: { '/api': { target: 'http://127.0.0.1:4317', changeOrigin: false } },
   },
-  build: { outDir: 'dist', sourcemap: true, chunkSizeWarningLimit: 2000 },
+  build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 2000 },
 });
