@@ -149,7 +149,8 @@ body {
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible,
-  [contenteditable]:focus-visible {
+  [contenteditable]:focus-visible,
+  :root[data-input='pointer'] :focus-visible {
     outline: none;
   }
 }

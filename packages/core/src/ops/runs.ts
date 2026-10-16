@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import Papa from 'papaparse';
 import { defineOp } from '../registry.js';
-import { RunSettings } from '../specs.js';
+import { RunSettings, TargetSpec } from '../specs.js';
+import { preflight } from '../runner/preflight.js';
+import { applyOverrides } from '../runner/overrides.js';
 import { invalid } from '../util.js';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
@@ -40,12 +42,24 @@ export const runOps = [
       settings: RunSettings.prefault({}),
     }),
     handler: ({ engine, actor }, i) => {
+      const warnings = runPreflight(engine, i.dataset, i.target, i.settings);
       const { run, rows } = prepareRun(engine, actor, { ...i, kind: 'live' });
       const items = rows.flatMap((r) => Array.from({ length: i.settings.repetitions }, (_, rep) => ({ rowId: r.id, rowRev: r.rev, rep, input: r.data })));
       engine.repos.runs.addPending(run.id, items);
       engine.runner.start(run.id);
-      return engine.repos.runs.get(run.id);
+      return { ...engine.repos.runs.get(run.id), warnings };
     },
+  }),
+
+  defineOp({
+    name: 'preflight_run',
+    title: 'Check a run setup',
+    description:
+      'Before starting a run: lists problems such as the target using a {{column}} the dataset does not have (it would be sent empty), a missing {{vars.x}}, or a scripted conversation without its turns column. start_run also returns these as warnings.',
+    category: 'runs',
+    readOnly: true,
+    input: z.object({ dataset: z.string(), target: z.string(), settings: RunSettings.prefault({}) }),
+    handler: ({ engine }, i) => ({ warnings: runPreflight(engine, i.dataset, i.target, i.settings) }),
   }),
 
   defineOp({
@@ -295,4 +309,11 @@ export function mcnemarExact(b: number, c: number): number | null {
     p += coef;
   }
   return Math.min(1, (2 * p) / 2 ** n);
+}
+
+/** Setup problems for a dataset × target pair (with the run's overrides applied). */
+export function runPreflight(engine: Engine, dataset: string, target: string, settings: RunSettings) {
+  const ds = engine.repos.datasets.get(dataset);
+  const spec = applyOverrides(TargetSpec.parse(engine.repos.defs.get('target', target).spec), settings.overrides);
+  return preflight(spec, ds.schema, settings.conversation);
 }

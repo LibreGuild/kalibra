@@ -5,7 +5,7 @@ import { applyOverrides } from '../runner/overrides.js';
 import { invalid } from '../util.js';
 import type { Engine } from '../engine.js';
 import type { RunRecord } from '../repo/runs.js';
-import { mcnemarExact, prepareRun } from './runs.js';
+import { mcnemarExact, prepareRun, runPreflight } from './runs.js';
 
 /*
  * Comparisons: one dataset and suite, several variants (targets, or one target with different
@@ -121,7 +121,8 @@ export const groupsOps: OpDef<any, any>[] = [
         return run;
       });
       for (const r of created) engine.runner.start(r.id);
-      return { id: group.id, number: group.number, name: group.name, runs: created.map((r) => ({ id: r.id, label: r.variantLabel })) };
+      const warnings = prepared.flatMap((p) => runPreflight(engine, ds.id, p.target.id, { ...i.settings, overrides: p.overrides } as any).map((w) => ({ ...w, variant: p.label })));
+      return { id: group.id, number: group.number, name: group.name, runs: created.map((r) => ({ id: r.id, label: r.variantLabel })), warnings };
     },
   }),
 

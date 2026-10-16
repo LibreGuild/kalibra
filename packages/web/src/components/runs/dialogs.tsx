@@ -7,7 +7,7 @@ import { Field, Input, KeyValueEditor, Switch, TagInput, type KV } from '../ui/f
 import { Dialog, HelpTip } from '../ui/overlay';
 import { toast } from '../ui/toast';
 import { DatasetPicker, SuitePicker, TargetPicker } from '../pickers';
-import { op, uploadFile, type UploadedFile } from '../../lib/api';
+import { op, useOp, uploadFile, type UploadedFile } from '../../lib/api';
 import { ConversationEditor, OptionSection, VariantsEditor, defaultConversation, newVariant, toConversation, toVariants, useConversationHint, type ConversationDraft, type VariantDraft } from './run-options';
 import { bytes } from '../../lib/format';
 
@@ -40,6 +40,17 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const hint = useConversationHint(dataset);
+  // Warn before starting if the target uses {{columns}} this dataset doesn't have (they'd be sent empty).
+  const preflightTargets = compare ? variants.map((v) => v.target).filter(Boolean) : target ? [target] : [];
+  const preflight = useOp<{ warnings: { message: string; name: string }[] }[]>(
+    'preflight_many',
+    { dataset, targets: preflightTargets, conversation: toConversation(conversation) },
+    {
+      enabled: !!dataset && preflightTargets.length > 0,
+      queryFn: () => Promise.all(preflightTargets.map((t) => op('preflight_run', { dataset, target: t, settings: { conversation: toConversation(conversation) } }))),
+    } as any,
+  );
+  const warnings = [...new Map((preflight.data ?? []).flatMap((r) => r.warnings).map((w) => [w.message, w])).values()];
   const toggle = (s: 'variants' | 'conversation' | 'advanced') => setSection(section === s ? null : s);
 
   const settings = () => ({
@@ -192,6 +203,16 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
           </OptionSection>
         </div>
         {conversation.mode === 'simulated' && !conversation.connectionId && <p className="text-[0.78125rem] text-warn">Pick the model that plays the user (Conversation section).</p>}
+        {warnings.length > 0 && (
+          <div className="rounded-lg border border-warn/40 bg-warn-soft px-3 py-2.5 text-[0.8125rem] text-warn">
+            <div className="mb-1 font-semibold">Check before you start</div>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {warnings.map((w) => (
+                <li key={w.message}>{w.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <ErrorBox error={error} />
       </div>
     </Dialog>

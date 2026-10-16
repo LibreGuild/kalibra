@@ -220,3 +220,19 @@ describe('near duplicates at scale', () => {
     expect(Date.now() - t).toBeLessThan(10_000);
   });
 });
+
+describe('coverage only for real categories', () => {
+  it('treats short repeated values as categories but not unique free text', async () => {
+    const { profileColumn } = await import('../src/quality/profile.js');
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      id: `r${i}`,
+      status: 'approved',
+      tags: [],
+      data: { category: ['cards', 'loans', 'fraud'][i % 3], answer: `A unique, fairly long answer sentence number ${i} for this row.` },
+    }));
+    expect(profileColumn({ key: 'category', type: 'text', description: '', required: false } as any, rows as any).categorical).toBe(true);
+    expect(profileColumn({ key: 'answer', type: 'text', description: '', required: false } as any, rows as any).categorical).toBe(false);
+    // An enum column is always a category, even with one row.
+    expect(profileColumn({ key: 'x', type: 'text', description: '', required: false, enum: ['a', 'b'] } as any, rows.slice(0, 1).map((r) => ({ ...r, data: { x: 'a' } })) as any).categorical).toBe(true);
+  });
+});

@@ -299,3 +299,23 @@ describe('folder sync', () => {
     await expect(a.call('import_from_folder', { dir: broken })).rejects.toThrow(/newer Kalibra/);
   });
 });
+
+describe('folder sync with specs saved before newer fields existed', () => {
+  it('reports no changes right after an export', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kalibra-legacy-'));
+    const out = mkdtempSync(join(tmpdir(), 'kalibra-legacy-out-'));
+    const e = new Engine({ dir });
+    try {
+      const c = await e.call<any>('create_connection', { name: 'Old', spec: { provider: 'openai', defaultModel: 'gpt-x' } });
+      // Simulate a connection stored by an older version: drop fields that now have defaults.
+      e.db.run('UPDATE defs SET spec = ? WHERE id = ?', JSON.stringify({ provider: 'openai', defaultModel: 'gpt-x' }), c.id);
+      await e.call('export_to_folder', { dir: out });
+      const dry = await e.call<any>('import_from_folder', { dir: out, dryRun: true });
+      expect(dry.summary).toMatchObject({ added: 0, changed: 0, removed: 0 });
+    } finally {
+      e.close();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+});

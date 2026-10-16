@@ -35,7 +35,8 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
     index[DIRS[kind]] = [];
     for (const d of list) {
       const path = `${DIRS[kind]}/${slugs.get(d.name)}.json`;
-      files.set(path, stableStringify({ name: d.name, description: d.description, spec: d.spec }, 2) + '\n');
+      // Normalized through the current schema, so specs saved before a field existed export the same as new ones.
+      files.set(path, stableStringify({ name: d.name, description: d.description, spec: normalizeSpec(kind, d.spec) }, 2) + '\n');
       index[DIRS[kind]].push(path);
     }
   }
@@ -156,7 +157,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
       if (!existing) {
         defChanges.push({ kind, name: d.name, change: 'added' });
         if (!dry) engine.events.emit({ type: 'def.changed', kind, id: defs.create(kind, { name: d.name, description: d.description ?? '', spec: parsed.data }, actor).id, actor });
-      } else if (contentHash({ spec: existing.spec, description: existing.description }) !== contentHash({ spec: parsed.data, description: d.description ?? '' })) {
+      } else if (contentHash({ spec: normalizeSpec(kind, existing.spec), description: existing.description }) !== contentHash({ spec: parsed.data, description: d.description ?? '' })) {
         defChanges.push({ kind, name: d.name, change: 'changed' });
         if (!dry) {
           defs.update(kind, existing.id, { spec: parsed.data, description: d.description ?? '' }, actor);
@@ -285,4 +286,10 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
     warnings,
     lastExport: parseJson<any>(engine.db.get("SELECT value FROM meta WHERE key = 'sharing'")?.value, {}).lastExportAt ?? null,
   };
+}
+
+/** A stored spec as the current schema sees it (adds defaults for fields added since it was saved). */
+function normalizeSpec(kind: DefKind, spec: unknown) {
+  const parsed = DEF_KINDS[kind].safeParse(spec);
+  return parsed.success ? parsed.data : spec;
 }

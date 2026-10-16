@@ -181,25 +181,33 @@ export function DatasetDetailPage() {
             <MenuItem icon={<FileSpreadsheet />} hint="CSV, JSONL or JSON" onSelect={() => setDialog('import')}>
               Import a file
             </MenuItem>
-            <MenuSeparator />
-            <MenuItem icon={<Sparkles />} hint="Uses one of your model connections" onSelect={() => setDialog('generate')}>
-              Generate with a model
+          </Menu>
+          <Menu
+            align="start"
+            trigger={
+              <Button icon={<Sparkles className="size-4" />}>
+                Generate
+              </Button>
+            }
+          >
+            <MenuItem icon={<Sparkles />} hint="Write new rows with one of your model connections" onSelect={() => setDialog('generate')}>
+              Rows with a model
             </MenuItem>
+            <MenuItem icon={<Bot />} hint="Claude Code, Codex, Cursor… through MCP, using your own plan" onSelect={() => navigate('/agents')}>
+              Rows with a coding agent
+            </MenuItem>
+            <MenuSeparator />
             <MenuItem icon={<ImageIcon />} hint="GPT Image, Imagen… one image per row or prompt" onSelect={() => setDialog('images')}>
-              Generate images
+              Images
             </MenuItem>
             <MenuItem icon={<AudioLines />} hint="Read text aloud with a text-to-speech model" onSelect={() => setDialog('speech')}>
-              Generate speech (TTS)
+              Speech (TTS)
             </MenuItem>
             <MenuItem icon={<Waves />} hint="Noise, phone line, echo, fast speech…" onSelect={() => setDialog('variants')}>
-              Make audio variants
+              Audio variants
             </MenuItem>
             <MenuItem icon={<Captions />} hint="Fill a text column from the audio" onSelect={() => setDialog('transcribe')}>
-              Transcribe audio into a column
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem icon={<Bot />} hint="Claude Code, Codex, Cursor… through MCP" onSelect={() => navigate('/agents')}>
-              Fill with a coding agent
+              Transcripts from audio
             </MenuItem>
           </Menu>
           <Menu align="start" trigger={<Button icon={<Download className="size-4" />}>Export</Button>}>
@@ -214,9 +222,6 @@ export function DatasetDetailPage() {
               Bundle (with media)
             </MenuItem>
           </Menu>
-          <Button icon={<Save className="size-4" />} onClick={() => setDialog('version')}>
-            Save version
-          </Button>
           <Menu
             trigger={
               <Button size="icon" aria-label="More actions">
@@ -224,6 +229,10 @@ export function DatasetDetailPage() {
               </Button>
             }
           >
+            <MenuItem icon={<Save />} hint="Freeze the current rows as a numbered version" onSelect={() => setDialog('version')}>
+              Save version
+            </MenuItem>
+            <MenuSeparator />
             <MenuItem icon={<Trash2 />} danger onSelect={remove}>
               Delete dataset
             </MenuItem>

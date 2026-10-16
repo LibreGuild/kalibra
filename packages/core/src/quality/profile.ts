@@ -131,7 +131,11 @@ export function profileColumn(col: ColumnSpec, rows: QualityRow[]): ColumnQualit
   const counts = new Map<string, number>();
   for (const it of items) counts.set(it, (counts.get(it) ?? 0) + 1);
   const categoricalType = !FILE_TYPES.has(col.type) && col.type !== 'json' && col.type !== 'messages';
-  out.categorical = !!col.enum?.length || (categoricalType && counts.size >= 1 && counts.size <= MAX_CATEGORIES && counts.size < Math.max(2, items.length));
+  // A column is a category when its values repeat (on average ≥ 2 rows per value) and stay short;
+  // unique free text (answers, prompts) is not, even when the dataset is small.
+  const avgLen = items.length ? items.reduce((s, x) => s + x.length, 0) / items.length : 0;
+  const repeats = counts.size > 0 && items.length / counts.size >= 2;
+  out.categorical = !!col.enum?.length || (categoricalType && counts.size >= 1 && counts.size <= MAX_CATEGORIES && repeats && avgLen <= 40);
   if (out.categorical) {
     const allValues = new Set([...counts.keys(), ...(col.enum ?? [])]);
     out.topValues = [...allValues]
