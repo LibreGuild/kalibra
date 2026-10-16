@@ -6,7 +6,7 @@ import { HelpTip } from './overlay';
 import { Button } from './button';
 
 const control =
-  'w-full rounded-lg border border-line-strong bg-surface px-2.5 text-[0.84375rem] text-ink placeholder:text-ink-faint transition-colors hover:border-ink-faint focus:border-accent/60 focus:outline-none focus:ring-[3px] focus:ring-accent/12 disabled:opacity-60';
+  'w-full rounded-lg border border-line-strong bg-surface px-2.5 text-[0.84375rem] text-ink placeholder:text-ink-faint transition-colors hover:border-ink-faint focus:border-accent/60 focus:outline-none focus-visible:outline-none focus:ring-[3px] focus:ring-accent/12 disabled:opacity-60';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }>(function Input({ className, mono, ...rest }, ref) {
   return <input ref={ref} className={clsx(control, 'h-8.5', mono && 'font-mono text-[0.78125rem]', className)} {...rest} />;
@@ -176,7 +176,7 @@ export function KeyValueEditor({ value, onChange, keyPlaceholder = 'Name', value
 /** Comma/enter separated tags. */
 export function TagInput({ value, onChange, placeholder = 'Add tag…' }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
   return (
-    <div className={clsx(control, 'flex min-h-8.5 flex-wrap items-center gap-1 py-1')}>
+    <div className={clsx(control, 'flex min-h-8.5 flex-wrap items-center gap-1 py-1 focus-within:border-accent/60 focus-within:ring-[3px] focus-within:ring-accent/12')}>
       {value.map((t) => (
         <span key={t} className="inline-flex items-center gap-1 rounded-md bg-raised px-1.5 py-0.5 text-[0.75rem]">
           {t}

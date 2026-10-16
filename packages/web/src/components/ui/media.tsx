@@ -90,7 +90,15 @@ export function CellValue({ value, type, full }: { value: unknown; type?: string
   if (isFileValue(value)) {
     const mime = value.mime ?? '';
     if (type === 'audio' || mime.startsWith('audio/')) return <AudioPlayer file={value} compact={!full} />;
-    if (type === 'image' || mime.startsWith('image/')) return full ? <img src={fileUrl(value.blob)} alt={value.name ?? ''} className="max-h-72 rounded-lg border border-line" /> : <ImageThumb file={value} />;
+    if (type === 'image' || mime.startsWith('image/')) {
+      if (!full) return <ImageThumb file={value} />;
+      // Framed and letterboxed: the image keeps its own aspect ratio whatever the panel width.
+      return (
+        <a href={fileUrl(value.blob)} target="_blank" rel="noreferrer" title="Open full size" className="flex justify-center overflow-hidden rounded-lg border border-line bg-raised p-2">
+          <img src={fileUrl(value.blob)} alt={value.name ?? ''} className="block h-auto max-h-[22rem] w-auto max-w-full rounded object-contain" />
+        </a>
+      );
+    }
     return (
       <a href={fileUrl(value.blob, true)} className="inline-flex items-center gap-1 text-accent-ink hover:underline" onClick={(e) => e.stopPropagation()}>
         <FileIcon className="size-3.5" /> {value.name ?? 'file'}

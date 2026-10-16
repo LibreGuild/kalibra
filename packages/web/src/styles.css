@@ -137,9 +137,21 @@ body {
   background: var(--k-accent-soft);
 }
 
-:focus-visible {
-  outline: 2px solid var(--k-accent);
-  outline-offset: 1px;
+/*
+ * In the base layer so component utilities win: inputs draw their own focus border and ring, and
+ * an unlayered outline here would add a second box inside them.
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--k-accent);
+    outline-offset: 1px;
+  }
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [contenteditable]:focus-visible {
+    outline: none;
+  }
 }
 
 /* Thin, theme-aware scrollbars */
