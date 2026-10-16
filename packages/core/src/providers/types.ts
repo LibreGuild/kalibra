@@ -85,7 +85,14 @@ export interface LlmRequest {
   maxOutputTokens?: number;
   /** Images, audio or PDFs to show the model alongside the prompt (multimodal judges). */
   files?: MediaFile[];
+  /** Earlier turns of a conversation; `prompt` is sent after them as the newest user message. */
+  messages?: ChatMessage[];
   signal?: AbortSignal;
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
 }
 
 export interface LlmUsage {

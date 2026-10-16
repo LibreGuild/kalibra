@@ -17,6 +17,7 @@ import { GenerateDialog, ImportDialog, NewDatasetDialog, SaveVersionDialog, Uplo
 import { SafetyPackDialog } from '../components/datasets/safety-dialog';
 import { QualityTab } from '../components/datasets/quality-tab';
 import { ImportExternalDialog } from '../components/sharing/import-dialog';
+import { exportAndDownloadBundle } from '../components/sharing/download';
 import { RowSheet } from '../components/datasets/row-sheet';
 import { AudioVariantsDialog, DatasetJobsStrip, GenerateImagesDialog, GenerateSpeechDialog, TranscribeDialog } from '../components/datasets/media-dialogs';
 import type { ColumnDef, DatasetSchemaResp, RowRecord, RowStatus } from '../components/datasets/types';
@@ -207,6 +208,10 @@ export function DatasetDetailPage() {
             </MenuItem>
             <MenuItem hint="One JSON object per line, with row ids" onSelect={() => exportAs('jsonl')}>
               JSONL
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem hint="A .kalibra file with audio and images that a teammate can import" onSelect={() => exportAndDownloadBundle({ datasets: [id], includeMedia: true, name: ds.name })}>
+              Bundle (with media)
             </MenuItem>
           </Menu>
           <Button icon={<Save className="size-4" />} onClick={() => setDialog('version')}>

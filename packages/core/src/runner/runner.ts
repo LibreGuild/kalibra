@@ -7,6 +7,7 @@ import { sleep, truncate } from '../util.js';
 import type { ResultRecord, RunRecord } from '../repo/runs.js';
 import { evaluateChecks } from './evaluate.js';
 import { applyOverrides } from './overrides.js';
+import { runConversation } from './conversation.js';
 import { summarize } from './summary.js';
 
 const MAX_TEXT = 256 * 1024;
@@ -110,26 +111,15 @@ export class Runner {
 
     let call: TargetCallResult;
     let attempts = 0;
+    const conv = run.settings.conversation;
     if (target) {
-      for (;;) {
-        attempts++;
-        call = await executeTarget(target, {
-          row: item.input,
-          rowId: item.rowId,
-          vars,
-          env,
-          blobs: this.engine.blobs,
-          llm: this.engine.llm,
-          signal,
-          log,
-          workspaceDir: this.engine.dir,
-        });
-        if (!call.retryable || attempts > run.settings.retries || signal.aborted) break;
-        const retryAfter = Number(call.response?.headers?.['retry-after']);
-        const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** (attempts - 1) + Math.random() * 250;
-        log('warn', `Attempt ${attempts} failed (${call.error ?? `HTTP ${call.response?.status}`}); retrying in ${Math.round(wait)} ms`);
-        await sleep(Math.min(wait, 30000), signal).catch(() => {});
-      }
+      const callOnce = (row: Record<string, unknown>) =>
+        callTarget(this.engine, target, { row, rowId: item.rowId, vars, retries: run.settings.retries, signal, log });
+      const out = conv && conv.mode !== 'off'
+        ? await runConversation(conv, item.input, { call: callOnce, llm: this.engine.llm, env, signal, log })
+        : await callOnce(item.input);
+      call = out.result;
+      attempts = out.attempts;
     } else {
       call = { ok: !item.error, outputs: item.outputs ?? {}, metrics: item.metrics ?? {}, error: item.error ?? undefined, logs: [] };
     }
@@ -162,6 +152,34 @@ export class Runner {
       attempts,
     });
     this.engine.events.emit({ type: 'result.updated', runId: run.id, resultId: item.id });
+  }
+}
+
+/** One target call with retries and backoff (honours Retry-After). Shared by runs, conversations and tryouts. */
+export async function callTarget(
+  engine: Engine,
+  target: TargetSpec,
+  opts: { row: Record<string, unknown>; rowId: string; vars: Record<string, string>; retries: number; signal: AbortSignal; log: (level: LogEntry['level'], message: string) => void },
+): Promise<{ result: TargetCallResult; attempts: number }> {
+  let attempts = 0;
+  for (;;) {
+    attempts++;
+    const result = await executeTarget(target, {
+      row: opts.row,
+      rowId: opts.rowId,
+      vars: opts.vars,
+      env: engine.templateEnv(),
+      blobs: engine.blobs,
+      llm: engine.llm,
+      signal: opts.signal,
+      log: opts.log,
+      workspaceDir: engine.dir,
+    });
+    if (!result.retryable || attempts > opts.retries || opts.signal.aborted) return { result, attempts };
+    const retryAfter = Number(result.response?.headers?.['retry-after']);
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** (attempts - 1) + Math.random() * 250;
+    opts.log('warn', `Attempt ${attempts} failed (${result.error ?? `HTTP ${result.response?.status}`}); retrying in ${Math.round(wait)} ms`);
+    await sleep(Math.min(wait, 30000), opts.signal).catch(() => {});
   }
 }
 

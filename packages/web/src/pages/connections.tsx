@@ -19,11 +19,12 @@ interface ConnSpec {
   imageModel: string;
   speechModel: string;
   transcriptionModel: string;
+  embeddingModel: string;
   models: string[];
   options: Record<string, any>;
 }
 
-const EMPTY: ConnSpec = { provider: 'openai', baseUrl: '', apiKeySecret: '', headers: [], defaultModel: '', imageModel: '', speechModel: '', transcriptionModel: '', models: [], options: {} };
+const EMPTY: ConnSpec = { provider: 'openai', baseUrl: '', apiKeySecret: '', headers: [], defaultModel: '', imageModel: '', speechModel: '', transcriptionModel: '', embeddingModel: '', models: [], options: {} };
 
 interface ProviderInfo {
   id: string;
@@ -33,8 +34,8 @@ interface ProviderInfo {
   media: string[];
 }
 
-type Kind = 'text' | 'image' | 'speech' | 'transcription';
-const KIND_FIELD: Record<Kind, keyof ConnSpec> = { text: 'defaultModel', image: 'imageModel', speech: 'speechModel', transcription: 'transcriptionModel' };
+type Kind = 'text' | 'image' | 'speech' | 'transcription' | 'embedding';
+const KIND_FIELD: Record<Kind, keyof ConnSpec> = { text: 'defaultModel', image: 'imageModel', speech: 'speechModel', transcription: 'transcriptionModel', embedding: 'embeddingModel' };
 /** Mirrors the engine's inferModelKind: guesses what a model id is for. */
 function guessKind(model: string): Kind {
   const m = model.toLowerCase();
@@ -44,7 +45,7 @@ function guessKind(model: string): Kind {
   return 'text';
 }
 
-const KIND_LABEL: Record<Kind, string> = { text: 'Text', image: 'Image', speech: 'Speech', transcription: 'Transcription' };
+const KIND_LABEL: Record<Kind, string> = { text: 'Text', image: 'Image', speech: 'Speech', transcription: 'Transcription', embedding: 'Embedding' };
 
 /** One line describing a test result: reply text, or a small image / audio preview. */
 function TestResult({ r }: { r: any }) {
@@ -57,6 +58,11 @@ function TestResult({ r }: { r: any }) {
       {r.file && r.kind === 'image' && <img src={fileUrl(r.file.hash)} alt="Test image" className="size-10 rounded border border-line object-cover" />}
       {r.file && r.kind === 'speech' && <div className="w-48"><AudioPlayer file={{ blob: r.file.hash, name: 'test.wav', mime: r.file.mime }} compact /></div>}
       {r.reply && <span className="truncate">“{r.reply}”</span>}
+      {r.similarity !== undefined && (
+        <span className="truncate">
+          {r.dims} dimensions · similar sentences score {r.similarity}
+        </span>
+      )}
     </div>
   );
 }
@@ -150,7 +156,7 @@ export function ConnectionsPage() {
                     <div className="truncate text-[0.9375rem] font-semibold">{c.name}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                       <Badge tone="accent">{label(c.spec.provider)}</Badge>
-                      {(['text', 'image', 'speech', 'transcription'] as Kind[]).map((k) =>
+                      {(['text', 'image', 'speech', 'transcription', 'embedding'] as Kind[]).map((k) =>
                         c.spec[KIND_FIELD[k]] ? (
                           <Tip key={k} content={`${KIND_LABEL[k]} model`}>
                             <span>
@@ -294,7 +300,10 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
       const finalSpec = await persistSecrets();
       setSpec(finalSpec);
       setApiKey('');
-      const r = await op('test_connection', { spec: finalSpec, kind, model: finalSpec[KIND_FIELD[kind]] });
+      const r =
+        kind === 'embedding'
+          ? await op('test_embeddings', { spec: finalSpec, model: finalSpec.embeddingModel || undefined })
+          : await op('test_connection', { spec: finalSpec, kind, model: finalSpec[KIND_FIELD[kind]] });
       setResults((x) => ({ ...x, [kind]: r }));
     } catch (e: any) {
       setResults((x) => ({ ...x, [kind]: { error: e?.message ?? String(e) } }));
@@ -303,6 +312,8 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
     }
   };
   const media = providers.find((p) => p.id === spec.provider)?.media ?? [];
+  // Every provider except Anthropic offers embedding models (used for meaning-based checks and duplicates).
+  const kinds = (['text', ...media, ...(spec.provider === 'anthropic' ? [] : ['embedding'])] as Kind[]);
 
   const loadModels = async () => {
     setBusy('models');
@@ -490,7 +501,7 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
               </Button>
             )}
           </div>
-          {(['text', ...media] as Kind[]).map((kind) => {
+          {kinds.map((kind) => {
             const field = KIND_FIELD[kind];
             const help =
               kind === 'text'
@@ -499,13 +510,15 @@ function ConnectionDialog({ initial, providers, onClose }: { initial: any; provi
                   ? 'Used to generate image datasets and by image model targets, e.g. gpt-image-2, imagen-4.0-generate-001.'
                   : kind === 'speech'
                     ? 'Text-to-speech, used to turn transcripts into audio test data, e.g. gpt-4o-mini-tts.'
-                    : 'Speech-to-text, used to draft reference transcripts or as a baseline target, e.g. gpt-4o-transcribe.';
+                    : kind === 'embedding'
+                      ? 'Optional. Turns text into vectors for meaning-based checks and duplicate search, e.g. text-embedding-3-small, or nomic-embed-text in Ollama. Without it Kalibra can use a free local model. Test works with the provider default when empty.'
+                      : 'Speech-to-text, used to draft reference transcripts or as a baseline target, e.g. gpt-4o-transcribe.';
             return (
               <div key={kind} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                 <Field label={`${KIND_LABEL[kind]} model`} help={help}>
                   <Input mono list={`models-${kind}`} value={(spec as any)[field] ?? ''} onChange={(e) => set({ [field]: e.target.value } as any)} placeholder={kind === 'text' ? 'model id' : 'optional'} />
                 </Field>
-                <Button onClick={() => testKind(kind)} loading={testing === kind} disabled={!(spec as any)[field]} icon={<Zap className="size-3.5" />}>
+                <Button onClick={() => testKind(kind)} loading={testing === kind} disabled={kind !== 'embedding' && !(spec as any)[field]} icon={<Zap className="size-3.5" />}>
                   Test
                 </Button>
                 {results[kind] && (

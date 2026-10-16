@@ -27,6 +27,20 @@ export interface RunRecord {
   finishedAt: string | null;
   createdBy: Actor;
   error: string | null;
+  /** Set when the run is one variant of a comparison. */
+  groupId: string | null;
+  variantLabel: string | null;
+}
+
+export interface RunGroupRecord {
+  id: string;
+  number: number;
+  name: string;
+  datasetId: string;
+  suiteId: string;
+  settings: Record<string, unknown>;
+  createdAt: string;
+  createdBy: Actor;
 }
 
 export interface ResultRecord {
@@ -73,6 +87,19 @@ const toRun = (r: any): RunRecord => ({
   finishedAt: r.finished_at,
   createdBy: parseJson(r.created_by, { kind: 'user', id: 'local' }),
   error: r.error,
+  groupId: r.group_id ?? null,
+  variantLabel: r.variant_label ?? null,
+});
+
+const toGroup = (r: any): RunGroupRecord => ({
+  id: r.id,
+  number: r.number,
+  name: r.name,
+  datasetId: r.dataset_id,
+  suiteId: r.suite_id,
+  settings: parseJson(r.settings, {}),
+  createdAt: r.created_at,
+  createdBy: parseJson(r.created_by, { kind: 'user', id: 'local' }),
 });
 
 /** Light result shape for grids (no request/response/logs). */
@@ -117,17 +144,55 @@ export class RunRepo {
     suiteId: string;
     suiteVersion: number;
     settings: RunSettings;
+    groupId?: string | null;
+    variantLabel?: string | null;
   }, actor: Actor): RunRecord {
     const id = newId('run');
     const number = ((this.db.get('SELECT MAX(number) AS n FROM runs')?.n as number) ?? 0) + 1;
     this.db.run(
-      `INSERT INTO runs (id, number, name, kind, status, dataset_id, dataset_version_id, target_id, target_version, suite_id, suite_version, settings, created_at, created_by)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (id, number, name, kind, status, dataset_id, dataset_version_id, target_id, target_version, suite_id, suite_version, settings, created_at, created_by, group_id, variant_label)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id, number, input.name || `Run #${number}`, input.kind, input.datasetId, input.datasetVersionId,
       input.targetId ?? null, input.targetVersion ?? null, input.suiteId, input.suiteVersion,
-      JSON.stringify(input.settings), nowIso(), JSON.stringify(actor),
+      JSON.stringify(input.settings), nowIso(), JSON.stringify(actor), input.groupId ?? null, input.variantLabel ?? null,
     );
     return this.get(id);
+  }
+
+  createGroup(input: { name?: string; datasetId: string; suiteId: string; settings: Record<string, unknown> }, actor: Actor): RunGroupRecord {
+    const id = newId('cmp');
+    const number = ((this.db.get('SELECT MAX(number) AS n FROM run_groups')?.n as number) ?? 0) + 1;
+    this.db.run(
+      'INSERT INTO run_groups (id, number, name, dataset_id, suite_id, settings, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, number, input.name || `Comparison #${number}`, input.datasetId, input.suiteId, JSON.stringify(input.settings), nowIso(), JSON.stringify(actor),
+    );
+    return this.getGroup(id);
+  }
+
+  getGroup(id: string): RunGroupRecord {
+    const r = this.db.get('SELECT * FROM run_groups WHERE (id = ? OR CAST(number AS TEXT) = ?) AND deleted_at IS NULL', id, id);
+    if (!r) throw notFound('Comparison', id);
+    return toGroup(r);
+  }
+
+  listGroups(limit = 50, offset = 0) {
+    const total = this.db.get('SELECT COUNT(*) AS n FROM run_groups WHERE deleted_at IS NULL').n as number;
+    const groups = this.db.all('SELECT * FROM run_groups WHERE deleted_at IS NULL ORDER BY number DESC LIMIT ? OFFSET ?', limit, offset).map(toGroup);
+    return { total, groups };
+  }
+
+  groupRuns(groupId: string): RunRecord[] {
+    return this.db.all('SELECT * FROM runs WHERE group_id = ? AND deleted_at IS NULL ORDER BY number', groupId).map(toRun);
+  }
+
+  deleteGroup(id: string) {
+    const g = this.getGroup(id);
+    const now = nowIso();
+    this.db.tx(() => {
+      this.db.run('UPDATE run_groups SET deleted_at = ? WHERE id = ?', now, g.id);
+      this.db.run('UPDATE runs SET deleted_at = ? WHERE group_id = ? AND deleted_at IS NULL', now, g.id);
+    });
+    return g;
   }
 
   get(id: string): RunRecord {
@@ -136,9 +201,11 @@ export class RunRepo {
     return toRun(r);
   }
 
-  list(q: { datasetId?: string; targetId?: string; suiteId?: string; limit?: number; offset?: number } = {}) {
+  list(q: { datasetId?: string; targetId?: string; suiteId?: string; groupId?: string; excludeGrouped?: boolean; limit?: number; offset?: number } = {}) {
     const where = ['deleted_at IS NULL'];
     const params: unknown[] = [];
+    if (q.groupId) (where.push('group_id = ?'), params.push(q.groupId));
+    if (q.excludeGrouped) where.push('group_id IS NULL');
     if (q.datasetId) (where.push('dataset_id = ?'), params.push(q.datasetId));
     if (q.targetId) (where.push('target_id = ?'), params.push(q.targetId));
     if (q.suiteId) (where.push('suite_id = ?'), params.push(q.suiteId));
@@ -227,9 +294,14 @@ export class RunRepo {
   }
 
   /** Paged results for grids. Filters: passed/failed/error, a failing check id, free-text search. */
-  query(runId: string, q: { filter?: 'all' | 'passed' | 'failed' | 'errors'; checkId?: string; search?: string; offset?: number; limit?: number; sort?: 'seq' | 'score' | 'latency' } = {}) {
+  query(runId: string, q: { filter?: 'all' | 'passed' | 'failed' | 'errors'; checkId?: string; search?: string; ids?: string[]; offset?: number; limit?: number; sort?: 'seq' | 'score' | 'latency' } = {}) {
     const where = ['run_id = ?'];
     const params: unknown[] = [runId];
+    if (q.ids) {
+      if (!q.ids.length) return { total: 0, results: [] };
+      where.push(`id IN (${q.ids.map(() => '?').join(',')})`);
+      params.push(...q.ids);
+    }
     if (q.filter === 'passed') where.push('passed = 1');
     if (q.filter === 'failed') where.push('passed = 0');
     if (q.filter === 'errors') where.push("(status = 'error' OR error IS NOT NULL)");

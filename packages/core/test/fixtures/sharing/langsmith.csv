@@ -1,0 +1,3 @@
+id,inputs,outputs,metadata,created_at
+ex1,"{""question"": ""What is 1, 2, 3?"", ""context"": ""say \""numbers\""""}","{""answer"": ""Three numbers""}","{""split"": ""test"", ""tags"": [""math""]}",2026-01-01
+ex2,"{""question"": ""Ünïcödé?""}","{""answer"": ""yes""}","{}",2026-01-02

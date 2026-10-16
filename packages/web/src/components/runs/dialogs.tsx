@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ChevronRight, Upload } from 'lucide-react';
-import clsx from 'clsx';
+import { Upload } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ErrorBox } from '../ui/display';
-import { Field, Input, KeyValueEditor, TagInput, type KV } from '../ui/form';
+import { Field, Input, KeyValueEditor, Switch, TagInput, type KV } from '../ui/form';
 import { Dialog, HelpTip } from '../ui/overlay';
 import { toast } from '../ui/toast';
 import { DatasetPicker, SuitePicker, TargetPicker } from '../pickers';
 import { op, uploadFile, type UploadedFile } from '../../lib/api';
+import { ConversationEditor, OptionSection, VariantsEditor, defaultConversation, newVariant, toConversation, toVariants, useConversationHint, type ConversationDraft, type VariantDraft } from './run-options';
 import { bytes } from '../../lib/format';
 
 const STATUSES = [
@@ -19,14 +19,17 @@ const STATUSES = [
 
 const num = (s: string) => (s.trim() === '' ? undefined : Number(s));
 
-/** Start a run: dataset × target × suite, plus execution settings. */
+/** Start a run: dataset × target × suite. Optional: compare several variants, multi-turn conversations, execution settings. */
 export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; onOpenChange: (o: boolean) => void; initial?: { dataset?: string; target?: string; suite?: string } }) {
   const navigate = useNavigate();
   const [dataset, setDataset] = useState(initial?.dataset);
   const [target, setTarget] = useState(initial?.target);
   const [suite, setSuite] = useState(initial?.suite);
   const [name, setName] = useState('');
-  const [advanced, setAdvanced] = useState(false);
+  const [section, setSection] = useState<'variants' | 'conversation' | 'advanced' | null>(null);
+  const [compare, setCompare] = useState(false);
+  const [variants, setVariants] = useState<VariantDraft[]>(() => [newVariant(initial?.target), newVariant(initial?.target)]);
+  const [conversation, setConversation] = useState<ConversationDraft>(defaultConversation);
   const [concurrency, setConcurrency] = useState('4');
   const [retries, setRetries] = useState('2');
   const [repetitions, setRepetitions] = useState('1');
@@ -36,29 +39,39 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
   const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const hint = useConversationHint(dataset);
+  const toggle = (s: 'variants' | 'conversation' | 'advanced') => setSection(section === s ? null : s);
+
+  const settings = () => ({
+    concurrency: num(concurrency) ?? 4,
+    retries: num(retries) ?? 2,
+    repetitions: num(repetitions) ?? 1,
+    limit: num(limit),
+    delayMs: num(delayMs) ?? 0,
+    includeStatuses: statuses,
+    tags: tags.length ? tags : undefined,
+    conversation: toConversation(conversation),
+  });
+
+  const variantsReady = variants.length >= 2 && variants.every((v) => !!v.target);
+  const conversationReady = conversation.mode !== 'simulated' || !!conversation.connectionId;
+  const ready = !!dataset && !!suite && statuses.length > 0 && conversationReady && (compare ? variantsReady : !!target);
 
   const start = async () => {
     setBusy(true);
     setError(null);
     try {
-      const run = await op<any>('start_run', {
-        dataset,
-        target,
-        suite,
-        name: name.trim() || undefined,
-        settings: {
-          concurrency: num(concurrency) ?? 4,
-          retries: num(retries) ?? 2,
-          repetitions: num(repetitions) ?? 1,
-          limit: num(limit),
-          delayMs: num(delayMs) ?? 0,
-          includeStatuses: statuses,
-          tags: tags.length ? tags : undefined,
-        },
-      });
-      onOpenChange(false);
-      toast.success(`${run.name} started`);
-      navigate(`/runs/${run.id}`);
+      if (compare) {
+        const c = await op<any>('start_comparison', { dataset, suite, name: name.trim() || undefined, variants: toVariants(variants), settings: settings() });
+        onOpenChange(false);
+        toast.success(`${c.name} started`, `${c.runs.length} variants running`);
+        navigate(`/comparisons/${c.id}`);
+      } else {
+        const run = await op<any>('start_run', { dataset, target, suite, name: name.trim() || undefined, settings: settings() });
+        onOpenChange(false);
+        toast.success(`${run.name} started`);
+        navigate(`/runs/${run.id}`);
+      }
     } catch (e) {
       setError(e);
     } finally {
@@ -72,76 +85,119 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
       onOpenChange={onOpenChange}
       title="New run"
       description="Sends every row of the dataset to the target and scores each result with the suite. The dataset is versioned automatically."
+      width="lg"
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="primary" loading={busy} disabled={!dataset || !target || !suite || statuses.length === 0} onClick={start}>
-            Start run
+          <Button variant="primary" loading={busy} disabled={!ready} onClick={start}>
+            {compare ? `Compare ${variants.length} variants` : 'Start run'}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="Dataset" help="The test rows to send.">
-          <DatasetPicker value={dataset} onChange={setDataset} />
-        </Field>
-        <Field label="Target" help="The app under test: where each row is sent.">
-          <TargetPicker value={target} onChange={setTarget} />
-        </Field>
-        <Field label="Suite" help="The checks that score every result.">
-          <SuitePicker value={suite} onChange={setSuite} />
-        </Field>
-        <Field label="Name" hint="Optional. Defaults to “Run #n”.">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Dataset" help="The test rows to send.">
+            <DatasetPicker value={dataset} onChange={setDataset} />
+          </Field>
+          <Field label="Suite" help="The checks that score every result.">
+            <SuitePicker value={suite} onChange={setSuite} />
+          </Field>
+        </div>
+        {!compare && (
+          <Field label="Target" help="The app under test: where each row is sent.">
+            <TargetPicker
+              value={target}
+              onChange={(v) => {
+                setTarget(v);
+                setVariants((vs) => vs.map((x) => (x.target ? x : { ...x, target: v })));
+              }}
+            />
+          </Field>
+        )}
+        <Field label="Name" hint="Optional. Defaults to “Run #n” (or “Comparison #n”).">
           <Input value={name} placeholder="e.g. Baseline before prompt change" onChange={(e) => setName(e.target.value)} />
         </Field>
 
-        <button type="button" onClick={() => setAdvanced(!advanced)} className="flex items-center gap-1.5 self-start text-[0.8125rem] font-medium text-ink-muted hover:text-ink">
-          <ChevronRight className={clsx('size-4 transition-transform', advanced && 'rotate-90')} /> Advanced settings
-        </button>
-        {advanced && (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3.5 rounded-lg border border-line p-4">
-            <Field label="Concurrency" help="How many rows are sent at the same time. Lower it if your app or provider rate-limits you.">
-              <Input type="number" min={1} max={256} value={concurrency} onChange={(e) => setConcurrency(e.target.value)} />
-            </Field>
-            <Field label="Retries" help="Extra attempts for timeouts, 429 rate limits and 5xx errors, with growing waits between them.">
-              <Input type="number" min={0} max={10} value={retries} onChange={(e) => setRetries(e.target.value)} />
-            </Field>
-            <Field label="Repetitions" help="Run each row several times to see how consistent the app is. Results group by row.">
-              <Input type="number" min={1} max={20} value={repetitions} onChange={(e) => setRepetitions(e.target.value)} />
-            </Field>
-            <Field label="Only the first N rows" help="Handy for a quick smoke test before a full run. Leave empty for all rows.">
-              <Input type="number" min={1} value={limit} placeholder="All rows" onChange={(e) => setLimit(e.target.value)} />
-            </Field>
-            <Field label="Delay between rows (ms)" help="Pause each worker after every row, to stay under strict rate limits.">
-              <Input type="number" min={0} value={delayMs} onChange={(e) => setDelayMs(e.target.value)} />
-            </Field>
-            <Field label="Only rows tagged" help="Run only rows that have at least one of these tags. Leave empty for all rows.">
-              <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
-            </Field>
-            <Field label="Include rows that are" className="col-span-2" help="Rows waiting for review or still drafts can be left out, so only approved test cases count.">
-              <div className="flex flex-wrap gap-4">
-                {STATUSES.map((s) => (
-                  <label key={s.value} className="flex items-center gap-2 text-[0.84375rem]">
-                    <input
-                      type="checkbox"
-                      className="size-3.5 accent-[var(--k-accent)]"
-                      checked={statuses.includes(s.value)}
-                      onChange={(e) => setStatuses(e.target.checked ? [...statuses, s.value] : statuses.filter((x) => x !== s.value))}
-                    />
-                    {s.label}
-                  </label>
-                ))}
-              </div>
-            </Field>
-          </div>
-        )}
+        <div className="flex flex-col gap-2">
+          <OptionSection
+            title="Compare variants"
+            help="Run the same dataset through 2–8 targets, models or settings at once and get a leaderboard with side-by-side outputs."
+            open={section === 'variants'}
+            onToggle={() => toggle('variants')}
+            on={compare}
+            summary={compare ? `${variants.length} variants` : 'Off'}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-[0.8125rem]">Compare several variants instead of one target</span>
+              <Switch checked={compare} onChange={setCompare} label="Compare variants" />
+            </div>
+            {compare && <VariantsEditor drafts={variants} onChange={setVariants} />}
+          </OptionSection>
+
+          <OptionSection
+            title="Conversation"
+            help="Test chatbots and agents over several turns: scripted user messages from a column, or a model playing a user with a goal."
+            open={section === 'conversation'}
+            onToggle={() => toggle('conversation')}
+            on={conversation.mode !== 'off'}
+            summary={conversation.mode === 'off' ? (hint.suggested ? 'Suggested for this dataset' : 'Single request') : conversation.mode === 'scripted' ? 'Scripted turns' : 'Simulated user'}
+          >
+            <ConversationEditor value={conversation} onChange={setConversation} datasetId={dataset} />
+          </OptionSection>
+
+          <OptionSection
+            title="Advanced settings"
+            help="Concurrency, retries, repetitions and which rows to include."
+            open={section === 'advanced'}
+            onToggle={() => toggle('advanced')}
+            on={false}
+            summary={`${concurrency || 4} at a time · ${retries || 2} retries${limit ? ` · first ${limit} rows` : ''}`}
+          >
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3.5">
+              <Field label="Concurrency" help="How many rows are sent at the same time. Lower it if your app or provider rate-limits you. Each variant of a comparison uses this many.">
+                <Input type="number" min={1} max={256} value={concurrency} onChange={(e) => setConcurrency(e.target.value)} />
+              </Field>
+              <Field label="Retries" help="Extra attempts for timeouts, 429 rate limits and 5xx errors, with growing waits between them.">
+                <Input type="number" min={0} max={10} value={retries} onChange={(e) => setRetries(e.target.value)} />
+              </Field>
+              <Field label="Repetitions" help="Run each row several times to see how consistent the app is. Results group by row.">
+                <Input type="number" min={1} max={20} value={repetitions} onChange={(e) => setRepetitions(e.target.value)} />
+              </Field>
+              <Field label="Only the first N rows" help="Handy for a quick smoke test before a full run. Leave empty for all rows.">
+                <Input type="number" min={1} value={limit} placeholder="All rows" onChange={(e) => setLimit(e.target.value)} />
+              </Field>
+              <Field label="Delay between rows (ms)" help="Pause each worker after every row, to stay under strict rate limits.">
+                <Input type="number" min={0} value={delayMs} onChange={(e) => setDelayMs(e.target.value)} />
+              </Field>
+              <Field label="Only rows tagged" help="Run only rows that have at least one of these tags. Leave empty for all rows.">
+                <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
+              </Field>
+              <Field label="Include rows that are" className="col-span-2" help="Rows waiting for review or still drafts can be left out, so only approved test cases count.">
+                <div className="flex flex-wrap gap-4">
+                  {STATUSES.map((s) => (
+                    <label key={s.value} className="flex items-center gap-2 text-[0.84375rem]">
+                      <input
+                        type="checkbox"
+                        className="size-3.5 accent-[var(--k-accent)]"
+                        checked={statuses.includes(s.value)}
+                        onChange={(e) => setStatuses(e.target.checked ? [...statuses, s.value] : statuses.filter((x) => x !== s.value))}
+                      />
+                      {s.label}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            </div>
+          </OptionSection>
+        </div>
+        {conversation.mode === 'simulated' && !conversation.connectionId && <p className="text-[0.78125rem] text-warn">Pick the model that plays the user (Conversation section).</p>}
         <ErrorBox error={error} />
       </div>
     </Dialog>
   );
 }
 
-/** Score outputs produced outside Kalibra (offline mode). */
 export function ImportOutputsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
   const [dataset, setDataset] = useState<string>();

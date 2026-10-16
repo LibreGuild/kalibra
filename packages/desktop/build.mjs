@@ -1,10 +1,16 @@
 import { build } from 'esbuild';
 import { cpSync, existsSync, rmSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Paths below are relative to this package, whatever directory the build is started from.
+process.chdir(dirname(fileURLToPath(import.meta.url)));
 
 /** Bundles the Electron main process (engine + server inlined) and copies the built UI and CLI next to it. */
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist', { recursive: true });
 await build({
+  absWorkingDir: process.cwd(),
   entryPoints: ['src/main.ts'],
   outfile: 'dist/main.cjs',
   bundle: true,

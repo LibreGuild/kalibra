@@ -1,0 +1,5 @@
+[
+  {"id": "it1", "datasetId": "d1", "input": {"question": "Reset password?", "user_tier": "gold"}, "expectedOutput": "Use the reset link", "metadata": {"source": "prod"}, "status": "ACTIVE"},
+  {"id": "it2", "datasetId": "d1", "input": "Plain string input", "expectedOutput": {"answer": "x", "confidence": 0.9}, "metadata": {}, "status": "ARCHIVED"},
+  {"id": "it3", "datasetId": "d1", "input": [{"role": "user", "content": "hi"}], "expectedOutput": null, "status": "ACTIVE"}
+]

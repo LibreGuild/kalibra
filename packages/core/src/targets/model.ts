@@ -1,6 +1,7 @@
 import { render, renderValue } from '../template.js';
 import type { ModelTargetConfig, TargetSpec } from '../specs.js';
 import type { TargetCallContext, TargetCallResult } from './types.js';
+import type { ChatMessage } from '../providers/types.js';
 import { failure, isFileValue, makeLogger, now, requestScope } from './common.js';
 
 /*
@@ -71,15 +72,22 @@ export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Pr
     }
 
     const system = cfg.system ? await render(cfg.system, scope, ctx.env) : undefined;
-    const prompt = await render(cfg.prompt, scope, ctx.env);
-    const res = await ctx.llm.text({ ...base, system, prompt, temperature: cfg.temperature, maxOutputTokens: cfg.maxOutputTokens });
+    // In a conversation run the row carries `history` and the current `message`. Earlier turns are
+    // replayed as chat messages; the prompt template is used for the new turn only when it refers
+    // to {{message}}, otherwise the user's message is sent as is.
+    const history = conversationHistory(ctx.row);
+    const prompt =
+      history && typeof ctx.row.message === 'string' && !/\{\{\s*message\b/.test(cfg.prompt)
+        ? (ctx.row.message as string)
+        : await render(cfg.prompt, scope, ctx.env);
+    const res = await ctx.llm.text({ ...base, system, prompt, messages: history, temperature: cfg.temperature, maxOutputTokens: cfg.maxOutputTokens });
     const metrics: Record<string, number> = { latency_ms: Math.round(now() - started) };
     if (res.inputTokens !== undefined) metrics.input_tokens = res.inputTokens;
     if (res.outputTokens !== undefined) metrics.output_tokens = res.outputTokens;
     log('info', `Model ${res.model} answered in ${metrics.latency_ms} ms`);
     return {
       ok: true,
-      request: { connectionId: cfg.connectionId, model: res.model, system, prompt },
+      request: { connectionId: cfg.connectionId, model: res.model, system, prompt, ...(history ? { history: history.length } : {}) },
       response: { text: res.text },
       outputs: { output: res.text },
       metrics,
@@ -93,4 +101,12 @@ export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Pr
       retryable: status ? status === 429 || status >= 500 : !ctx.signal.aborted,
     });
   }
+}
+
+function conversationHistory(row: Record<string, unknown>): ChatMessage[] | undefined {
+  const h = row.history;
+  if (!Array.isArray(h)) return undefined;
+  return h
+    .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && m.content != null)
+    .map((m: any) => ({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }));
 }

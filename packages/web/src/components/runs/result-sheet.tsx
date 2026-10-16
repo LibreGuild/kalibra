@@ -195,6 +195,59 @@ function MessagesTimeline({ messages }: { messages: { t: number; dir: 'in' | 'ou
 }
 
 /** Full detail of one result: inputs, outputs, every check, raw request/response, metrics, logs. */
+const STOP_LABEL: Record<string, string> = {
+  script_done: 'All scripted turns sent',
+  goal_met: 'Simulated user reached its goal',
+  gave_up: 'Simulated user gave up',
+  max_turns: 'Reached the turn limit',
+  stop_phrase: 'App said the stop phrase',
+  error: 'A turn failed',
+  cancelled: 'Cancelled',
+};
+
+/** Chat-style view of a multi-turn conversation result. */
+function Transcript({ outputs }: { outputs: Record<string, any> }) {
+  const t: { role: string; content: string; turn: number; latency_ms?: number }[] = outputs.transcript ?? [];
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge>{outputs.turns ?? 0} turn{outputs.turns === 1 ? '' : 's'}</Badge>
+        {outputs.stop_reason && <Badge tone={outputs.stop_reason === 'error' ? 'bad' : 'neutral'}>{STOP_LABEL[outputs.stop_reason] ?? outputs.stop_reason}</Badge>}
+        {typeof outputs.goal_met === 'boolean' && (
+          <Badge tone={outputs.goal_met ? 'ok' : 'bad'} dot>
+            {outputs.goal_met ? 'Goal met' : 'Goal not met'}
+          </Badge>
+        )}
+        {outputs.session_id && <span className="font-mono text-[0.71875rem] text-ink-faint">session {String(outputs.session_id)}</span>}
+      </div>
+      {(outputs.goal || outputs.persona) && (
+        <div className="rounded-lg bg-raised px-3 py-2 text-[0.78125rem] text-ink-muted">
+          {outputs.persona && <div><span className="font-medium text-ink">Persona:</span> {outputs.persona}</div>}
+          {outputs.goal && <div><span className="font-medium text-ink">Goal:</span> {outputs.goal}</div>}
+          {outputs.simulator_reason && <div><span className="font-medium text-ink">Simulated user says:</span> {outputs.simulator_reason}</div>}
+        </div>
+      )}
+      {t.length === 0 ? (
+        <div className="text-[0.8125rem] text-ink-faint">No messages were exchanged.</div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {t.map((m, i) => (
+            <div key={i} className={clsx('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
+              <div className={clsx('max-w-[85%] rounded-xl px-3 py-2', m.role === 'user' ? 'bg-accent-soft text-ink' : 'border border-line bg-surface')}>
+                <div className="mb-0.5 flex items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-faint">
+                  {m.role === 'user' ? 'User' : 'App'} · turn {m.turn}
+                  {m.latency_ms !== undefined && <span className="font-normal normal-case tracking-normal">{ms(m.latency_ms)}</span>}
+                </div>
+                <div className="whitespace-pre-wrap text-[0.8125rem]">{m.content || <span className="text-ink-faint">(empty)</span>}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ResultSheet({ resultId, onClose, title }: { resultId: string | null; onClose: () => void; title?: string }) {
   const [tab, setTab] = useState('overview');
   const q = useOp<any>('get_result', { resultId }, { enabled: !!resultId });
@@ -225,11 +278,16 @@ export function ResultSheet({ resultId, onClose, title }: { resultId: string | n
           >
             <TabPanel value="overview" className="flex flex-col gap-6 pt-4">
               {r.error && <ErrorBox error={{ message: r.error }} />}
+              {Array.isArray(r.outputs?.transcript) && (
+                <Section title="Conversation">
+                  <Transcript outputs={r.outputs} />
+                </Section>
+              )}
               <Section title="Checks">
                 {r.checks?.length ? <CheckList checks={r.checks} /> : <div className="text-[0.8125rem] text-ink-faint">No checks ran.</div>}
               </Section>
               <Section title="Outputs">
-                <KeyValues data={r.outputs ?? {}} />
+                <KeyValues data={Array.isArray(r.outputs?.transcript) ? Object.fromEntries(Object.entries(r.outputs).filter(([k]) => !['transcript', 'persona', 'goal', 'simulator_reason'].includes(k))) : (r.outputs ?? {})} />
               </Section>
               <Section title="Inputs (dataset row)">
                 <KeyValues data={r.input ?? {}} />

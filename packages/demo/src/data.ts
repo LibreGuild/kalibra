@@ -82,6 +82,25 @@ export function demoData(opts: { baseUrl?: string; wsUrl?: string; fixtures?: Fi
         tags: [f.locale, f.synthetic ? 'synthetic-tone' : `voice:${f.voice}`],
       })),
     },
+    {
+      name: 'Support conversations',
+      description: 'Multi-turn chats with the demo session bot: blocking a card in several steps, remembering a name, and small talk.',
+      columns: [
+        { key: 'turns', type: 'list', description: 'What the user says, one message per turn, in order.', required: true },
+        { key: 'goal', type: 'text', description: 'What the user wants to get done (used by goal checks and simulated users).', required: false },
+        { key: 'persona', type: 'text', description: 'Who the user is (used when a model plays the user).', required: false },
+        { key: 'must_mention', type: 'list', description: 'Phrases the bot has to say at some point in the conversation.', required: false },
+      ],
+      instructions: 'Each row is a short conversation (2–5 user turns) with the bank support bot. Mix tasks that need several steps with follow-up questions.',
+      rows: [
+        { data: { turns: ['Hi, my name is Anita', 'I lost my debit card', 'debit', 'yes'], goal: 'Block the lost debit card', persona: 'A calm customer who just noticed her card is missing', must_mention: ['blocked', 'Anita'] }, tags: ['block-card'] },
+        { data: { turns: ['My credit card was stolen', 'yes', "What's my name?"], goal: 'Block the stolen credit card', persona: 'A stressed customer in a hurry', must_mention: ['blocked'] }, tags: ['block-card'] },
+        { data: { turns: ['I want to block my card', 'debit', 'no'], goal: 'Start blocking a card, then change their mind', persona: 'An indecisive customer', must_mention: ["won't block"] }, tags: ['block-card'] },
+        { data: { turns: ['My name is Rahul', "What's my balance?", 'Who am I?'], goal: 'Check the balance and see that the bot remembers their name', persona: 'A regular customer', must_mention: ['42,310', 'Rahul'] }, tags: ['memory'] },
+        { data: { turns: ['Block my card please', 'the blue one', 'debit', 'yes'], goal: 'Block the debit card despite an unclear answer', persona: 'A customer who gives vague answers', must_mention: ['blocked'] }, tags: ['block-card'] },
+        { data: { turns: ['Hello', 'What are your branch hours?'], goal: 'Find out the branch opening hours', persona: 'A customer planning a branch visit', must_mention: ['9:30'] }, tags: ['faq'] },
+      ],
+    },
   ];
 
   const chatTarget: TargetSpec = {
@@ -192,13 +211,38 @@ export function demoData(opts: { baseUrl?: string; wsUrl?: string; fixtures?: Fi
   const sttStream: TargetSpec = { variables: wsVars, config: wsBaseConfig };
   const sttStreamBase64: TargetSpec = { variables: wsVars, config: { ...wsBaseConfig, audio: { ...wsBaseConfig.audio, sendAs: 'text' } } };
 
+  const sessionTarget: TargetSpec = {
+    variables: [{ key: 'base_url', value: baseUrl, enabled: true }],
+    config: {
+      ...(chatTarget.config as any),
+      url: '{{vars.base_url}}/api/chat/session',
+      body: { type: 'json', content: '{\n  "message": "{{message}}",\n  "session_id": "{{session_id}}"\n}', contentType: '', form: [], parts: [], binary: '' },
+      outputs: [
+        { name: 'output', from: 'json', path: '$.answer' },
+        { name: 'session_id', from: 'json', path: '$.session_id' },
+      ],
+    },
+  };
+
   const targets: DemoDefinition<TargetSpec>[] = [
     { name: 'Demo chat API', description: 'Mock bank support bot: POST /api/chat returning {answer, sources, confidence}.', spec: chatTarget },
     { name: 'Demo chat API (streaming)', description: 'Same bot, streamed as OpenAI-style server-sent events.', spec: chatStreamTarget },
     { name: 'Demo STT (batch upload)', description: 'Mock speech-to-text: multipart upload, returns {text, words}.', spec: sttBatch },
     { name: 'Demo STT (streaming, binary frames)', description: 'Mock streaming STT over WebSocket: 20 ms PCM16 frames in real time.', spec: sttStream },
     { name: 'Demo STT (streaming, base64 JSON frames)', description: 'Same service, audio sent as base64 inside JSON messages.', spec: sttStreamBase64 },
+    { name: 'Demo chat (session)', description: 'Multi-turn bot with memory: POST /api/chat/session with {message, session_id}. Use it with a conversation run.', spec: sessionTarget },
   ];
+
+  const conversationSuite: SuiteSpec = {
+    passRule: 'all',
+    passThreshold: 1,
+    checks: [
+      { id: 'ok', type: 'no_error', name: 'Every turn answered', enabled: true, gate: true, weight: 1, applyWhen: '', config: {} },
+      { id: 'mentions', type: 'transcript_contains', name: 'Says the key things', enabled: true, gate: false, weight: 1, applyWhen: '', config: { values: ['{{must_mention}}'], mode: 'all', speaker: 'assistant' } },
+      { id: 'turns', type: 'turn_count', name: 'Done within 5 turns', enabled: true, gate: false, weight: 1, applyWhen: '', config: { min: 1, max: 5 } },
+      { id: 'goal', type: 'goal_met', name: 'Goal achieved (LLM judge)', enabled: false, gate: false, weight: 1, applyWhen: '', config: { source: 'auto', goal: '{{goal}}', connectionId: '', model: '', criteria: '' } },
+    ],
+  };
 
   const chatSuite: SuiteSpec = {
     passRule: 'all',
@@ -317,6 +361,7 @@ export function demoData(opts: { baseUrl?: string; wsUrl?: string; fixtures?: Fi
     { name: 'Chat API checks', description: 'Status, schema, key facts, refusals, and an optional LLM judge.', spec: chatSuite },
     { name: 'STT checks (batch)', description: 'WER, keyword recall and response time for file-upload transcription.', spec: sttChecks(false) },
     { name: 'STT checks (streaming)', description: 'WER, keyword recall, first-partial and final latency for streaming transcription.', spec: sttChecks(true) },
+    { name: 'Conversation checks', description: 'For conversation runs: every turn answered, key phrases said, finished in a few turns, optional goal judge.', spec: conversationSuite },
   ];
 
   return { datasets, targets, suites };

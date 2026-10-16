@@ -64,6 +64,41 @@ describe('engine end to end against the demo apps', () => {
     expect(wer.corpus.value).toBeLessThan(0.5);
   }, 180_000);
 
+  it('runs scripted multi-turn conversations against the session bot', async () => {
+    const started = await engine.call('start_run', {
+      dataset: 'Support conversations',
+      target: 'Demo chat (session)',
+      suite: 'Conversation checks',
+      settings: { concurrency: 3, retries: 0, conversation: { mode: 'scripted' } },
+    });
+    const r = await engine.runner.wait(started.id);
+    expect(r.status).toBe('completed');
+    expect(r.summary.targetErrors).toBe(0);
+    expect(r.summary.passRate).toBe(1);
+    expect(r.summary.metrics.turns.count).toBe(r.total);
+    expect(r.summary.metrics.turn_latency_ms.mean).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('compares two targets on the same dataset', async () => {
+    const c = await engine.call<any>('start_comparison', {
+      dataset: 'Support questions',
+      suite: 'Chat API checks',
+      variants: [{ target: 'Demo chat API' }, { target: 'Demo chat API (streaming)' }],
+      settings: { concurrency: 4, retries: 0 },
+    });
+    let cmp: any;
+    for (let i = 0; i < 600; i++) {
+      cmp = await engine.call('get_comparison', { id: c.id });
+      if (cmp.status !== 'running') break;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    expect(cmp.status).toBe('completed');
+    expect(cmp.variants).toHaveLength(2);
+    expect(cmp.variants.filter((v: any) => v.isBest)).toHaveLength(1);
+    const rows = await engine.call<any>('compare_rows', { id: c.id, filter: 'all' });
+    expect(rows.total).toBe(16);
+  }, 180_000);
+
   it('scores outputs imported from a file and compares runs', async () => {
     const rows = await engine.call<any>('list_rows', { dataset: 'Support questions', limit: 100 });
     const csv = ['row_id,output', ...rows.rows.map((r: any) => `${r.id},"Please call 1800-123-456 or block it in the app"`)].join('\n');

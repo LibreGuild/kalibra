@@ -9,6 +9,7 @@ import { ensureFixtures, pcmHash, toPcm16k, trimTrailingZeros, type FixtureEntry
  * Mock "apps under test" for trying Kalibra without a real backend:
  *   POST /api/chat          JSON support bot with deterministic quirks (slow, 500s, broken JSON, refusals)
  *   POST /api/chat/stream   the same answers as OpenAI-style SSE deltas
+ *   POST /api/chat/session  multi-turn bot with memory: {message, session_id?} → {answer, session_id}
  *   POST /api/stt           batch speech-to-text (multipart: file, language)
  *   WS   /ws/stt            streaming speech-to-text with partial and final results
  *   GET  /api/health
@@ -129,6 +130,74 @@ async function handleChat(req: IncomingMessage, res: ServerResponse) {
   if (kb.refused) body.refused = true;
   if (quirk === 4) delete body.sources;
   sendJson(res, 200, body);
+}
+
+interface ChatSession {
+  name?: string;
+  flow?: 'block';
+  step?: 'which' | 'confirm';
+  card?: 'debit' | 'credit';
+}
+
+const sessions = new Map<string, ChatSession>();
+
+/** A tiny stateful bot: remembers your name and walks through blocking a card in three steps. */
+function sessionReply(s: ChatSession, message: string): string {
+  const m = message.toLowerCase();
+  const name = /\bmy name is ([a-z][a-z'-]*)/i.exec(message)?.[1];
+  if (name) s.name = name.charAt(0).toUpperCase() + name.slice(1);
+
+  if (s.flow === 'block' && s.step === 'which') {
+    const card = /\bcredit\b/.test(m) ? 'credit' : /\bdebit\b/.test(m) ? 'debit' : undefined;
+    if (!card) return 'Sorry, which card should I block: your debit card or your credit card?';
+    s.card = card;
+    s.step = 'confirm';
+    return `Please confirm: block your ${card} card ending in 4321? (yes/no)`;
+  }
+  if (s.flow === 'block' && s.step === 'confirm') {
+    const yes = /\b(yes|yeah|yep|confirm|please do)\b/.test(m);
+    const no = /\b(no|nope|don'?t|cancel|stop)\b/.test(m);
+    if (!yes && !no) return `Please answer yes or no: block your ${s.card} card ending in 4321?`;
+    s.flow = undefined;
+    s.step = undefined;
+    if (yes) return `Done${s.name ? `, ${s.name}` : ''}. Your ${s.card} card is blocked. A replacement will arrive in 5–7 days.`;
+    return "Okay, I won't block it. Is there anything else I can help with?";
+  }
+  if (/\b(block|lost|stolen|freeze)\b/.test(m) && /\bcard\b/.test(m)) {
+    s.flow = 'block';
+    const card = /\bcredit\b/.test(m) ? 'credit' : /\bdebit\b/.test(m) ? 'debit' : undefined;
+    if (card) {
+      s.card = card;
+      s.step = 'confirm';
+      return `I'm sorry to hear that. Please confirm: block your ${card} card ending in 4321? (yes/no)`;
+    }
+    s.step = 'which';
+    return 'I can help block a card. Which card: debit or credit?';
+  }
+  if (/\b(what'?s my name|who am i|do you know my name)\b/.test(m)) return s.name ? `You told me your name is ${s.name}.` : "I don't know your name yet.";
+  if (/\bbalance\b/.test(m)) return 'Your savings balance is ₹42,310.';
+  if (name && m.replace(/my name is [a-z'-]+/i, '').replace(/[^a-z]/g, '').length < 6) return `Nice to meet you, ${s.name}. How can I help?`;
+  return answerFor(message).answer;
+}
+
+async function handleChatSession(req: IncomingMessage, res: ServerResponse) {
+  let body: any;
+  try {
+    body = JSON.parse((await readBody(req)).toString('utf8'));
+  } catch {
+    return sendJson(res, 400, { error: 'Body must be JSON like {"message": "...", "session_id": "..."}' });
+  }
+  const message = String(body?.message ?? '');
+  if (!message.trim()) return sendJson(res, 422, { error: 'message is required' });
+  const id = typeof body.session_id === 'string' && body.session_id ? body.session_id : `sess_${createHash('sha1').update(`${Date.now()}${Math.random()}`).digest('hex').slice(0, 12)}`;
+  let s = sessions.get(id);
+  if (!s) {
+    s = {};
+    sessions.set(id, s);
+    if (sessions.size > 5000) sessions.delete(sessions.keys().next().value!);
+  }
+  await delay(40 + (hashNum(message) % 120));
+  sendJson(res, 200, { answer: sessionReply(s, message), session_id: id });
 }
 
 async function handleChatStream(req: IncomingMessage, res: ServerResponse) {
@@ -331,6 +400,7 @@ export async function startDemoServers(opts: { port?: number; host?: string } = 
       if (req.method === 'GET' && path === '/api/health') return sendJson(res, 200, { ok: true, fixtures: fixtures.length });
       if (req.method === 'POST' && path === '/api/chat') return await handleChat(req, res);
       if (req.method === 'POST' && path === '/api/chat/stream') return await handleChatStream(req, res);
+      if (req.method === 'POST' && path === '/api/chat/session') return await handleChatSession(req, res);
       if (req.method === 'POST' && path === '/api/stt') return await handleStt(req, res, fixtures);
       sendJson(res, 404, { error: `No route for ${req.method} ${path}` });
     } catch (e) {

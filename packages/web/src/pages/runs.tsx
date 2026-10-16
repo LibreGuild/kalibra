@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { FileUp, GitCompare, Pause, Play, Plus, RotateCcw, Scale, Search, Trash2, X } from 'lucide-react';
 import { BackLink, Page } from '../components/layout/shell';
 import { Button } from '../components/ui/button';
-import { Badge, Card, EmptyState, ErrorBox, Loading, OutcomeBar, Progress, SectionTitle, Stat, StatusBadge } from '../components/ui/display';
+import { Badge, Card, EmptyState, ErrorBox, Loading, OutcomeBar, Progress, SectionTitle, Stat, StatusBadge, TabPanel, Tabs } from '../components/ui/display';
 import { Input, Segmented, Select } from '../components/ui/form';
 import { HelpTip, Menu, MenuItem, Tip, useConfirm } from '../components/ui/overlay';
 import { CellValue } from '../components/ui/media';
@@ -14,6 +14,7 @@ import { toast, toastError } from '../components/ui/toast';
 import { ImportOutputsDialog, NewRunDialog } from '../components/runs/dialogs';
 import { ResultSheet } from '../components/runs/result-sheet';
 import { BreakdownCard } from '../components/runs/breakdown';
+import { ThemesPanel } from '../components/runs/themes';
 import { firstPreviewValue, formatMetric, formatMetricKey } from '../components/runs/format';
 import { op, useOp } from '../lib/api';
 import { actorLabel, ms, pct, preview, timeAgo } from '../lib/format';
@@ -67,7 +68,26 @@ interface Run {
   datasetName?: string | null;
   targetName?: string | null;
   suiteName?: string | null;
+  groupId?: string | null;
+  variantLabel?: string | null;
 }
+
+interface ComparisonLite {
+  id: string;
+  number: number;
+  name: string;
+  datasetId: string;
+  suiteId: string;
+  status: string;
+  variants: number;
+  done: number;
+  total: number;
+  createdAt: string;
+  createdBy: any;
+  best: { label: string; passRate: number | null; runId: string } | null;
+}
+
+type ListEntry = { kind: 'run'; run: Run; at: string } | { kind: 'comparison'; cmp: ComparisonLite; at: string };
 
 interface ResultLite {
   id: string;
@@ -115,10 +135,21 @@ export function RunsPage() {
   const [newRun, setNewRun] = useState(false);
   const [importing, setImporting] = useState(false);
   const names = useNameLookup();
-  const runs = useOp<{ total: number; runs: Run[] }>('list_runs', { limit: 200 }, {
+  const runs = useOp<{ total: number; runs: Run[] }>('list_runs', { limit: 200, excludeComparisons: true }, {
     refetchInterval: (q: any) => ((q.state.data as any)?.runs?.some((r: Run) => isLive(r.status)) ? 2000 : false),
   } as any);
-  const list = runs.data?.runs ?? [];
+  const comparisons = useOp<{ total: number; comparisons: ComparisonLite[] }>('list_comparisons', { limit: 100 }, {
+    refetchInterval: (q: any) => ((q.state.data as any)?.comparisons?.some((c: ComparisonLite) => c.status === 'running') ? 2000 : false),
+  } as any);
+  // Comparisons show as one entry each; their variant runs open from the comparison page.
+  const list = useMemo<ListEntry[]>(
+    () =>
+      [
+        ...(runs.data?.runs ?? []).map((run) => ({ kind: 'run' as const, run, at: run.createdAt })),
+        ...(comparisons.data?.comparisons ?? []).map((cmp) => ({ kind: 'comparison' as const, cmp, at: cmp.createdAt })),
+      ].sort((a, b) => b.at.localeCompare(a.at)),
+    [runs.data, comparisons.data],
+  );
 
   return (
     <Page
@@ -137,10 +168,10 @@ export function RunsPage() {
         </>
       }
     >
-      {runs.isLoading ? (
+      {runs.isLoading || comparisons.isLoading ? (
         <Loading />
-      ) : runs.error ? (
-        <ErrorBox error={runs.error} />
+      ) : runs.error || comparisons.error ? (
+        <ErrorBox error={runs.error ?? comparisons.error} />
       ) : list.length === 0 ? (
         <EmptyState
           icon={<Play />}
@@ -156,53 +187,93 @@ export function RunsPage() {
             </div>
           }
         >
-          Pick a dataset, the target to test and a suite of checks. Or import outputs you produced elsewhere.
+          Pick a dataset, the target to test and a suite of checks. Compare several targets or models side by side, or import outputs you produced elsewhere.
         </EmptyState>
       ) : (
         <SimpleTable
           rows={list}
-          rowKey={(r) => r.id}
-          onRowClick={(r) => navigate(`/runs/${r.id}`)}
+          rowKey={(e) => (e.kind === 'run' ? e.run.id : e.cmp.id)}
+          onRowClick={(e) => navigate(e.kind === 'run' ? `/runs/${e.run.id}` : `/comparisons/${e.cmp.id}`)}
           columns={[
-            { key: 'n', header: '#', width: '56px', render: (r) => <span className="tabular-nums text-ink-muted">{r.number}</span> },
+            {
+              key: 'n',
+              header: '#',
+              width: '56px',
+              render: (e) =>
+                e.kind === 'run' ? (
+                  <span className="tabular-nums text-ink-muted">{e.run.number}</span>
+                ) : (
+                  <Tip content="Comparison of several variants on the same rows">
+                    <GitCompare className="size-4 text-accent" />
+                  </Tip>
+                ),
+            },
             {
               key: 'name',
               header: 'Run',
               width: 'minmax(220px, 2fr)',
-              render: (r) => (
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{r.name}</span>
-                    {r.kind === 'imported' && <Badge tone="info">Imported</Badge>}
+              render: (e) =>
+                e.kind === 'run' ? (
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{e.run.name}</span>
+                      {e.run.kind === 'imported' && <Badge tone="info">Imported</Badge>}
+                    </div>
+                    <div className="truncate text-[0.78125rem] text-ink-muted">
+                      {[names.dataset.get(e.run.datasetId ?? ''), e.run.kind === 'imported' ? 'imported outputs' : names.target.get(e.run.targetId ?? ''), names.suite.get(e.run.suiteId ?? '')].map((x) => x ?? '—').join(' · ')}
+                    </div>
                   </div>
-                  <div className="truncate text-[0.78125rem] text-ink-muted">
-                    {[names.dataset.get(r.datasetId ?? ''), r.kind === 'imported' ? 'imported outputs' : names.target.get(r.targetId ?? ''), names.suite.get(r.suiteId ?? '')].map((x) => x ?? '—').join(' · ')}
+                ) : (
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{e.cmp.name}</span>
+                      <Badge tone="accent">Comparison</Badge>
+                    </div>
+                    <div className="truncate text-[0.78125rem] text-ink-muted">
+                      {[names.dataset.get(e.cmp.datasetId) ?? '—', `${e.cmp.variants} variants`, names.suite.get(e.cmp.suiteId) ?? '—'].join(' · ')}
+                    </div>
                   </div>
-                </div>
-              ),
+                ),
             },
             {
               key: 'status',
               header: 'Status',
               width: '170px',
-              render: (r) =>
-                isLive(r.status) ? (
+              render: (e) => {
+                const x = e.kind === 'run' ? e.run : e.cmp;
+                return isLive(x.status) ? (
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2">
-                      <StatusBadge status={r.status} />
+                      <StatusBadge status={x.status} />
                       <span className="text-[0.75rem] tabular-nums text-ink-faint">
-                        {r.done}/{r.total}
+                        {x.done}/{x.total}
                       </span>
                     </div>
-                    <Progress value={r.total ? r.done / r.total : 0} />
+                    <Progress value={x.total ? x.done / x.total : 0} />
                   </div>
                 ) : (
-                  <StatusBadge status={r.status} />
+                  <StatusBadge status={x.status} />
+                );
+              },
+            },
+            {
+              key: 'pass',
+              header: 'Pass rate',
+              width: '190px',
+              render: (e) =>
+                e.kind === 'run' ? (
+                  <PassRateCell s={e.run.summary} />
+                ) : e.cmp.best ? (
+                  <div className="min-w-0 text-[0.8125rem]">
+                    <div className="tabular-nums font-medium">{pct(e.cmp.best.passRate, 0)}</div>
+                    <div className="truncate text-[0.75rem] text-ink-faint">best: {e.cmp.best.label}</div>
+                  </div>
+                ) : (
+                  <span className="text-ink-faint">—</span>
                 ),
             },
-            { key: 'pass', header: 'Pass rate', width: '170px', render: (r) => <PassRateCell s={r.summary} /> },
-            { key: 'created', header: 'Started', width: '110px', render: (r) => <span className="text-ink-muted">{timeAgo(r.createdAt)}</span> },
-            { key: 'by', header: 'By', width: '100px', render: (r) => <span className="truncate text-ink-muted">{actorLabel(r.createdBy)}</span> },
+            { key: 'created', header: 'Started', width: '110px', render: (e) => <span className="text-ink-muted">{timeAgo(e.at)}</span> },
+            { key: 'by', header: 'By', width: '100px', render: (e) => <span className="truncate text-ink-muted">{actorLabel(e.kind === 'run' ? e.run.createdBy : e.cmp.createdBy)}</span> },
           ]}
         />
       )}
@@ -240,8 +311,10 @@ export function RunDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const confirm = useConfirm();
+  const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState<'all' | 'passed' | 'failed' | 'errors'>('all');
   const [checkId, setCheckId] = useState<string | null>(null);
+  const [idFilter, setIdFilter] = useState<{ ids: string[]; title: string } | null>(null);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [sort, setSort] = useState<'seq' | 'score' | 'latency'>('seq');
@@ -252,13 +325,13 @@ export function RunDetailPage() {
     const t = setTimeout(() => setDebounced(search.trim()), 250);
     return () => clearTimeout(t);
   }, [search]);
-  useEffect(() => setPages(1), [filter, checkId, debounced, sort]);
+  useEffect(() => setPages(1), [filter, checkId, idFilter, debounced, sort]);
 
   const run = useOp<Run>('get_run', { runId: id }, { refetchInterval: (q: any) => ((q.state.data as Run | undefined)?.active || isLive((q.state.data as Run | undefined)?.status ?? '') ? 1000 : false) } as any);
   const r = run.data;
   const active = !!r && (r.active || isLive(r.status));
 
-  const query = { runId: id, filter, checkId: checkId ?? undefined, search: debounced || undefined, sort };
+  const query = { runId: id, filter, checkId: checkId ?? undefined, ids: idFilter?.ids, search: debounced || undefined, sort };
   const results = useQuery({
     queryKey: ['query_results', query, pages],
     queryFn: async () => {
@@ -287,6 +360,35 @@ export function RunDetailPage() {
   const judged = (s.passed ?? 0) + (s.failed ?? 0);
   const checkName = (cid: string) => s.checks?.find((c) => c.id === cid)?.name ?? cid;
   const compareTargets = (otherRuns.data?.runs ?? []).filter((x) => x.id !== r.id);
+  const metrics = Object.entries(s.metrics ?? {}).map(([key, v]) => ({ key, ...v }));
+  const hasResults = (s.completed ?? 0) > 0;
+
+  const tabs = [
+    { value: 'results', label: 'Results', count: s.completed ?? r.done },
+    { value: 'checks', label: 'Checks', count: (s.checks ?? []).length },
+    ...(hasResults ? [{ value: 'themes', label: 'Failure themes' }, { value: 'breakdown', label: 'Breakdown' }] : []),
+    ...(metrics.length ? [{ value: 'metrics', label: 'Metrics', count: metrics.length }] : []),
+  ];
+  const requested = params.get('tab') ?? 'results';
+  const tab = tabs.some((x) => x.value === requested) ? requested : 'results';
+  const setTab = (v: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (v === 'results') next.delete('tab');
+        else next.set('tab', v);
+        return next;
+      },
+      { replace: true },
+    );
+  /** Jump to the Results tab with exactly one narrowing filter applied. */
+  const showResults = (f: { checkId?: string; ids?: { ids: string[]; title: string }; search?: string }) => {
+    setFilter('all');
+    setCheckId(f.checkId ?? null);
+    setIdFilter(f.ids ?? null);
+    setSearch(f.search ?? '');
+    setTab('results');
+  };
 
   const act = async (name: string, msg: string) => {
     try {
@@ -303,7 +405,7 @@ export function RunDetailPage() {
     try {
       await op('delete_run', { runId: r.id });
       toast.success('Run deleted');
-      navigate('/runs');
+      navigate(r.groupId ? `/comparisons/${r.groupId}` : '/runs');
     } catch (e) {
       toastError(e);
     }
@@ -312,13 +414,14 @@ export function RunDetailPage() {
   return (
     <Page
       width="wide"
-      back={<BackLink to="/runs">Runs</BackLink>}
+      back={r.groupId ? <BackLink to={`/comparisons/${r.groupId}`}>Comparison</BackLink> : <BackLink to="/runs">Runs</BackLink>}
       title={r.name}
       badge={
         <>
           <StatusBadge status={r.status} />
           {r.name !== `Run #${r.number}` && <span className="text-[0.8125rem] tabular-nums text-ink-faint">#{r.number}</span>}
           {r.kind === 'imported' && <Badge tone="info">Imported outputs</Badge>}
+          {r.groupId && <Badge tone="accent">Variant</Badge>}
         </>
       }
       description={
@@ -408,102 +511,196 @@ export function RunDetailPage() {
           ))}
         </div>
 
-        <Card padded={false}>
-          <div className="px-5 pt-4">
-            <SectionTitle help="Click a check to list only the rows where it failed.">Checks</SectionTitle>
-          </div>
-          {(s.checks ?? []).length === 0 ? (
-            <div className="px-5 pb-5 text-[0.8125rem] text-ink-muted">{active ? 'Waiting for the first results…' : 'No check results.'}</div>
-          ) : (
-            <div className="px-5 pb-5">
-              <SimpleTable
-                rows={s.checks ?? []}
-                rowKey={(c) => c.id}
-                onRowClick={(c) => {
-                  setCheckId(c.id);
-                  setFilter('all');
-                }}
-                columns={[
-                  {
-                    key: 'name',
-                    header: 'Check',
-                    width: 'minmax(180px, 2.2fr)',
-                    render: (c) => (
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{c.name}</div>
-                        <div className="truncate font-mono text-[0.71875rem] text-ink-faint">{c.type}</div>
-                      </div>
-                    ),
-                  },
-                  { key: 'layer', header: 'Layer', width: '52px', render: (c) => <span className="tabular-nums text-ink-muted">{c.layer}</span> },
-                  { key: 'bar', header: 'Outcome', width: 'minmax(90px, 1fr)', help: 'Green passed, red failed, amber errored, grey skipped. Hover a segment for the count.', render: (c) => <OutcomeBar pass={c.pass} fail={c.fail} error={c.error} skip={c.skip} /> },
-                  { key: 'rate', header: 'Pass', width: '70px', align: 'right', render: (c) => <span className="tabular-nums">{pct(c.passRate)}</span> },
-                  {
-                    key: 'counts',
-                    header: 'Failed',
-                    width: '64px',
-                    align: 'right',
-                    help: 'Rows where this check failed or errored. Skipped rows are not counted.',
-                    render: (c) => <span className={c.fail + c.error > 0 ? 'tabular-nums text-bad' : 'tabular-nums text-ink-muted'}>{c.fail + c.error}</span>,
-                  },
-                  { key: 'mean', header: 'Mean', width: '78px', align: 'right', help: 'Average raw value, e.g. per-row WER or latency.', render: (c) => <span className="tabular-nums">{formatMetric(c.type, c.meanValue)}</span> },
-                  {
-                    key: 'corpus',
-                    header: 'Corpus',
-                    width: '74px',
-                    align: 'right',
-                    help: 'For WER/CER checks: total errors ÷ total reference words across all rows.',
-                    render: (c) => <span className="tabular-nums">{c.corpus ? pct(c.corpus.value) : '–'}</span>,
-                  },
-                  {
-                    key: 'calibrate',
-                    header: '',
-                    width: '48px',
-                    align: 'right',
-                    render: (c) => (
-                      <Tip content="Label rows yourself and measure how often this check agrees with you">
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label="Calibrate this check"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/runs/${r.id}/calibrate?check=${encodeURIComponent(c.id)}`);
-                          }}
-                        >
-                          <Scale className="size-3.5" />
-                        </Button>
-                      </Tip>
-                    ),
-                  },
+        <Tabs value={tab} onChange={setTab} tabs={tabs}>
+          <TabPanel value="results" className="pt-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2.5">
+              <Segmented
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'all', label: 'All', count: s.completed ?? r.done },
+                  { value: 'passed', label: 'Passed', count: s.passed ?? 0 },
+                  { value: 'failed', label: 'Failed', count: s.failed ?? 0 },
+                  { value: 'errors', label: 'Errors', count: s.targetErrors ?? 0 },
                 ]}
               />
+              {checkId && (
+                <Badge tone="accent" className="h-7 gap-1 pr-1">
+                  Failing: {checkName(checkId)}
+                  <button type="button" onClick={() => setCheckId(null)} className="rounded p-0.5 hover:bg-accent/20" aria-label="Clear check filter">
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {idFilter && (
+                <Badge tone="accent" className="h-7 max-w-80 gap-1 pr-1">
+                  <span className="truncate">Theme: {idFilter.title}</span>
+                  <span className="tabular-nums text-ink-faint">{idFilter.ids.length}</span>
+                  <button type="button" onClick={() => setIdFilter(null)} className="rounded p-0.5 hover:bg-accent/20" aria-label="Clear theme filter">
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              <div className="relative ml-auto w-64">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-faint" />
+                <Input value={search} placeholder="Search inputs and outputs…" onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+              </div>
+              <div className="w-44">
+                <Select
+                  value={sort}
+                  onChange={(v) => setSort(v as any)}
+                  options={[
+                    { value: 'seq', label: 'Dataset order' },
+                    { value: 'score', label: 'Lowest score first' },
+                    { value: 'latency', label: 'Slowest first' },
+                  ]}
+                />
+              </div>
             </div>
+            <DataTable
+              rows={results.data?.rows ?? []}
+              rowKey={(x) => x.id}
+              activeKey={openResult}
+              onRowClick={(x) => setOpenResult(x.id)}
+              rowHeight={52}
+              empty={results.isLoading ? 'Loading…' : active ? 'Results appear here as rows finish.' : 'No rows match these filters.'}
+              footer={
+                results.data && (
+                  <div className="flex items-center justify-between">
+                    <span>
+                      Showing {results.data.rows.length} of {results.data.total}
+                    </span>
+                    {results.data.rows.length < results.data.total && (
+                      <Button size="sm" onClick={() => setPages(pages + 1)} loading={results.isFetching}>
+                        Load more
+                      </Button>
+                    )}
+                  </div>
+                )
+              }
+              columns={[
+                {
+                  key: 'n',
+                  header: '#',
+                  width: '52px',
+                  render: (x) => (
+                    <span className="tabular-nums text-ink-muted">
+                      {x.seq + 1}
+                      {x.rep > 0 && <span className="text-ink-faint"> ·{x.rep + 1}</span>}
+                    </span>
+                  ),
+                },
+                { key: 'input', header: 'Input', width: 'minmax(170px, 1.5fr)', render: (x) => <CellValue value={firstPreviewValue(x.input)} /> },
+                {
+                  key: 'output',
+                  header: 'Output',
+                  width: 'minmax(200px, 2fr)',
+                  render: (x) =>
+                    x.error && x.outputs?.output === undefined ? (
+                      <span className="line-clamp-2 text-bad">{x.error}</span>
+                    ) : (
+                      <span className="line-clamp-2">{preview(x.outputs?.output, 200) || <span className="text-ink-faint">—</span>}</span>
+                    ),
+                },
+                { key: 'checks', header: 'Checks', width: '116px', help: 'One dot per check, in layer order. Hover a dot for its result.', render: (x) => <CheckPills checks={x.checks} /> },
+                { key: 'score', header: 'Score', width: '64px', align: 'right', render: (x) => <span className="tabular-nums">{x.score == null ? '–' : x.score.toFixed(2)}</span> },
+                { key: 'latency', header: 'Latency', width: '84px', align: 'right', render: (x) => <span className="tabular-nums text-ink-muted">{ms(x.metrics?.latency_ms)}</span> },
+                {
+                  key: 'status',
+                  header: 'Result',
+                  width: '96px',
+                  render: (x) => <StatusBadge status={x.status === 'pending' || x.status === 'running' ? x.status : x.passed === null ? x.status : x.passed ? 'pass' : 'fail'} />,
+                },
+              ]}
+            />
+          </TabPanel>
+
+          <TabPanel value="checks" className="flex flex-col gap-3 pt-4">
+            {(s.checks ?? []).length === 0 ? (
+              <div className="text-[0.8125rem] text-ink-muted">{active ? 'Waiting for the first results…' : 'No check results.'}</div>
+            ) : (
+              <>
+                <p className="text-[0.8125rem] text-ink-muted">Click a check to list the rows where it failed.</p>
+                <SimpleTable
+                  rows={s.checks ?? []}
+                  rowKey={(c) => c.id}
+                  onRowClick={(c) => showResults({ checkId: c.id })}
+                  columns={[
+                    {
+                      key: 'name',
+                      header: 'Check',
+                      width: 'minmax(180px, 2.2fr)',
+                      render: (c) => (
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{c.name}</div>
+                          <div className="truncate font-mono text-[0.71875rem] text-ink-faint">{c.type}</div>
+                        </div>
+                      ),
+                    },
+                    { key: 'layer', header: 'Layer', width: '52px', render: (c) => <span className="tabular-nums text-ink-muted">{c.layer}</span> },
+                    { key: 'bar', header: 'Outcome', width: 'minmax(90px, 1fr)', help: 'Green passed, red failed, amber errored, grey skipped. Hover a segment for the count.', render: (c) => <OutcomeBar pass={c.pass} fail={c.fail} error={c.error} skip={c.skip} /> },
+                    { key: 'rate', header: 'Pass', width: '70px', align: 'right', render: (c) => <span className="tabular-nums">{pct(c.passRate)}</span> },
+                    {
+                      key: 'counts',
+                      header: 'Failed',
+                      width: '64px',
+                      align: 'right',
+                      help: 'Rows where this check failed or errored. Skipped rows are not counted.',
+                      render: (c) => <span className={c.fail + c.error > 0 ? 'tabular-nums text-bad' : 'tabular-nums text-ink-muted'}>{c.fail + c.error}</span>,
+                    },
+                    { key: 'mean', header: 'Mean', width: '78px', align: 'right', help: 'Average raw value, e.g. per-row WER or latency.', render: (c) => <span className="tabular-nums">{formatMetric(c.type, c.meanValue)}</span> },
+                    {
+                      key: 'corpus',
+                      header: 'Corpus',
+                      width: '74px',
+                      align: 'right',
+                      help: 'For WER/CER checks: total errors ÷ total reference words across all rows.',
+                      render: (c) => <span className="tabular-nums">{c.corpus ? pct(c.corpus.value) : '–'}</span>,
+                    },
+                    {
+                      key: 'calibrate',
+                      header: '',
+                      width: '48px',
+                      align: 'right',
+                      render: (c) => (
+                        <Tip content="Label rows yourself and measure how often this check agrees with you">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label="Calibrate this check"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/runs/${r.id}/calibrate?check=${encodeURIComponent(c.id)}`);
+                            }}
+                          >
+                            <Scale className="size-3.5" />
+                          </Button>
+                        </Tip>
+                      ),
+                    },
+                  ]}
+                />
+              </>
+            )}
+          </TabPanel>
+
+          {hasResults && (
+            <TabPanel value="themes" className="pt-4">
+              <ThemesPanel runId={r.id} onFilter={(ids, title) => showResults({ ids: { ids, title } })} />
+            </TabPanel>
           )}
-        </Card>
 
-        {(s.completed ?? 0) > 0 && (
-          <BreakdownCard
-            runId={r.id}
-            datasetId={r.datasetId}
-            checks={(s.checks ?? []).map((c) => ({ id: c.id, name: c.name }))}
-            onFilter={(value) => {
-              setCheckId(null);
-              setFilter('all');
-              setSearch(value);
-              document.getElementById('run-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }}
-          />
-        )}
+          {hasResults && (
+            <TabPanel value="breakdown" className="pt-4">
+              <BreakdownCard runId={r.id} datasetId={r.datasetId} checks={(s.checks ?? []).map((c) => ({ id: c.id, name: c.name }))} onFilter={(value) => showResults({ search: value })} />
+            </TabPanel>
+          )}
 
-        {s.metrics && Object.keys(s.metrics).length > 0 && (
-          <Card padded={false}>
-            <div className="px-5 pt-4">
-              <SectionTitle help="Every number the target reported per row (latency, time to first partial, real-time factor, tokens…), summarized across the run.">Metrics</SectionTitle>
-            </div>
-            <div className="px-5 pb-5">
+          {metrics.length > 0 && (
+            <TabPanel value="metrics" className="flex flex-col gap-3 pt-4">
+              <p className="text-[0.8125rem] text-ink-muted">Every number the target reported per row (latency, time to first partial, real-time factor, tokens, turns…), summarized across the run.</p>
               <SimpleTable
-                rows={Object.entries(s.metrics).map(([key, v]) => ({ key, ...v }))}
+                rows={metrics}
                 rowKey={(m) => m.key}
                 columns={[
                   { key: 'k', header: 'Metric', width: 'minmax(180px, 2fr)', render: (m) => <span className="font-mono text-[0.78125rem]">{m.key}</span> },
@@ -517,104 +714,9 @@ export function RunDetailPage() {
                   })),
                 ]}
               />
-            </div>
-          </Card>
-        )}
-
-        <section id="run-results" className="scroll-mt-4">
-          <SectionTitle help="Every row of the run. Click a row for its inputs, outputs, each check's reasoning, the raw request/response and logs.">Results</SectionTitle>
-          <div className="mb-3 flex flex-wrap items-center gap-2.5">
-            <Segmented
-              value={filter}
-              onChange={setFilter}
-              options={[
-                { value: 'all', label: 'All', count: s.completed ?? r.done },
-                { value: 'passed', label: 'Passed', count: s.passed ?? 0 },
-                { value: 'failed', label: 'Failed', count: s.failed ?? 0 },
-                { value: 'errors', label: 'Errors', count: s.targetErrors ?? 0 },
-              ]}
-            />
-            {checkId && (
-              <Badge tone="accent" className="h-7 gap-1 pr-1">
-                Failing: {checkName(checkId)}
-                <button type="button" onClick={() => setCheckId(null)} className="rounded p-0.5 hover:bg-accent/20" aria-label="Clear check filter">
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            )}
-            <div className="relative ml-auto w-64">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-faint" />
-              <Input value={search} placeholder="Search inputs and outputs…" onChange={(e) => setSearch(e.target.value)} className="pl-8" />
-            </div>
-            <div className="w-44">
-              <Select
-                value={sort}
-                onChange={(v) => setSort(v as any)}
-                options={[
-                  { value: 'seq', label: 'Dataset order' },
-                  { value: 'score', label: 'Lowest score first' },
-                  { value: 'latency', label: 'Slowest first' },
-                ]}
-              />
-            </div>
-          </div>
-          <DataTable
-            rows={results.data?.rows ?? []}
-            rowKey={(x) => x.id}
-            activeKey={openResult}
-            onRowClick={(x) => setOpenResult(x.id)}
-            rowHeight={52}
-            empty={results.isLoading ? 'Loading…' : active ? 'Results appear here as rows finish.' : 'No rows match these filters.'}
-            footer={
-              results.data && (
-                <div className="flex items-center justify-between">
-                  <span>
-                    Showing {results.data.rows.length} of {results.data.total}
-                  </span>
-                  {results.data.rows.length < results.data.total && (
-                    <Button size="sm" onClick={() => setPages(pages + 1)} loading={results.isFetching}>
-                      Load more
-                    </Button>
-                  )}
-                </div>
-              )
-            }
-            columns={[
-              {
-                key: 'n',
-                header: '#',
-                width: '52px',
-                render: (x) => (
-                  <span className="tabular-nums text-ink-muted">
-                    {x.seq + 1}
-                    {x.rep > 0 && <span className="text-ink-faint"> ·{x.rep + 1}</span>}
-                  </span>
-                ),
-              },
-              { key: 'input', header: 'Input', width: 'minmax(170px, 1.5fr)', render: (x) => <CellValue value={firstPreviewValue(x.input)} /> },
-              {
-                key: 'output',
-                header: 'Output',
-                width: 'minmax(200px, 2fr)',
-                render: (x) =>
-                  x.error && x.outputs?.output === undefined ? (
-                    <span className="line-clamp-2 text-bad">{x.error}</span>
-                  ) : (
-                    <span className="line-clamp-2">{preview(x.outputs?.output, 200) || <span className="text-ink-faint">—</span>}</span>
-                  ),
-              },
-              { key: 'checks', header: 'Checks', width: '116px', help: 'One dot per check, in layer order. Hover a dot for its result.', render: (x) => <CheckPills checks={x.checks} /> },
-              { key: 'score', header: 'Score', width: '64px', align: 'right', render: (x) => <span className="tabular-nums">{x.score == null ? '–' : x.score.toFixed(2)}</span> },
-              { key: 'latency', header: 'Latency', width: '84px', align: 'right', render: (x) => <span className="tabular-nums text-ink-muted">{ms(x.metrics?.latency_ms)}</span> },
-              {
-                key: 'status',
-                header: 'Result',
-                width: '96px',
-                render: (x) => <StatusBadge status={x.status === 'pending' || x.status === 'running' ? x.status : x.passed === null ? x.status : x.passed ? 'pass' : 'fail'} />,
-              },
-            ]}
-          />
-        </section>
+            </TabPanel>
+          )}
+        </Tabs>
       </div>
       <ResultSheet resultId={openResult} onClose={() => setOpenResult(null)} />
       {confirm.element}

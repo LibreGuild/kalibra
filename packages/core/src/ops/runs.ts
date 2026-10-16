@@ -7,7 +7,7 @@ import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
 
 /** Snapshot the dataset, pick rows per settings, create the run with one pending result per row × repetition. */
-function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: string; target?: string; name?: string; settings: RunSettings; kind: 'live' | 'imported' }) {
+export function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: string; target?: string; name?: string; settings: RunSettings; kind: 'live' | 'imported'; groupId?: string; variantLabel?: string }) {
   const { datasets, defs, runs } = engine.repos;
   const ds = datasets.get(i.dataset);
   const suite = defs.get('suite', i.suite);
@@ -19,7 +19,7 @@ function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: s
   if (i.settings.limit) rows = rows.slice(0, i.settings.limit);
   if (!rows.length) throw invalid('No rows match these settings (check row statuses and filters)');
   const run = runs.create(
-    { name: i.name, kind: i.kind, datasetId: ds.id, datasetVersionId: version.id, targetId: target?.id, targetVersion: target?.version, suiteId: suite.id, suiteVersion: suite.version, settings: i.settings },
+    { name: i.name, kind: i.kind, datasetId: ds.id, datasetVersionId: version.id, targetId: target?.id, targetVersion: target?.version, suiteId: suite.id, suiteVersion: suite.version, settings: i.settings, groupId: i.groupId, variantLabel: i.variantLabel },
     actor,
   );
   return { run, rows, datasetVersion: version };
@@ -101,9 +101,19 @@ export const runOps = [
     description: 'Lists runs, newest first, with status, progress and summary.',
     category: 'runs',
     readOnly: true,
-    input: z.object({ dataset: z.string().optional(), target: z.string().optional(), suite: z.string().optional(), limit: z.number().int().min(1).max(200).default(50), offset: z.number().int().min(0).default(0) }),
+    input: z.object({
+      dataset: z.string().optional(),
+      target: z.string().optional(),
+      suite: z.string().optional(),
+      comparison: z.string().optional().describe('Only the runs of this comparison'),
+      excludeComparisons: z.boolean().default(false).describe('Leave out runs that belong to a comparison (list those with list_comparisons)'),
+      limit: z.number().int().min(1).max(200).default(50),
+      offset: z.number().int().min(0).default(0),
+    }),
     handler: ({ engine }, i) =>
       engine.repos.runs.list({
+        groupId: i.comparison ? engine.repos.runs.getGroup(i.comparison).id : undefined,
+        excludeGrouped: i.excludeComparisons,
         datasetId: i.dataset ? engine.repos.datasets.get(i.dataset).id : undefined,
         targetId: i.target ? engine.repos.defs.get('target', i.target).id : undefined,
         suiteId: i.suite ? engine.repos.defs.get('suite', i.suite).id : undefined,
@@ -193,6 +203,7 @@ export const runOps = [
       filter: z.enum(['all', 'passed', 'failed', 'errors']).default('all'),
       checkId: z.string().optional(),
       search: z.string().optional(),
+      ids: z.array(z.string()).max(1000).optional().describe('Only these result ids (e.g. the members of a failure theme)'),
       sort: z.enum(['seq', 'score', 'latency']).default('seq'),
       offset: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(500).default(50),

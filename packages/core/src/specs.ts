@@ -247,6 +247,7 @@ export const ConnectionSpec = z.object({
   headers: z.array(KV).default([]),
   defaultModel: z.string().default('').describe('Text / chat model used for judges and generation'),
   imageModel: z.string().default('').describe('Image generation model, e.g. gpt-image-2'),
+  embeddingModel: z.string().default('').describe('Embedding model for semantic similarity and duplicate detection, e.g. text-embedding-3-small'),
   speechModel: z.string().default('').describe('Text-to-speech model, e.g. gpt-4o-mini-tts'),
   transcriptionModel: z.string().default('').describe('Speech-to-text model, e.g. gpt-4o-transcribe'),
   models: z.array(z.string()).default([]),

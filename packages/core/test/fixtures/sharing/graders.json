@@ -1,0 +1,11 @@
+{
+  "testing_criteria": [
+    {"type": "string_check", "name": "Exact", "input": "{{sample.output_text}}", "reference": "{{item.answer}}", "operation": "eq"},
+    {"type": "string_check", "name": "Mentions", "input": "{{sample.output_text}}", "reference": "{{item.answer}}", "operation": "ilike"},
+    {"type": "text_similarity", "name": "Fuzzy", "input": "{{sample.output_text}}", "reference": "{{item.answer}}", "evaluation_metric": "fuzzy_match", "pass_threshold": 0.7},
+    {"type": "text_similarity", "name": "Rouge", "input": "{{sample.output_text}}", "reference": "{{item.answer}}", "evaluation_metric": "rouge_2", "pass_threshold": 0.5},
+    {"type": "text_similarity", "name": "Meteor", "input": "{{sample.output_text}}", "reference": "{{item.answer}}", "evaluation_metric": "meteor", "pass_threshold": 0.5},
+    {"type": "label_model", "name": "Judge", "model": "gpt-6-luna", "input": [{"role": "system", "content": "Is the answer correct for {{item.question}}?"}], "labels": ["yes", "no"], "passing_labels": ["yes"]},
+    {"type": "python", "name": "Custom", "source": "def grade(sample, item): return 1"}
+  ]
+}

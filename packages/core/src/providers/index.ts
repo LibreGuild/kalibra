@@ -169,18 +169,21 @@ const dropNulls = (v: any): any =>
   Array.isArray(v) ? v.map(dropNulls) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null).map(([k, x]) => [k, dropNulls(x)])) : v;
 
 function promptOrMessages(req: LlmRequest): { prompt: string } | { messages: ModelMessage[] } {
-  if (!req.files?.length) return { prompt: req.prompt };
-  return {
-    messages: [
-      {
+  if (!req.files?.length && !req.messages?.length) return { prompt: req.prompt };
+  const history: ModelMessage[] = (req.messages ?? [])
+    // System text goes through the separate `system` option; only user/assistant turns are replayed.
+    .filter((m) => m && typeof m.content === 'string' && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: m.content }) as ModelMessage);
+  const current: ModelMessage = req.files?.length
+    ? {
         role: 'user',
         content: [
           { type: 'text', text: req.prompt },
           ...req.files.map((f) => ({ type: 'file' as const, data: f.data, mediaType: f.mime })),
         ],
-      },
-    ],
-  };
+      }
+    : { role: 'user', content: req.prompt };
+  return { messages: [...history, current] };
 }
 
 export function createLlmClient(getConnection: (id: string) => ConnectionSpec, secrets: SecretStore): LlmClient {

@@ -281,17 +281,25 @@ export function CheckCard({
 }
 
 /** Picker listing every check type, grouped by category. */
+const COMMON_CHECKS = ['status', 'latency', 'json_schema', 'contains', 'equals', 'similarity', 'wer', 'semantic_similarity', 'llm_judge', 'refusal'];
+
 export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boolean; onOpenChange: (o: boolean) => void; types: CheckTypeMeta[]; onAdd: (t: CheckTypeMeta) => void }) {
   const [q, setQ] = useState('');
+  const [showAll, setShowAll] = useState(false);
   const groups = useMemo(() => {
     const filtered = types.filter((t) => !q || `${t.label} ${t.type} ${t.description}`.toLowerCase().includes(q.toLowerCase()));
+    // Most people need a handful of checks; show those first and keep the full catalogue one click away.
+    if (!q && !showAll) {
+      const common = COMMON_CHECKS.map((type) => filtered.find((t) => t.type === type)).filter(Boolean) as CheckTypeMeta[];
+      return [['common', common] as [string, CheckTypeMeta[]]];
+    }
     const map = new Map<string, CheckTypeMeta[]>();
     for (const t of filtered) {
       if (!map.has(t.category)) map.set(t.category, []);
       map.get(t.category)!.push(t);
     }
     return [...map.entries()].sort((a, b) => (a[1][0]?.layer ?? 0) - (b[1][0]?.layer ?? 0));
-  }, [types, q]);
+  }, [types, q, showAll]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Add a check" description="Checks run layer by layer, cheapest first." width="lg">
@@ -300,7 +308,7 @@ export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boo
         {groups.map(([cat, list]) => (
           <div key={cat}>
             <div className="mb-2 text-[0.75rem] font-semibold uppercase tracking-wide text-ink-faint">
-              {CATEGORY_LABEL[cat] ?? cat} · layer {list[0]?.layer}
+              {cat === 'common' ? 'Most used' : `${CATEGORY_LABEL[cat] ?? cat} · layer ${list[0]?.layer}`}
             </div>
             <div className="grid grid-cols-2 gap-2">
               {list.map((t) => (
@@ -325,6 +333,11 @@ export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boo
           </div>
         ))}
         {groups.length === 0 && <div className="py-6 text-center text-[0.8125rem] text-ink-muted">No check matches “{q}”.</div>}
+        {!q && (
+          <button type="button" onClick={() => setShowAll(!showAll)} className="self-start text-[0.8125rem] font-medium text-accent-ink hover:underline">
+            {showAll ? 'Show only the most used' : `Show all ${types.length} checks`}
+          </button>
+        )}
       </div>
     </Dialog>
   );
