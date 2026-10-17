@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 
-/** `npm run dev`: engine (port 4317, workspace ./.kalibra-dev) + Vite UI (5173) + demo apps (4400). */
+/** `npm run dev`: engine (port 4317, workspace ./.kalibra-dev) + Vite UI (5173, at /kalibra/) + demo apps (4400). */
 const procs = [
   ['engine', 'npx', ['tsx', 'watch', '--clear-screen=false', 'packages/cli/src/main.ts', 'serve', '--dev']],
   ['web', 'npm', ['run', 'dev', '-w', '@kalibra/web']],
@@ -21,4 +21,4 @@ const stop = () => {
 };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-console.log('Kalibra dev: UI http://localhost:5173  (engine :4317, demo apps :4400). Seed demo data with: npm run demo -- --seed');
+console.log('Kalibra dev: UI http://localhost:5173/kalibra/  (engine :4317, demo apps :4400). Seed demo data with: npm run demo -- --seed');

@@ -32,7 +32,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Unio
 from urllib.parse import quote
 
 from . import _core, _serialize
-from ._transport import HttpError, request_json
+from ._transport import BASE_PATH, HttpError, api_url, origin_of, request_json
 
 OUTPUT_BUDGET = 1_000_000
 
@@ -98,13 +98,13 @@ class _Client:
         info = None
         if not (url or os.environ.get("KALIBRA_URL")) or not (token or os.environ.get("KALIBRA_TOKEN")):
             info = _engine_info()
-        self.url = (url or os.environ.get("KALIBRA_URL") or (info or {}).get("url") or _core.DEFAULT_URL).rstrip("/")
+        self.url = origin_of(url or os.environ.get("KALIBRA_URL") or (info or {}).get("url") or _core.DEFAULT_URL)
         self.token = token or os.environ.get("KALIBRA_TOKEN") or (info or {}).get("token")
         self.project = project or os.environ.get("KALIBRA_PROJECT") or "default"
         self.timeout = timeout
 
     def op(self, name: str, body: Dict[str, Any]) -> Any:
-        url = f"{self.url}/api/projects/{quote(self.project, safe='')}/ops/{name}"
+        url = api_url(self.url, f"/projects/{quote(self.project, safe='')}/ops/{name}")
         actor = {"kind": "cli", "client": "kalibra-sdk-python"}
         try:
             res = request_json("POST", url, self.token, body, timeout=self.timeout, extra_headers={"x-kalibra-actor": json.dumps(actor)})
@@ -220,7 +220,7 @@ def _finish(client: _Client, run_id: str, baseline: Optional[str]) -> EvalResult
         fixed=list(done.get("fixed") or []),
         # The server names the baseline run "id"; expose it as "runId" too, like the JS SDK.
         baseline=({**done["baseline"], "runId": done["baseline"].get("id")} if done.get("baseline") else None),
-        url=f"{client.url}/p/{quote(client.project, safe='')}/runs/{run_id}",
+        url=f"{client.url}{BASE_PATH}/p/{quote(client.project, safe='')}/runs/{run_id}",
         summary=summary,
         run=done.get("run") or {},
     )

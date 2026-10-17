@@ -5,8 +5,8 @@ import { randomSecret, sha256 } from './passwords.js';
 /*
  * Ingest keys (`kik_…`) let an app send traces to ONE project and use its tool recordings, and do
  * nothing else: they can't read datasets, runs or other traces, and can't call operations. Apps
- * run in their own process (and often on another machine), so they need a key even on the
- * desktop. Only a SHA-256 of each key is stored; the key is shown once when created.
+ * run in their own process (and often on another machine), so they need a key even in local
+ * mode. Only a SHA-256 of each key is stored; the key is shown once when created.
  */
 
 export const INGEST_KEY_PREFIX = 'kik_';

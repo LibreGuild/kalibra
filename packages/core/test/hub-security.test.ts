@@ -91,10 +91,14 @@ describe('sign-in providers', () => {
   });
 
   it('only returns to same-site paths, whatever characters browsers ignore', () => {
-    for (const evil of ['/\t/evil.example', '/\n/evil.example', '/\\evil.example', '/\\/evil.example', '//evil.example', 'https://evil.example', '/api/hub/get_me', '/\u0000x']) {
+    for (const evil of ['/\t/evil.example', '/\n/evil.example', '/\\evil.example', '/\\/evil.example', '//evil.example', 'https://evil.example', '/api/hub/get_me', '/\u0000x', '/kalibra//evil.example', '/kalibra/api/hub/get_me', '/kalibra/\\evil.example']) {
       expect(safeNext(evil), JSON.stringify(evil)).toBe('/');
     }
     expect(safeNext('/p/abc/runs?tab=checks#x')).toBe('/p/abc/runs?tab=checks#x');
+    // App paths: the server adds /kalibra in front, so a full /kalibra/… path is accepted too.
+    expect(safeNext('/kalibra/p/abc/runs')).toBe('/p/abc/runs');
+    expect(safeNext('/kalibra')).toBe('/');
+    expect(safeNext('/kalibraevil')).toBe('/kalibraevil');
   });
 
   it('keeps a bounded number of sign-ins in progress', async () => {

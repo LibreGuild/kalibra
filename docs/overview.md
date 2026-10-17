@@ -1,6 +1,6 @@
 # Overview
 
-Kalibra is a local-first, open-source tool for evaluating AI applications. It runs on your machine (desktop app, `npx kalibra`, or a local server), tests your real app over HTTP, WebSocket, a model call or a script, and scores every result with checks you choose.
+Kalibra is a local-first, open-source tool for evaluating AI applications. It runs on your machine (`npx kalibra`), or as a team server (npm or Docker), tests your real app over HTTP, WebSocket, a model call or a script, and scores every result with checks you choose.
 
 ## The core loop
 

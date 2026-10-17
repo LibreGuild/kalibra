@@ -1,6 +1,6 @@
 # @kalibra/core
 
-The engine. Everything Kalibra knows and does lives here: storage, datasets, targets, checks, runs, jobs, model providers, and the hub (accounts, projects, permissions, sign-in). The UI, CLI, HTTP API and MCP bridge are thin clients over its **operations**. Not published on its own: the CLI and desktop app bundle it.
+The engine. Everything Kalibra knows and does lives here: storage, datasets, targets, checks, runs, jobs, model providers, and the hub (accounts, projects, permissions, sign-in). The UI, CLI, HTTP API and MCP bridge are thin clients over its **operations**. Not published on its own: the CLI bundles it.
 
 - **Code map:** [src/README.md](src/README.md), folder by folder.
 - **Run:** nothing to start by itself. Use the CLI (`npm run dev` from the repo root) or embed it:

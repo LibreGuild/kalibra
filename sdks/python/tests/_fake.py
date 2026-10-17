@@ -62,6 +62,8 @@ class FakeKalibra:
                 with fake.lock:
                     fake.headers.append(dict(self.headers))
                     fake.paths.append(u.path)
+                if not u.path.startswith("/kalibra/api/"):  # like the server: everything lives under /kalibra
+                    return self._send(404, {"error": {"code": "not_found", "message": "outside /kalibra"}})
                 if u.path.endswith("/ingest/tools"):
                     q = parse_qs(u.query)
                     key = (q["tool"][0], q["argsHash"][0])
@@ -84,6 +86,8 @@ class FakeKalibra:
                     if fake.fail_next > 0:
                         fake.fail_next -= 1
                         return self._send(500, {"error": {"code": "internal", "message": "boom"}})
+                if not u.path.startswith("/kalibra/api/"):
+                    return self._send(404, {"error": {"code": "not_found", "message": "outside /kalibra"}})
                 if u.path.endswith("/ingest/traces"):
                     with fake.lock:
                         fake.trace_posts.append(body)

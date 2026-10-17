@@ -25,7 +25,7 @@ class EvaluateTest(SdkTestCase):
         self.assertEqual((result.run_id, result.passed, result.failed), ("run_code_1", 2, 1))
         self.assertAlmostEqual(result.pass_rate, 2 / 3)
         self.assertEqual(result.new_failures, [{"rowId": "row_3", "reason": "wrong answer"}])
-        self.assertEqual(result.url, f"{self.fake.url}/p/Support%20bot/runs/run_code_1")
+        self.assertEqual(result.url, f"{self.fake.url}/kalibra/p/Support%20bot/runs/run_code_1")
         names = [name for name, _ in self.fake.ops]
         self.assertEqual(names, ["start_code_run", "submit_code_results", "finish_code_run"])
         start = self.fake.ops[0][1]

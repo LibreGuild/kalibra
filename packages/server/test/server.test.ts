@@ -33,22 +33,54 @@ describe('HTTP server hardening', () => {
   });
 
   it('does not serve sibling folders that share the UI folder name prefix', async () => {
-    const res = await fetch(`${srv.url}/..%2fdist-private/secret.txt`);
+    const res = await fetch(`${srv.url}/kalibra/..%2fdist-private/secret.txt`);
     expect(await res.text()).not.toContain('do not serve');
     expect(res.status).toBe(403);
-    expect((await fetch(`${srv.url}/some/route`)).status).toBe(200); // SPA fallback still works
+    expect((await fetch(`${srv.url}/kalibra/some/route`)).status).toBe(200); // SPA fallback still works
+  });
+
+  it('lives under /kalibra: / redirects there, everything else outside it is 404', async () => {
+    const go = (path: string) => fetch(`${srv.url}${path}`, { redirect: 'manual' });
+    for (const [path, to] of [
+      ['/', '/kalibra/'],
+      ['/kalibra', '/kalibra/'],
+      ['/?token=abc', '/kalibra/?token=abc'],
+    ]) {
+      const res = await go(path);
+      expect(res.status, path).toBe(302);
+      expect(res.headers.get('location'), path).toBe(to);
+    }
+    for (const path of ['/api/health', '/api/ops/list_datasets', '/some/route', '/kalibraevil/api/health', '/assets/x.js']) {
+      const res = await go(path);
+      expect(res.status, path).toBe(404);
+      expect((await res.json()).error.message, path).toMatch(/under \/kalibra\//);
+    }
+    expect(await (await go('/kalibra/api/health')).json()).toEqual({ ok: true, name: 'kalibra' });
+    expect((await go('/kalibra/')).status).toBe(200);
+  });
+
+  it('turns the launch link into a cookie scoped to /kalibra', async () => {
+    const res = await fetch(`${srv.url}/kalibra/?token=${TOKEN}`, { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/kalibra/');
+    expect(res.headers.get('set-cookie')).toBe(`kalibra_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/kalibra`);
+    // An old /?token=… link goes through the redirect to /kalibra/ first.
+    const old = await fetch(`${srv.url}/?token=${TOKEN}`, { redirect: 'manual' });
+    expect(old.headers.get('location')).toBe(`/kalibra/?token=${TOKEN}`);
+    const cookie = `kalibra_token=${TOKEN}`;
+    expect((await fetch(`${srv.url}/kalibra/api/ops/list_datasets`, { method: 'POST', headers: { cookie }, body: '{}' })).status).toBe(200);
   });
 
   it('rejects the "null" origin that sandboxed iframes send', async () => {
-    const res = await fetch(`${srv.url}/api/ops/list_datasets`, { method: 'POST', headers: { ...auth, origin: 'null' }, body: '{}' });
+    const res = await fetch(`${srv.url}/kalibra/api/ops/list_datasets`, { method: 'POST', headers: { ...auth, origin: 'null' }, body: '{}' });
     expect(res.status).toBe(403);
-    const ok = await fetch(`${srv.url}/api/ops/list_datasets`, { method: 'POST', headers: { ...auth, origin: srv.url }, body: '{}' });
+    const ok = await fetch(`${srv.url}/kalibra/api/ops/list_datasets`, { method: 'POST', headers: { ...auth, origin: srv.url }, body: '{}' });
     expect(ok.status).toBe(200);
   });
 
   it('serves files sandboxed so an uploaded SVG or HTML file cannot script the app', async () => {
     const info = await engine.blobs.put(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), { name: 'x.svg' });
-    const res = await fetch(`${srv.url}/api/files/${info.hash}`, { headers: auth });
+    const res = await fetch(`${srv.url}/kalibra/api/files/${info.hash}`, { headers: auth });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-security-policy')).toContain('sandbox');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
@@ -56,7 +88,7 @@ describe('HTTP server hardening', () => {
 
   it('answers unsatisfiable ranges with 416 instead of failing', async () => {
     const info = await engine.blobs.put(Buffer.from('0123456789'), { name: 'digits.txt' });
-    const get = (range: string) => fetch(`${srv.url}/api/files/${info.hash}`, { headers: { ...auth, range } });
+    const get = (range: string) => fetch(`${srv.url}/kalibra/api/files/${info.hash}`, { headers: { ...auth, range } });
     const part = await get('bytes=2-4');
     expect(part.status).toBe(206);
     expect(await part.text()).toBe('234');

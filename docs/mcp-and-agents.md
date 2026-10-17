@@ -31,7 +31,7 @@ command = "npx"
 args = ["-y", "kalibra", "mcp", "--dir", "/Users/me/Kalibra/default"]
 ```
 
-Cursor / Gemini CLI / VS Code use the same command in their JSON config (`mcpServers` or `servers`). The desktop app launches the bridge with Electron's Node (`ELECTRON_RUN_AS_NODE=1`).
+Cursor / Gemini CLI / VS Code use the same command in their JSON config (`mcpServers` or `servers`).
 
 On a team server, create an access token (Account → Access tokens) and point the bridge at the server:
 

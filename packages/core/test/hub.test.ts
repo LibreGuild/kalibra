@@ -51,7 +51,7 @@ describe('passwords', () => {
   });
 });
 
-describe('local hub (desktop / npx)', () => {
+describe('local hub (npx kalibra)', () => {
   it('has a default project and keeps projects apart', async () => {
     const hub = makeHub('local');
     const me = hub.localPrincipal();

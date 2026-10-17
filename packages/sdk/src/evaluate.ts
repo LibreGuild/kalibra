@@ -20,6 +20,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { storage, current, type RunLink } from './context.js';
 import { toJsonSafe, describeError } from './serialize.js';
+import { apiUrl, BASE_PATH, originOf } from './config.js';
 import { flush, SDK_VERSION } from './tracer.js';
 import type { ToolMode } from './tools.js';
 
@@ -38,7 +39,7 @@ export interface EvaluateOptions {
   suite: string;
   /** Your code under test, called once per row. */
   task: (data: Record<string, any>, row: EvalRow) => TaskResult | Promise<TaskResult>;
-  /** Run name shown in Kalibra. Default: "<dataset> · code". */
+  /** Run name shown in Kalibra. Default: "Code run (<branch>)". */
   name?: string;
   /** Project id or name (KALIBRA_PROJECT, default `default`). */
   project?: string;
@@ -104,7 +105,7 @@ export function resolveConnection(opts: { url?: string; token?: string; project?
     if (existsSync(file)) {
       try {
         const info = JSON.parse(readFileSync(file, 'utf8'));
-        if (!url || url.replace(/\/+$/, '') === String(info.url).replace(/\/+$/, '')) {
+        if (!url || originOf(url) === originOf(String(info.url))) {
           url = info.url;
           token = info.token;
         }
@@ -114,7 +115,7 @@ export function resolveConnection(opts: { url?: string; token?: string; project?
     }
   }
   if (!url) throw new KalibraEvalError('Set KALIBRA_URL (and KALIBRA_TOKEN for a team server), or open the Kalibra app on this computer.');
-  return { url: url.replace(/\/+$/, ''), token, project: opts.project ?? env.KALIBRA_PROJECT ?? 'default' };
+  return { url: originOf(url), token, project: opts.project ?? env.KALIBRA_PROJECT ?? 'default' };
 }
 
 function gitFromEnv(): EvaluateOptions['git'] {
@@ -143,7 +144,7 @@ export function toOutputs(result: TaskResult): { outputs: Record<string, unknown
 export async function evaluate(options: EvaluateOptions): Promise<EvaluateResult> {
   const conn = resolveConnection(options);
   const call = async <T = any>(op: string, input: unknown): Promise<T> => {
-    const res = await fetch(`${conn.url}/api/projects/${encodeURIComponent(conn.project)}/ops/${op}`, {
+    const res = await fetch(apiUrl(conn.url, `/projects/${encodeURIComponent(conn.project)}/ops/${op}`), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -222,7 +223,7 @@ export async function evaluate(options: EvaluateOptions): Promise<EvaluateResult
     fixed: done?.fixed ?? [],
     // The server names the baseline run `id`; results expose it as `runId` like the run itself.
     ...(done?.baseline ? { baseline: { runId: done.baseline.id ?? done.baseline.runId, passRate: done.baseline.passRate ?? null, number: done.baseline.number, name: done.baseline.name } } : {}),
-    url: `${conn.url}/p/${encodeURIComponent(done?.run?.projectId ?? conn.project)}/runs/${runId}`,
+    url: `${conn.url}${BASE_PATH}/p/${encodeURIComponent(done?.run?.projectId ?? conn.project)}/runs/${runId}`,
     summary,
     run: done?.run,
   };

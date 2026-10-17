@@ -5,7 +5,7 @@ export type ServerRole = 'admin' | 'user';
 
 /**
  * How the hub runs:
- *  - local:  the desktop app and `npx kalibra`. One person, no sign-in; the per-launch token
+ *  - local:  `npx kalibra` (`kalibra serve`). One person, no sign-in; the per-launch token
  *            protects the API. Projects exist, members do not.
  *  - server: a team server. Everyone signs in; projects have members and roles.
  */
@@ -39,7 +39,7 @@ export interface Principal {
   tokenId?: string;
 }
 
-/** The single person of a local hub (desktop / npx). */
+/** The single person of a local hub (`npx kalibra`). */
 export const LOCAL_ACCOUNT: User = {
   id: 'local',
   username: 'local',

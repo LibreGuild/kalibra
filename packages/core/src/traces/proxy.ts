@@ -2,7 +2,7 @@ import { limitValue, newSpanId, newTraceId } from './ingest.js';
 import type { TraceWithSpans } from './types.js';
 
 /*
- * The OpenAI-compatible proxy (server: /api/projects/:p/proxy/openai/*) forwards calls to the
+ * The OpenAI-compatible proxy (server: /kalibra/api/projects/:p/proxy/openai/*) forwards calls to the
  * upstream unchanged and records each exchange as a trace with one `llm` span. This module turns
  * one exchange into that trace: model, messages/input, the answer text (also from a streamed
  * SSE response), token usage and status. The caller's Authorization header is never part of it.

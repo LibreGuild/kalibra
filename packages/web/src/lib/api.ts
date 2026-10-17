@@ -1,6 +1,7 @@
 import { QueryClient, useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useMatch } from 'react-router';
+import { withBase } from './base';
 
 /*
  * Talking to Kalibra. Two kinds of calls:
@@ -99,7 +100,7 @@ async function request<T>(url: string, init: RequestInit = {}, fallback = 'Reque
 const post = (url: string, input: unknown) =>
   ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input ?? {}) }) satisfies RequestInit;
 
-const projectBase = (project: string) => `/api/projects/${encodeURIComponent(project)}`;
+const projectBase = (project: string) => withBase(`/api/projects/${encodeURIComponent(project)}`);
 
 /** Calls one operation of a project (default: the current one). Every UI action goes through here, exactly like the CLI and MCP. */
 export function op<T = any>(name: string, input: unknown = {}, project = currentProject): Promise<T> {
@@ -108,12 +109,12 @@ export function op<T = any>(name: string, input: unknown = {}, project = current
 
 /** Calls a hub operation: account, projects, members, administration. */
 export function hubOp<T = any>(name: string, input: unknown = {}): Promise<T> {
-  return request<T>(`/api/hub/${name}`, post('', input));
+  return request<T>(withBase(`/api/hub/${name}`), post('', input));
 }
 
 /** Sign-in endpoints (setup, login, logout). */
 export function authCall<T = any>(path: 'setup' | 'login' | 'logout', input: unknown = {}): Promise<T> {
-  return request<T>(`/api/auth/${path}`, post('', input));
+  return request<T>(withBase(`/api/auth/${path}`), post('', input));
 }
 
 export interface UploadedFile {
@@ -190,6 +191,9 @@ export function useHubMutation<I = any, T = any>(name: string, opts: { invalidat
 
 // ── Live updates ────────────────────────────────────────────────────────────
 
+/** Events that can arrive in bursts refresh their views at most this often. */
+const SLOW: Record<string, number> = { 'traces.ingested': 3000 };
+
 const INVALIDATE: Record<string, string[]> = {
   'dataset.changed': ['list_datasets', 'get_dataset_schema', 'list_dataset_versions', 'dataset_quality', 'get_workspace'],
   'rows.changed': ['list_rows', 'list_datasets', 'get_dataset_schema', 'dataset_quality', 'get_workspace'],
@@ -199,6 +203,7 @@ const INVALIDATE: Record<string, string[]> = {
   // run on every progress event of another run would flood the engine (see BaselineChip).
   'run.updated': ['list_runs', 'get_run', 'list_comparisons', 'get_comparison', 'compare_rows', 'run_breakdown', 'get_failure_themes', 'suite_trend'],
   // A batch of traces from the SDK, OpenTelemetry or the proxy was written (traces don't change after that).
+  // Apps can send many per second, so this one refreshes at most every SLOW_MS (see useLiveEvents).
   'traces.ingested': ['list_traces'],
   'result.updated': ['query_results', 'get_result'],
   activity: ['list_activity'],
@@ -217,6 +222,18 @@ export function useLiveEvents(project: string, enabled = true) {
     let delay = 2000;
     const pending = new Set<string>();
     let flush: ReturnType<typeof setTimeout> | undefined;
+    const slowPending = new Set<string>();
+    let slowFlush: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (keys: Set<string>, bursty = false) => {
+      for (const key of keys)
+        qc.invalidateQueries({
+          queryKey: [key],
+          // For bursty events, a list paged with "Load more" past its first page would refetch every
+          // page each time; the reader is looking further down, so leave it until they reload.
+          predicate: bursty ? (q) => ((q.state.data as { pages?: unknown[] } | undefined)?.pages?.length ?? 0) <= 1 : undefined,
+        });
+      keys.clear();
+    };
 
     const connect = () => {
       es = new EventSource(`${projectBase(project)}/events`, { withCredentials: true });
@@ -224,12 +241,13 @@ export function useLiveEvents(project: string, enabled = true) {
       es.onmessage = (m) => {
         try {
           const e = JSON.parse(m.data);
+          if (SLOW[e.type]) {
+            for (const key of INVALIDATE[e.type] ?? []) slowPending.add(key);
+            slowFlush ??= setTimeout(() => (refresh(slowPending, true), (slowFlush = undefined)), SLOW[e.type]);
+            return;
+          }
           for (const key of INVALIDATE[e.type] ?? []) pending.add(key);
-          flush ??= setTimeout(() => {
-            for (const key of pending) qc.invalidateQueries({ queryKey: [key] });
-            pending.clear();
-            flush = undefined;
-          }, 250);
+          flush ??= setTimeout(() => (refresh(pending), (flush = undefined)), 250);
         } catch {
           /* ignore malformed event */
         }
@@ -247,6 +265,7 @@ export function useLiveEvents(project: string, enabled = true) {
       es?.close();
       clearTimeout(retry);
       clearTimeout(flush);
+      clearTimeout(slowFlush);
     };
   }, [qc, project, enabled]);
 }
@@ -256,7 +275,7 @@ export function useLiveEvents(project: string, enabled = true) {
 export interface ServerMeta {
   mcp?: { command: string; args: string[]; env?: Record<string, string> };
   version?: string;
-  mode?: 'desktop' | 'cli' | 'dev' | 'server';
+  mode?: 'cli' | 'dev' | 'server';
   hubMode?: 'local' | 'server';
   dir?: string;
   publicUrl?: string;
@@ -264,7 +283,7 @@ export interface ServerMeta {
 
 /** Facts about the running server (version, how to start the MCP bridge). */
 export function useMeta() {
-  return useQuery<ServerMeta>({ queryKey: ['meta'], queryFn: () => request<ServerMeta>('/api/meta'), staleTime: Infinity });
+  return useQuery<ServerMeta>({ queryKey: ['meta'], queryFn: () => request<ServerMeta>(withBase('/api/meta')), staleTime: Infinity });
 }
 
 export interface User {
@@ -291,9 +310,9 @@ export interface AuthStatus {
   error?: string;
 }
 
-export const fetchAuthStatus = () => request<AuthStatus>('/api/auth/status');
+export const fetchAuthStatus = () => request<AuthStatus>(withBase('/api/auth/status'));
 
-/** Sign-in state: local (desktop) or team server, and who is signed in. */
+/** Sign-in state: local (`npx kalibra`) or team server, and who is signed in. */
 export function useAuthStatus() {
   return useQuery<AuthStatus>({ queryKey: ['auth-status'], queryFn: fetchAuthStatus, staleTime: Infinity, retry: 1 });
 }

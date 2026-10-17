@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
-import { Link } from '../../lib/nav';
+import { Link, opensNewTab } from '../../lib/nav';
 
 /** Tiny inline markup for docs text: `code`, **bold** and [label](/route). */
 export function Inline({ text }: { text: string }) {
@@ -24,7 +24,12 @@ export function Inline({ text }: { text: string }) {
       );
     } else {
       out.push(
-        <Link key={k++} to={m[4]} className="font-medium text-accent-ink underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
+        <Link
+          key={k++}
+          to={m[4]}
+          {...(opensNewTab(m[4]) ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          className="font-medium text-accent-ink underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+        >
           {m[3]}
         </Link>,
       );

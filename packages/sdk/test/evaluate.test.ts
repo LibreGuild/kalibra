@@ -87,9 +87,9 @@ describe('evaluate (evals as code)', () => {
     expect(byRow.row_5.metrics.bad).toBeUndefined();
     for (const r of all) expect(r.metrics.latency_ms).toBeGreaterThanOrEqual(0);
     expect(run).toMatchObject({ runId: 'run_code_1', passed: 118, failed: 2, newFailures: [{ rowId: 'row_3' }], fixed: ['row_9'], baseline: { runId: 'run_base' } });
-    expect(run.url).toBe(`${fake.url}/p/prj_1/runs/run_code_1`);
+    expect(run.url).toBe(`${fake.url}/kalibra/p/prj_1/runs/run_code_1`);
     const req = fake.requests.find((r) => r.path.endsWith('/ops/start_code_run'))!;
-    expect(req.path).toBe('/api/projects/Support%20bot/ops/start_code_run');
+    expect(req.path).toBe('/kalibra/api/projects/Support%20bot/ops/start_code_run');
     expect(req.headers.authorization).toBe('Bearer kal_token_for_tests');
     expect(JSON.parse(String(req.headers['x-kalibra-actor']))).toMatchObject({ kind: 'cli', id: 'kalibra-sdk' });
   });

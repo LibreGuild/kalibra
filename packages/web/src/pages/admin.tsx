@@ -17,7 +17,7 @@ import { useSession } from '../lib/session';
 
 /*
  * Administration of a team server: accounts, groups, sign-in providers, server settings, the
- * security log, and deleted projects. On the desktop only the trash applies.
+ * security log, and deleted projects. In local mode only the trash applies.
  */
 
 const SECTIONS = [

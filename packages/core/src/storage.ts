@@ -13,7 +13,7 @@ export interface BlobInfo {
   name?: string;
 }
 
-/** Content-addressed file store. Desktop: local folder. Server mode can swap in S3/GCS/Azure Blob. */
+/** Content-addressed file store. Local folder by default; server mode can swap in S3/GCS/Azure Blob. */
 export interface BlobStore {
   put(data: Uint8Array, meta: { mime?: string; name?: string }): Promise<BlobInfo>;
   /**
@@ -144,24 +144,15 @@ export interface SecretStore {
   list(): Promise<string[]>;
 }
 
-/**
- * Encrypted-at-rest secret file. `encrypt`/`decrypt` come from the host: Electron passes
- * safeStorage (OS keychain backed); the dev/CLI server falls back to plaintext with 0600 perms.
- */
+/** Secret file outside definitions and exports, readable only by its owner (0600). */
 export class FileSecretStore implements SecretStore {
   private cache: Record<string, string> | undefined;
 
-  constructor(
-    private file: string,
-    private codec: { encrypt(s: string): Buffer; decrypt(b: Buffer): string } = {
-      encrypt: (s) => Buffer.from(s, 'utf8'),
-      decrypt: (b) => b.toString('utf8'),
-    },
-  ) {}
+  constructor(private file: string) {}
 
   private load(): Record<string, string> {
     if (!this.cache) {
-      this.cache = existsSync(this.file) ? JSON.parse(this.codec.decrypt(readFileSync(this.file))) : {};
+      this.cache = existsSync(this.file) ? JSON.parse(readFileSync(this.file, 'utf8')) : {};
     }
     return this.cache!;
   }
@@ -169,7 +160,7 @@ export class FileSecretStore implements SecretStore {
   private async save() {
     await mkdir(dirname(this.file), { recursive: true });
     // mode applies when the file is created; chmod covers files made by older versions.
-    await writeFile(this.file, this.codec.encrypt(JSON.stringify(this.load())), { mode: 0o600 });
+    await writeFile(this.file, JSON.stringify(this.load()), { mode: 0o600 });
     await chmod(this.file, 0o600);
   }
 

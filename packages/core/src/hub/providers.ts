@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { BASE_PATH } from '../base-path.js';
 import type { Db } from '../db.js';
 import type { SecretStore } from '../storage.js';
 import { conflict, invalid, KalibraError, notFound, parseJson } from '../util.js';
@@ -128,7 +129,7 @@ export class Providers {
   }
 
   async view(p: AuthProvider, callbackBase: string): Promise<ProviderView> {
-    return { ...p, hasClientSecret: !!(await this.clientSecret(p.id)), callbackUrl: `${callbackBase}/api/auth/sso/${p.id}/callback` };
+    return { ...p, hasClientSecret: !!(await this.clientSecret(p.id)), callbackUrl: `${callbackBase}${BASE_PATH}/api/auth/sso/${p.id}/callback` };
   }
 
   /** Creates or updates a provider made in the app. `clientSecret` replaces the stored one when given. */

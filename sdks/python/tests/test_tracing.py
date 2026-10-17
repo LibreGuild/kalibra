@@ -307,6 +307,17 @@ class TracingTest(SdkTestCase):
         [t] = self.sent()
         self.assertEqual([s["name"] for s in t["spans"]], ["in_thread"])
 
+    def test_url_may_include_the_base_path(self) -> None:
+        # KALIBRA_URL is the origin; an address copied with /kalibra (or a trailing slash) works the same.
+        for url in (self.fake.url + "/", self.fake.url + "/kalibra", self.fake.url + "/kalibra/"):
+            with self.subTest(url=url):
+                self.fake.paths.clear()
+                self.start(url=url)
+                with kalibra.trace("t"):
+                    pass
+                self.sent()
+                self.assertEqual(set(self.fake.paths), {"/kalibra/api/projects/Support%20bot/ingest/traces"})
+
     def test_init_again_replaces_the_sender(self) -> None:
         self.start()
         with kalibra.trace("first"):
@@ -315,8 +326,8 @@ class TracingTest(SdkTestCase):
         with kalibra.trace("second"):
             pass
         self.sent()
-        self.assertIn("/api/projects/Support%20bot/ingest/traces", self.fake.paths)
-        self.assertIn("/api/projects/Other/ingest/traces", self.fake.paths)
+        self.assertIn("/kalibra/api/projects/Support%20bot/ingest/traces", self.fake.paths)
+        self.assertIn("/kalibra/api/projects/Other/ingest/traces", self.fake.paths)
 
 
 class mock_post_blocked:

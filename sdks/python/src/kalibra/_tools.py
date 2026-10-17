@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 from urllib.parse import quote
 
 from . import _core, _serialize
-from ._transport import request_json, warn_once
+from ._transport import api_url, request_json, warn_once
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -73,7 +73,7 @@ def _lookup(name: str, digest: str) -> Tuple[bool, Any, Optional[str]]:
         if key in _cache:
             return _cache[key]
     st = _core._state
-    url = f"{st.url}/api/projects/{quote(st.project, safe='')}/ingest/tools?tool={quote(name, safe='')}&argsHash={digest}"
+    url = api_url(st.url, f"/projects/{quote(st.project, safe='')}/ingest/tools?tool={quote(name, safe='')}&argsHash={digest}")
     try:
         data = request_json("GET", url, st.key, timeout=st.timeout) or {}
     except Exception as e:

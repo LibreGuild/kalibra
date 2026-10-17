@@ -4,14 +4,14 @@ How Kalibra decides who can see and change what. Code: `packages/core/src/hub/`,
 
 ## Two ways to run
 
-| | Local (desktop app, `npx kalibra`) | Team server (`kalibra server`) |
+| | Local (`npx kalibra`) | Team server (`kalibra server`) |
 |---|---|---|
 | Sign-in | none: one person, the computer's own login is the lock | required |
 | API protection | per-launch token + Host/Origin must be this machine | session cookie (browser) or access token (agents, CLI) |
 | Projects | yes | yes, with members and roles |
 | Users, groups, members | hidden | managed by administrators and project owners |
 
-Same code, same UI. The UI asks `GET /api/auth/status` for the mode and hides account features locally.
+Same code, same UI. The UI asks `GET /kalibra/api/auth/status` for the mode and hides account features locally.
 
 ## Data layout
 
@@ -102,7 +102,7 @@ KALIBRA_PROXY_JWT_HEADER=X-Goog-IAP-JWT-Assertion KALIBRA_PROXY_JWKS_URL=https:/
 KALIBRA_AUTH_CONFIG=/etc/kalibra/auth.json
 ```
 
-Register the callback URL `https://<your server>/api/auth/sso/<provider id>/callback` at the provider. Kalibra needs no account with Google, GitHub or anyone else: each deployment registers its own OAuth client.
+Register the callback URL `https://<your server>/kalibra/api/auth/sso/<provider id>/callback` at the provider (Administration → Sign-in shows it). Kalibra needs no account with Google, GitHub or anyone else: each deployment registers its own OAuth client.
 
 If a provider breaks, administrators can still sign in with a password even when password sign-in is turned off for everyone else. As a last resort, use `kalibra users reset-password` on the server.
 
@@ -119,7 +119,6 @@ KALIBRA_PUBLIC_URL=https://kalibra.example.com \
 - The first start prints a one-time link to create the administrator. Alternatively, set `KALIBRA_ADMIN_USERNAME` / `KALIBRA_ADMIN_PASSWORD`.
 - Back up the data folder (`hub.db`, each project's `kalibra.db`, `blobs/`, secret files). It is the whole state.
 - Run as an unprivileged user, ideally in a container: script targets and checks run JavaScript with the server's permissions.
-- The desktop app connects to servers from **Servers → Connect to a team server…**. Each server opens in its own window and signs in on its own page.
 
 ## Agents (MCP)
 

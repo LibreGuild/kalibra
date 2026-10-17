@@ -51,6 +51,21 @@ export interface ResolvedConfig {
   warnings: boolean;
 }
 
+/**
+ * Kalibra serves everything under this path (same as BASE_PATH in the server), so a load balancer
+ * can route on it. `url` is the server's origin; an address that already ends in /kalibra works too.
+ */
+export const BASE_PATH = '/kalibra';
+
+/** "http://host:4317/kalibra/" → "http://host:4317". */
+export const originOf = (url: string) => {
+  const trimmed = url.trim().replace(/\/+$/, '');
+  return trimmed.endsWith(BASE_PATH) ? trimmed.slice(0, -BASE_PATH.length) : trimmed;
+};
+
+/** A Kalibra API address: `apiUrl(origin, '/projects/p/ingest/traces')`. */
+export const apiUrl = (origin: string, path: string) => `${origin}${BASE_PATH}/api${path}`;
+
 const OFF = new Set(['false', '0', 'off', 'no']);
 const ON = new Set(['true', '1', 'on', 'yes']);
 
@@ -69,7 +84,7 @@ export function resolveConfig(opts: KalibraOptions = {}): ResolvedConfig {
   const rate = opts.sampleRate ?? (env('KALIBRA_SAMPLE_RATE') !== undefined ? Number(env('KALIBRA_SAMPLE_RATE')) : 1);
   return {
     enabled: !killSwitch() && wanted && !!key,
-    url: (opts.url ?? env('KALIBRA_URL') ?? 'http://127.0.0.1:4317').replace(/\/+$/, ''),
+    url: originOf(opts.url ?? env('KALIBRA_URL') ?? 'http://127.0.0.1:4317'),
     key,
     project: opts.project ?? env('KALIBRA_PROJECT') ?? 'default',
     sampleRate: Number.isFinite(rate) ? Math.min(1, Math.max(0, rate)) : 1,

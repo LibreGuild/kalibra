@@ -5,7 +5,7 @@ import { KalibraError } from './util.js';
 /** Who is acting. Recorded on every change for provenance, and used for permissions on a server. */
 export interface Actor {
   kind: 'user' | 'agent' | 'cli' | 'system';
-  /** User id ("local" on the desktop, where there is a single user). Agents and the CLI act for a user. */
+  /** User id ("local" in local mode, where there is a single user). Agents and the CLI act for a user. */
   id: string;
   /** Display name at the time of the action, so history reads well even after renames. */
   name?: string;
@@ -27,7 +27,7 @@ export type ProjectRole = (typeof PROJECT_ROLES)[number];
 export const roleAtLeast = (role: ProjectRole, needed: ProjectRole) => PROJECT_ROLES.indexOf(role) >= PROJECT_ROLES.indexOf(needed);
 
 /**
- * What the host allows, beyond roles. The desktop allows everything; a team server can turn off
+ * What the host allows, beyond roles. Local mode allows everything; a team server can turn off
  * features that run code or read and write the server's own disk (see hub/policy.ts).
  */
 export interface Capabilities {
@@ -46,7 +46,7 @@ export const ALL_CAPABILITIES: Capabilities = { code: true, filesystem: true, sh
 export interface OpContext {
   engine: Engine;
   actor: Actor;
-  /** The caller's role in this project (always owner on the desktop). Checked before the handler runs. */
+  /** The caller's role in this project (always owner in local mode). Checked before the handler runs. */
   role: ProjectRole;
   caps: Capabilities;
 }

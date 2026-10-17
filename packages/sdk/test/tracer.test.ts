@@ -84,8 +84,18 @@ describe('recording traces', () => {
     expect(llm.attributes).toEqual({ model: 'gpt-x', tokens_in: 12 });
     expect(llm.durationMs).toBeGreaterThanOrEqual(0);
     const req = fake.requests.find((r) => r.path.endsWith('/ingest/traces'))!;
-    expect(req.path).toBe('/api/projects/Support%20bot/ingest/traces');
+    expect(req.path).toBe('/kalibra/api/projects/Support%20bot/ingest/traces');
     expect(req.headers.authorization).toBe('Bearer kik_test_key_123456789012345');
+  });
+
+  it('sends to /kalibra/api on the server, whether the URL has /kalibra or not', async () => {
+    for (const url of [fake.url, `${fake.url}/`, `${fake.url}/kalibra`, `${fake.url}/kalibra/`]) {
+      fake.requests.length = 0;
+      on({ url });
+      trace('t', () => 1)();
+      await flush();
+      expect(fake.requests.map((r) => r.path)).toEqual(['/kalibra/api/projects/Support%20bot/ingest/traces']);
+    }
   });
 
   it('keeps sync functions sync, and preserves this and arguments', async () => {

@@ -5,7 +5,7 @@ import { TOKEN_PREFIX, type Hub, type Principal } from '@kalibra/core';
 /*
  * Who is calling, and may they call from where they are calling.
  *
- * Local mode (desktop, npx): the per-launch token (header or cookie) proves it is the person on
+ * Local mode (`npx kalibra`): the per-launch token (header or cookie) proves it is the person on
  * this computer. Host and Origin must be this machine, which blocks DNS rebinding and other sites.
  *
  * Server mode: a browser session cookie, or a personal access token in the Authorization header

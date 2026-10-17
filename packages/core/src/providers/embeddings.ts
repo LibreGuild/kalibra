@@ -115,13 +115,13 @@ const modelCached = (root: string) => existsSync(modelMarker(root)) && existsSyn
 
 /**
  * How to run npm: through the npm that launched us (npx), else `npm` on PATH, else common install
- * locations (desktop apps started from the Dock/Start menu get a minimal PATH).
+ * locations (for a PATH without them, e.g. a service or a GUI-launched terminal).
  */
 async function findNpm(): Promise<{ cmd: string; args: string[]; env: NodeJS.ProcessEnv } | null> {
   const execpath = process.env.npm_execpath;
   if (execpath && /npm-cli\.js$|npx-cli\.js$/.test(execpath)) {
     const cli = execpath.replace(/npx-cli\.js$/, 'npm-cli.js');
-    if (existsSync(cli)) return { cmd: process.execPath, args: [cli], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } };
+    if (existsSync(cli)) return { cmd: process.execPath, args: [cli], env: process.env };
   }
   const win = process.platform === 'win32';
   const candidates = win

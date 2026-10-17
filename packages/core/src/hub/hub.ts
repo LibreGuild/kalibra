@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import { publicOrigin } from '../base-path.js';
 import { Db } from '../db.js';
 import { Engine } from '../engine.js';
 import { ALL_CAPABILITIES, Registry, type Actor, type Capabilities, type ProjectRole } from '../registry.js';
@@ -53,7 +54,7 @@ export interface HubOptions {
   /** The hub folder (KALIBRA_DIR, or ~/Kalibra/default). */
   dir: string;
   mode: HubMode;
-  /** Secret store for a project folder. Defaults to a 0600 file in the folder; the desktop passes an OS-keychain one. */
+  /** Secret store for a project folder. Defaults to a 0600 file in the folder. */
   secretsFor?: (projectDir: string) => SecretStore;
   /** Server only: folder sync may only use folders inside this one. Unset turns folder sync off on servers. */
   folderRoot?: string;
@@ -132,9 +133,9 @@ export class Hub {
     this.db.run('INSERT INTO audit (at, actor, action, subject, details, ip) VALUES (?, ?, ?, ?, ?, ?)', nowIso(), JSON.stringify(actor), action, subject, JSON.stringify(details ?? {}), ip.slice(0, 64));
   }
 
-  /** The public address for sign-in callbacks, when configured. */
+  /** The public origin for sign-in callbacks, when configured (Kalibra itself lives under BASE_PATH there). */
   publicUrl(): string | undefined {
-    return this.opts.publicUrl?.replace(/\/$/, '');
+    return publicOrigin(this.opts.publicUrl);
   }
 
   // ── First administrator ───────────────────────────────────────────────────
@@ -185,7 +186,7 @@ export class Hub {
 
   // ── Who is calling ────────────────────────────────────────────────────────
 
-  /** The principal for local mode (desktop / npx), where the per-launch token already proved who it is. */
+  /** The principal for local mode (`npx kalibra`), where the per-launch token already proved who it is. */
   localPrincipal(via: Principal['via'] = 'user', client?: string, model?: string): Principal {
     if (this.mode !== 'local') throw new KalibraError('forbidden', 'Sign in required');
     return { user: LOCAL_ACCOUNT, via, ...(client ? { client } : {}), ...(model ? { model } : {}) };

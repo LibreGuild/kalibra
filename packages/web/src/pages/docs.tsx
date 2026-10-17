@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router';
 import { Link, useNavigate } from '../lib/nav';
+import { withBase } from '../lib/base';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Clock, Search } from 'lucide-react';
 import { Page } from '../components/layout/shell';
@@ -46,7 +47,7 @@ function DocsHome() {
   const { read } = useReadGuides();
   const readCount = GUIDES.filter((g) => read.has(g.slug)).length;
   return (
-    <Page title="Docs" description="Short, friendly guides. Most take two minutes. Every one ends with a button that takes you to the right place." width="wide">
+    <Page title="Platform docs" description="How to use Kalibra in short, friendly guides. Most take two minutes. Every one ends with a button that takes you to the right place." width="wide">
       <section className="mb-10 grid items-center gap-6 overflow-hidden rounded-2xl border border-line bg-surface lg:grid-cols-[1fr_1.05fr]">
         <div className="flex flex-col gap-5 p-6 lg:p-8">
           <div>
@@ -72,7 +73,7 @@ function DocsHome() {
             </span>
           </div>
         </div>
-        <img src="/docs/hero.jpg" alt="A friendly balance scale weighing audio clips and images" className="h-full max-h-[22rem] w-full object-cover lg:max-h-none" />
+        <img src={withBase('/docs/hero.jpg')} alt="A friendly balance scale weighing audio clips and images" className="h-full max-h-[22rem] w-full object-cover lg:max-h-none" />
       </section>
 
       <div className="flex flex-col gap-10">
@@ -248,7 +249,7 @@ function GuideView({ guide }: { guide: Guide }) {
         <div className="flex flex-col gap-5">
           {guide.image && (
             <figure className="overflow-hidden rounded-2xl border border-line bg-raised">
-              <img src={guide.image} alt="" className="aspect-[21/9] w-full object-cover" />
+              <img src={withBase(guide.image)} alt="" className="aspect-[21/9] w-full object-cover" />
             </figure>
           )}
           {guide.blocks.map((b, i) => (

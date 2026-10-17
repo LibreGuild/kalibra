@@ -22,7 +22,7 @@ export interface FakeKalibra {
   recordings: Map<string, { output?: unknown; error?: string; args: unknown }>;
   /** Answer the next N ingest requests with this status (default 202). */
   failIngest: (status: number, times?: number) => void;
-  /** Handlers for ops: POST /api/projects/:p/ops/:name. */
+  /** Handlers for ops: POST /kalibra/api/projects/:p/ops/:name. */
   ops: Record<string, (input: any) => unknown>;
   close: () => Promise<void>;
 }
@@ -48,6 +48,8 @@ export async function fakeKalibra(): Promise<FakeKalibra> {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(data));
     };
+    // Like the server: everything lives under /kalibra.
+    if (!url.pathname.startsWith('/kalibra/api/')) return json(404, { error: { code: 'not_found', message: `Outside /kalibra: ${url.pathname}` } });
     if (url.pathname.endsWith('/ingest/traces')) {
       if (failures && failures.times > 0) {
         failures.times--;

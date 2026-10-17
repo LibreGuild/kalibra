@@ -33,6 +33,21 @@ MAX_BATCH_SPANS = 5000
 MAX_BATCH_BYTES = 1_800_000  # the server accepts up to 2 MB per request
 RETRY_DELAYS = (0.5, 1.0)
 
+# Kalibra serves everything under this path (same as BASE_PATH in the server), so a load balancer can
+# route on it. The configured URL is the server's origin; one that already ends in /kalibra works too.
+BASE_PATH = "/kalibra"
+
+
+def origin_of(url: str) -> str:
+    """``http://host:4317/kalibra/`` → ``http://host:4317``."""
+    trimmed = url.strip().rstrip("/")
+    return trimmed[: -len(BASE_PATH)] if trimmed.endswith(BASE_PATH) else trimmed
+
+
+def api_url(origin: str, path: str) -> str:
+    """A Kalibra API address: ``api_url(origin, "/projects/p/ingest/traces")``."""
+    return f"{origin}{BASE_PATH}/api{path}"
+
 _warned: set = set()
 
 
@@ -43,6 +58,18 @@ def warn_once(key: str, message: str) -> None:
         return
     _warned.add(key)
     log.warning("kalibra: %s", message)
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """urllib would resend the Authorization header (the key or token) to whatever host a redirect
+    names, e.g. a login gateway's identity provider. Kalibra never redirects its API, so a redirect
+    is reported as an error instead of followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirects)
 
 
 class HttpError(Exception):
@@ -62,9 +89,12 @@ def request_json(method: str, url: str, key: Optional[str], body: Any = None, ti
         headers["authorization"] = f"Bearer {key}"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as res:  # noqa: S310 - the URL is configured by the app
+        with _opener.open(req, timeout=timeout) as res:  # noqa: S310 - the URL is configured by the app
             raw = res.read()
     except urllib.error.HTTPError as e:
+        if 300 <= e.code < 400:
+            where = (e.headers.get("Location") or "").split("?")[0]
+            raise HttpError(e.code, f"Kalibra's address redirects to {where or 'another address'}: set the URL to the final address (https?)") from None
         try:
             text = e.read().decode("utf-8", "replace")
         except Exception:
@@ -89,7 +119,7 @@ class Transport:
         timeout: float = 5.0,
         max_queued_spans: int = MAX_QUEUED_SPANS,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = origin_of(base_url)
         self.project = project
         self.key = key
         self.redact = redact
@@ -112,11 +142,11 @@ class Transport:
 
     @property
     def traces_url(self) -> str:
-        return f"{self.base_url}/api/projects/{_quote(self.project)}/ingest/traces"
+        return api_url(self.base_url, f"/projects/{_quote(self.project)}/ingest/traces")
 
     @property
     def tools_url(self) -> str:
-        return f"{self.base_url}/api/projects/{_quote(self.project)}/ingest/tools"
+        return api_url(self.base_url, f"/projects/{_quote(self.project)}/ingest/tools")
 
     def enqueue(self, trace: Dict[str, Any], spans: int) -> None:
         cost = spans + 1

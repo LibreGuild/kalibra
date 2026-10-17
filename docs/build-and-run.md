@@ -9,11 +9,11 @@
 
 ```bash
 npm install
-npm run dev                 # engine :4317 (tsx watch) + UI :5173 (Vite) + demo apps :4400
+npm run dev                 # engine :4317 (tsx watch) + UI :5173/kalibra/ (Vite) + demo apps :4400
 npm run demo -- --seed      # once: fill ./.kalibra-dev with demo datasets, targets, suites
 ```
 
-Open http://localhost:5173. The dev workspace is `./.kalibra-dev` (git-ignored).
+Open http://localhost:5173/kalibra/. The dev workspace is `./.kalibra-dev` (git-ignored). Everything Kalibra serves is under `/kalibra` (see [deploy.md](deploy.md#addresses-everything-under-kalibra)); Vite proxies `/kalibra/api` to the engine.
 
 Run pieces separately:
 
@@ -33,14 +33,14 @@ npm test                    # vitest: unit + integration + end-to-end
 ## Build
 
 ```bash
-npm run build               # web UI → CLI bundle → desktop bundle
+npm run build               # JS SDK → web UI → CLI bundle
 ```
 
 | Output | What it is |
 |---|---|
 | `packages/web/dist` | Static UI |
 | `packages/cli/dist/kalibra.mjs` + `dist/web` | Single-file CLI (minified, ~3 MB) with the UI bundled |
-| `packages/desktop/dist` | Electron main (`main.cjs`), UI and CLI copy |
+| `packages/sdk/dist` | JavaScript SDK (`kalibra-sdk`), ESM + CJS + types |
 
 ## Run the builds
 
@@ -48,7 +48,6 @@ npm run build               # web UI → CLI bundle → desktop bundle
 node packages/cli/dist/kalibra.mjs              # start + open the browser
 node packages/cli/dist/kalibra.mjs serve --port 4317
 node packages/cli/dist/kalibra.mjs run --dataset D --target T --suite S --min-pass 0.9
-npm run start -w @kalibra/desktop               # desktop app (after npm run build)
 ```
 
 Data folder: `~/Kalibra/default`, or `--dir` / `KALIBRA_DIR`. Pick a project with `--project` (`kalibra projects` lists them).
@@ -62,14 +61,7 @@ The `packages/cli` package is the public `kalibra` package. It bundles everythin
 ```bash
 cd packages/cli
 npm pack                    # inspect the tarball (prepack builds it)
-npx -y --package="$PWD/kalibra-0.1.0.tgz" kalibra --help   # try it like a user
-npm publish                 # maintainer only, with your npm account
+npx -y --package="$PWD/kalibra-0.1.1-beta.1.tgz" kalibra --help   # try it like a user
 ```
 
-Users then run `npx kalibra`. No installer, no code-signing prompts.
-
-## Desktop installers
-
-`npm run dist -w @kalibra/desktop -- --mac` (or `--win`, `--linux`) after building the web UI and CLI writes unsigned installers to `packages/desktop/release/` (electron-builder: `.dmg` and `.zip`, NSIS `setup.exe`, AppImage). Releases build all three in GitHub Actions; see [deploy.md](deploy.md).
-
-`npx kalibra` avoids unsigned-app warnings, which is why it is the recommended install for developers.
+Releases are staged from a version tag by GitHub Actions and approved on npmjs.com; see [deploy.md](deploy.md#releasing-maintainers). Users then run `npx kalibra` (or `npm i -g kalibra`). Kalibra ships as npm and Docker only: no installers, no code-signing prompts.

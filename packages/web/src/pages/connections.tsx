@@ -213,7 +213,7 @@ export function ConnectionsPage() {
 
         <Card>
           <SectionTitle
-            help="Secrets are stored outside the workspace, encrypted with your OS keychain in the desktop app. Use them anywhere in targets as {{secret.name}} — the value never appears in definitions, exports or MCP."
+            help="Secrets are stored outside definitions, in a file only your user can read (on a team server, on the server). Use them anywhere in targets as {{secret.name}} — the value never appears in definitions, exports or MCP."
             action={
               isOwner && (
                 <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setSecretOpen(true)}>

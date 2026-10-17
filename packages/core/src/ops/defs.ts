@@ -267,7 +267,7 @@ export const defOpsAll = [
   defineOp({
     name: 'set_secret',
     title: 'Set secret',
-    description: 'Stores a secret value in the OS keychain-backed store.',
+    description: 'Stores a secret value in the project\'s secret store (never in definitions or exports).',
     category: 'connections',
     access: 'owner',
     mcp: false,

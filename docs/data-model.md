@@ -33,11 +33,11 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 
 - Content-addressed: `blobs/ab/cd/<sha256>`; identical files are stored once.
 - Dataset cells for audio/image/file columns hold `{ blob, name, mime, size }`.
-- Served with Range support (`GET /api/files/:hash`) so audio can seek.
+- Served with Range support (`GET /kalibra/api/projects/:p/files/:hash`) so audio can seek.
 
 ## Secrets
 
-- `SecretStore` interface. Desktop: encrypted file with an OS-keychain key (Electron `safeStorage`). CLI/dev: `secrets.json` with 0600 permissions.
+- `SecretStore` interface. Default: `secrets.json` in the project folder with 0600 permissions (a team server can plug in Vault/KMS behind the same interface).
 - Definitions only contain names. Values never appear in exports, logs (masked as `••••`) or MCP.
 
 ## Data folder

@@ -15,7 +15,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { envToolMode } from './config.js';
+import { apiUrl, envToolMode } from './config.js';
 import { current } from './context.js';
 import { describeError } from './serialize.js';
 import { getConfig, isEnabled, offForGood, onFlush, runSpan } from './tracer.js';
@@ -92,7 +92,7 @@ onFlush(async () => void (await Promise.allSettled([...pending])));
 
 function endpoint(query?: Record<string, string>) {
   const c = getConfig();
-  const url = `${c.url}/api/projects/${encodeURIComponent(c.project)}/ingest/tools`;
+  const url = apiUrl(c.url, `/projects/${encodeURIComponent(c.project)}/ingest/tools`);
   return query ? `${url}?${new URLSearchParams(query)}` : url;
 }
 

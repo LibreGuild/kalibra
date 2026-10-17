@@ -16,7 +16,7 @@ Read top to bottom. Each folder's files start with a comment explaining what the
 | `events.ts` | live change events (the UI subscribes over SSE) |
 | `template.ts` / `script.ts` | `{{placeholders}}` with filters; user JavaScript (expressions, hooks, script targets) |
 | `util.ts` | ids, `KalibraError` (codes map to HTTP statuses), JSON helpers |
-| `index.ts` | the public exports used by server, cli and desktop |
+| `index.ts` | the public exports used by server and cli |
 
 ## Folders
 

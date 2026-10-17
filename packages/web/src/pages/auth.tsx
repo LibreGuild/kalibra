@@ -7,11 +7,12 @@ import { ErrorBox } from '../components/ui/display';
 import { Field, Input } from '../components/ui/form';
 import { authCall, forgetProject, hubOp, useAuthStatus, type AuthStatus } from '../lib/api';
 import { safeNext, useSession } from '../lib/session';
+import { withBase } from '../lib/base';
 
 /*
  * Signing in to a team server: the first-administrator setup, the sign-in page (password and/or
  * sign-in providers), and the forced "choose your own password" step for new accounts.
- * Never shown on the desktop app, which has no sign-in.
+ * Never shown in local mode (`npx kalibra`), which has no sign-in.
  */
 
 const MIN_PASSWORD = 10;
@@ -88,7 +89,7 @@ export function LoginPage() {
             {providers.map((p) => (
               <a
                 key={p.id}
-                href={`/api/auth/sso/${encodeURIComponent(p.id)}/start?next=${encodeURIComponent(next)}`}
+                href={withBase(`/api/auth/sso/${encodeURIComponent(p.id)}/start?next=${encodeURIComponent(next)}`)}
                 className="flex h-10 items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[0.875rem] font-medium hover:bg-hover"
               >
                 {PROVIDER_ICON[p.kind] ?? <LogIn className="size-4" />}
@@ -244,7 +245,7 @@ export function ChangePasswordPage() {
           onClick={async () => {
             await authCall('logout').catch(() => {});
             forgetProject();
-            window.location.assign('/login');
+            window.location.assign(withBase('/login'));
           }}
         >
           Sign out instead

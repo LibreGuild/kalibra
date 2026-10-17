@@ -61,7 +61,7 @@ export const workspaceOps = [
     name: 'upload_file',
     title: 'Upload a small file',
     description:
-      'Stores a file (base64, up to ~15 MB) and returns its blob hash, to use in file-typed dataset columns ({ blob: hash }) or with import_rows. The desktop app uploads large files directly.',
+      'Stores a file (base64, up to ~15 MB) and returns its blob hash, to use in file-typed dataset columns ({ blob: hash }) or with import_rows. The UI uploads large files over HTTP instead.',
     category: 'workspace',
     quiet: true,
     input: z.object({ name: z.string(), base64: z.string(), mime: z.string().optional() }),

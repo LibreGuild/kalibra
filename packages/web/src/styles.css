@@ -5,8 +5,8 @@
 @import '@fontsource-variable/jetbrains-mono';
 
 /*
- * Theme tokens. Warm stone/brown neutrals (a touch darker than Claude's) with a selectable accent
- * (Settings → Appearance). Status colours (green pass, red fail, amber error) stay fixed.
+ * Theme tokens. Warm stone/brown neutrals (a touch darker than Claude's) with one brand colour,
+ * Kalibra violet (below). Status colours (green pass, red fail, amber error) stay fixed.
  */
 :root,
 [data-theme='light'] {
@@ -44,7 +44,7 @@
   --k-ink: #f1eee7;
   --k-ink-muted: #b6b1a6;
   --k-ink-faint: #87827a;
-  --k-on-accent: #1b1714;
+  --k-on-accent: #ffffff;
   --k-ok: #73c391;
   --k-ok-soft: #1c3125;
   --k-bad: #f08a7e;
@@ -58,31 +58,14 @@
 }
 
 /*
- * Accents (Settings → Appearance). Teal is the default. Light-mode accents carry white text at 4.5:1
- * or better; dark-mode accents are lighter and carry dark text. Keep the list in sync with
- * ACCENTS in pages/settings.tsx, AccentChoice in lib/theme.tsx and public/theme-init.js.
+ * Brand colour: Kalibra violet, the one accent. It stays clear of the status colours (green pass,
+ * red fail, amber warning, blue info) and carries white text in both themes: buttons 6.0:1 (light)
+ * and 5.1:1 (dark); `accent-ink` (links, highlights on surfaces) is 6.3:1 or better.
+ * The app icon uses the same violet (docs/images/logo.png, packages/web/public/logo.png).
  */
-:root, [data-accent='teal'] { --k-accent: #127c78; --k-accent-hover: #0d6965; --k-accent-ink: #0e6d69; --k-accent-soft: #dcf0ee; }
-[data-theme='dark'], [data-theme='dark'][data-accent='teal'] { --k-accent: #3fc1b6; --k-accent-hover: #5ad0c6; --k-accent-ink: #6fd8cf; --k-accent-soft: #173431; }
-[data-accent='clay'] { --k-accent: #c2552c; --k-accent-hover: #ad4a25; --k-accent-ink: #ad4c27; --k-accent-soft: #f9e5da; }
-[data-theme='dark'][data-accent='clay'] { --k-accent: #e8794f; --k-accent-hover: #f08d66; --k-accent-ink: #f39a77; --k-accent-soft: #3f2a20; }
-[data-accent='sky'] { --k-accent: #2a6fd6; --k-accent-hover: #1f5fc0; --k-accent-ink: #2259b3; --k-accent-soft: #e2ecfb; }
-[data-theme='dark'][data-accent='sky'] { --k-accent: #6fa6ff; --k-accent-hover: #88b6ff; --k-accent-ink: #9cc2ff; --k-accent-soft: #1d2a40; }
-[data-accent='indigo'] { --k-accent: #4c56cf; --k-accent-hover: #4048b8; --k-accent-ink: #3e47b0; --k-accent-soft: #e6e8fb; }
-[data-theme='dark'][data-accent='indigo'] { --k-accent: #8b95ff; --k-accent-hover: #a0a8ff; --k-accent-ink: #aab2ff; --k-accent-soft: #232646; }
-[data-accent='violet'] { --k-accent: #5a4bdf; --k-accent-hover: #4a3ccc; --k-accent-ink: #4636c4; --k-accent-soft: #ecebff; }
-[data-theme='dark'][data-accent='violet'] { --k-accent: #8c7ef7; --k-accent-hover: #9f93fb; --k-accent-ink: #b4abff; --k-accent-soft: #2a2546; }
-[data-accent='plum'] { --k-accent: #8a3d8b; --k-accent-hover: #763377; --k-accent-ink: #7a357b; --k-accent-soft: #f4e4f3; }
-[data-theme='dark'][data-accent='plum'] { --k-accent: #d38bd4; --k-accent-hover: #df9fe0; --k-accent-ink: #e5ade6; --k-accent-soft: #3a2338; }
-[data-accent='rose'] { --k-accent: #c63d6b; --k-accent-hover: #b0305b; --k-accent-ink: #a8325a; --k-accent-soft: #f9e2ea; }
-[data-theme='dark'][data-accent='rose'] { --k-accent: #f0729b; --k-accent-hover: #f58aad; --k-accent-ink: #f79bb9; --k-accent-soft: #40222d; }
-[data-accent='forest'] { --k-accent: #2e7342; --k-accent-hover: #255f36; --k-accent-ink: #276539; --k-accent-soft: #e1efe4; }
-[data-theme='dark'][data-accent='forest'] { --k-accent: #78c78f; --k-accent-hover: #8fd3a3; --k-accent-ink: #9cdab0; --k-accent-soft: #1e3324; }
-[data-accent='amber'] { --k-accent: #95580a; --k-accent-hover: #7f4a08; --k-accent-ink: #844e09; --k-accent-soft: #f7ebd6; }
-[data-theme='dark'][data-accent='amber'] { --k-accent: #e9a640; --k-accent-hover: #f0b65c; --k-accent-ink: #f2c072; --k-accent-soft: #3a2c16; }
-[data-accent='slate'] { --k-accent: #4a5568; --k-accent-hover: #3d4757; --k-accent-ink: #3f4a5c; --k-accent-soft: #e7eaef; }
-[data-theme='dark'][data-accent='slate'] { --k-accent: #aab5c6; --k-accent-hover: #bcc5d3; --k-accent-ink: #c3ccd9; --k-accent-soft: #262b33; }
-[data-theme='light'][data-accent] { --k-on-accent: #ffffff; }
+:root,
+[data-theme='light'] { --k-accent: #5b4bdb; --k-accent-hover: #4c3cc7; --k-accent-ink: #4c3bc9; --k-accent-soft: #ecebfd; }
+[data-theme='dark'] { --k-accent: #6656ec; --k-accent-hover: #5747e0; --k-accent-ink: #a99fff; --k-accent-soft: #29254a; }
 
 /* Reading font (Settings → Appearance). Atkinson Hyperlegible Next is built to tell similar glyphs apart: 0/O, 1/l/I. */
 :root {

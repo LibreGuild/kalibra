@@ -12,7 +12,8 @@ import { invalid, newId, nowIso, parseJson } from '../util.js';
  * real changes), safe unzip with size limits, secret-name discovery and row insertion that keeps ids.
  */
 
-export const APP_VERSION = '0.1.0';
+/** Written into bundle manifests (set by scripts/set-version.mjs). */
+export const APP_VERSION = '0.1.1-beta.1';
 
 /** JSON with object keys sorted at every level, so the same content always produces the same bytes. */
 export function stableStringify(value: unknown, indent?: number): string {

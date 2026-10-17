@@ -9,7 +9,8 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
   - package-ecosystem: github-actions
-    directory: /
+    # Actions are pinned to commit SHAs (with the version in a comment); Dependabot bumps both.
+    directories: [/, /action]
     schedule: { interval: weekly, day: monday }
     groups:
       actions:

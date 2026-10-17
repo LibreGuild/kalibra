@@ -81,8 +81,7 @@ Tags: `promptfoo` `DeepEval` (incl. Confident AI) `Langfuse` `Phoenix` (Arize Ph
 | CLI with CI exit codes | ✅ | `promptfoo` `DeepEval` `Braintrust` `LangSmith` `Inspect` | — |
 | GitHub Action / PR comments | 🛠 | `Braintrust` `promptfoo` `LangSmith`? | Medium |
 | Local-first, no server | ✅ | `promptfoo` `Kiln` `Inspect` `DeepEval` (library) | — |
-| Desktop app | ✅ | `Kiln` | — |
-| Installers + auto-update | 🛠 | `Kiln` | Medium |
+| Desktop app | ❌ (npm and Docker only, by choice) | `Kiln` | — |
 | Multi-provider auth (Bedrock, Vertex, Azure Entra) | ✅ | `promptfoo` `Kiln`? `DeepEval`? | — |
 | Self-hosted team server (SSO, roles) | 🛠 | `Langfuse` `Phoenix` `Opik` `Braintrust` (enterprise) `LangSmith` (enterprise) | **High** |
 | Importers from other tools (promptfoo, OpenAI Evals, LangSmith, Langfuse) | ✅ | `Weave` (Humanloop migration) `promptfoo` (OpenAI Evals) | Differentiator |

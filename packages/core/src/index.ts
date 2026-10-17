@@ -1,4 +1,5 @@
 export { Engine, type EngineOptions } from './engine.js';
+export { BASE_PATH, publicOrigin } from './base-path.js';
 export { LOCAL_USER, type Actor, type OpDef } from './registry.js';
 export type { EngineEvent } from './events.js';
 export { FileSecretStore, FsBlobStore, type BlobStore, type SecretStore, type BlobInfo } from './storage.js';

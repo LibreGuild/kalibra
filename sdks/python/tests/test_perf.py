@@ -49,10 +49,15 @@ class OverheadTest(SdkTestCase):
                 s.set(model="m", tokens_in=10)
                 return q
 
-        t0 = time.perf_counter()
+        # Waits for the sender every 1000 traces (3000 spans, outside the timing), so the bounded
+        # 10 000-span queue never drops anything however slow the machine is.
+        call_path = 0.0
         for i in range(N_TRACES):
+            t0 = time.perf_counter()
             answer(f"question {i}")
-        call_path = time.perf_counter() - t0
+            call_path += time.perf_counter() - t0
+            if i % 1000 == 999:
+                kalibra.flush(timeout=30)
         per_trace_us = call_path / N_TRACES * 1e6
 
         t0 = time.perf_counter()

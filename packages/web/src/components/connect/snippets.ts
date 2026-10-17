@@ -1,10 +1,12 @@
+import { BASE } from '../../lib/base';
+
 /*
  * Copy-paste snippets for sending traces to Kalibra (docs/design/sdk-and-traces.md §2 and §5).
  * Every snippet only switches tracing on outside production, so dropping it into an app is safe.
  */
 
 export interface SnippetContext {
-  /** Where the app reaches Kalibra, e.g. http://127.0.0.1:4317 or https://kalibra.example.com */
+  /** Where the app reaches Kalibra (origin), e.g. http://127.0.0.1:4317 or https://kalibra.example.com */
   base: string;
   /** Project id (the SDK also accepts the name). */
   project: string;
@@ -14,7 +16,8 @@ export interface SnippetContext {
 
 const KEY_PLACEHOLDER = 'kik_…';
 
-export const projectApi = (c: SnippetContext) => `${c.base.replace(/\/$/, '')}/api/projects/${encodeURIComponent(c.project)}`;
+/** Kalibra's API lives under /kalibra on that origin (the SDKs add it themselves). */
+export const projectApi = (c: SnippetContext) => `${c.base.replace(/\/$/, '')}${BASE}/api/projects/${encodeURIComponent(c.project)}`;
 
 export function jsSnippet(c: SnippetContext) {
   return {

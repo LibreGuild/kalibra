@@ -170,7 +170,7 @@ function FolderSection() {
     <div className="flex flex-col gap-3.5">
       <div className="flex items-center gap-1.5 text-[0.875rem] font-semibold">
         <RefreshCw className="size-4 text-ink-muted" /> Sync with a folder (Git)
-        <HelpTip>Export writes small, stable text files your team commits to Git. After a git pull, “Check for changes” shows what differs and “Apply” brings it in as new versions. Secret values are never written. Works in the desktop app and CLI (a local folder path).</HelpTip>
+        <HelpTip>Export writes small, stable text files your team commits to Git. After a git pull, “Check for changes” shows what differs and “Apply” brings it in as new versions. Secret values are never written. Works with a folder on the computer Kalibra runs on.</HelpTip>
       </div>
       <Field label="Folder" hint={settings.data?.lastExportAt || settings.data?.lastImportAt ? `Last export ${timeAgo(settings.data?.lastExportAt)} · last import ${timeAgo(settings.data?.lastImportAt)}` : 'An absolute path, e.g. /Users/me/projects/support-bot/evals'}>
         <Input

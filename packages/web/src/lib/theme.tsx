@@ -1,13 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-/* Appearance preferences: theme, accent, reading font and text size. Stored per browser/app install. */
+/* Appearance preferences: theme, reading font and text size. Stored per browser. The brand colour is fixed (styles.css). */
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 export type FontChoice = 'atkinson' | 'inter' | 'plex' | 'system';
 export type TextScale = 0.9 | 1 | 1.1 | 1.25;
-/** Keep in sync with the accent tokens in styles.css and public/theme-init.js. */
-export type AccentChoice = 'teal' | 'clay' | 'sky' | 'indigo' | 'violet' | 'plum' | 'rose' | 'forest' | 'amber' | 'slate';
-export const DEFAULT_ACCENT: AccentChoice = 'teal';
 
 interface Prefs {
   choice: ThemeChoice;
@@ -17,8 +14,6 @@ interface Prefs {
   setFont: (f: FontChoice) => void;
   scale: TextScale;
   setScale: (s: TextScale) => void;
-  accent: AccentChoice;
-  setAccent: (a: AccentChoice) => void;
 }
 
 const Ctx = createContext<Prefs>({
@@ -29,8 +24,6 @@ const Ctx = createContext<Prefs>({
   setFont: () => {},
   scale: 1,
   setScale: () => {},
-  accent: DEFAULT_ACCENT,
-  setAccent: () => {},
 });
 
 function read<T extends string | number>(key: string, fallback: T, parse: (s: string) => T = (s) => s as T): T {
@@ -54,7 +47,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [choice, setChoiceState] = useState<ThemeChoice>(() => read('kalibra.theme', 'system' as ThemeChoice));
   const [font, setFontState] = useState<FontChoice>(() => read('kalibra.font', 'atkinson' as FontChoice));
   const [scale, setScaleState] = useState<TextScale>(() => read('kalibra.scale', 1 as TextScale, (s) => (Number(s) || 1) as TextScale));
-  const [accent, setAccentState] = useState<AccentChoice>(() => read('kalibra.accent', DEFAULT_ACCENT));
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
 
   useEffect(() => {
@@ -69,9 +61,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     root.dataset.theme = resolved;
     root.dataset.font = font;
-    root.dataset.accent = accent;
     root.style.setProperty('--k-scale', String(scale));
-  }, [resolved, font, scale, accent]);
+  }, [resolved, font, scale]);
 
   return (
     <Ctx.Provider
@@ -83,8 +74,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setFont: (f) => (setFontState(f), write('kalibra.font', f)),
         scale,
         setScale: (s) => (setScaleState(s), write('kalibra.scale', String(s))),
-        accent,
-        setAccent: (a) => (setAccentState(a), write('kalibra.accent', a)),
       }}
     >
       {children}

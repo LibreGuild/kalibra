@@ -110,7 +110,7 @@ class DisabledTest(SdkTestCase):
         f()  # first use initializes from the environment
         self.assertTrue(kalibra.is_enabled())
         self.assertEqual(len(self.sent()), 1)
-        self.assertIn("/api/projects/Env%20project/ingest/traces", self.fake.paths)
+        self.assertIn("/kalibra/api/projects/Env%20project/ingest/traces", self.fake.paths)
         self.assertEqual(self.fake.headers[-1]["Authorization"], f"Bearer {KEY}")
 
     def test_middlewares_and_tools_call_straight_through_when_off(self) -> None:

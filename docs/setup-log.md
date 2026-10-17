@@ -6,7 +6,7 @@ What was set up in outside services on 2026-10-17 to test Kalibra's sign-in prov
 
 - **Where:** github.com → your account (sujithappikatla) → Settings → Developer settings → OAuth Apps → **Kalibra (local test)**.
 - **Homepage URL:** `http://127.0.0.1:4330`
-- **Callback URL:** `http://127.0.0.1:4330/api/auth/sso/github/callback`
+- **Callback URL:** `http://127.0.0.1:4330/api/auth/sso/github/callback` (as registered for the test; since Kalibra moved under `/kalibra`, it must be changed to `http://127.0.0.1:4330/kalibra/api/auth/sso/github/callback` to test again)
 - **Client ID and secret:** in `.env.local` (`KALIBRA_GITHUB_CLIENT_ID`, `KALIBRA_GITHUB_CLIENT_SECRET`). GitHub needed a passkey confirmation from you to create the secret.
 - **Result:** ✅ Signed in with GitHub at 09:24; linked to the invited account `sujith` by your verified email.
 
@@ -15,7 +15,7 @@ What was set up in outside services on 2026-10-17 to test Kalibra's sign-in prov
 - **Where:** console.cloud.google.com → Google Auth Platform.
 - **Audience:** the app was already in **Testing** mode, External. I added **sujith.appikatla@gmail.com** as a test user; in Testing mode only listed test users can sign in.
 - **Client:** Clients → **Kalibra (local test)**, type Web application.
-  - Redirect URI: `http://127.0.0.1:4330/api/auth/sso/google/callback`
+  - Redirect URI: `http://127.0.0.1:4330/api/auth/sso/google/callback` (as registered; change it to `http://127.0.0.1:4330/kalibra/api/auth/sso/google/callback` to test again)
   - Client ID and secret: in `.env.local` (`KALIBRA_GOOGLE_CLIENT_ID`, `KALIBRA_GOOGLE_CLIENT_SECRET`).
 - **Left as it was:** the existing client "VA" and the branding/consent settings.
 - **Result:** ✅ Signed in with Google at 09:20; linked to the invited account `sujith` (Google reports the email as verified).
@@ -30,7 +30,7 @@ KALIBRA_ADMIN_USERNAME=admin KALIBRA_ADMIN_PASSWORD='<any 10+ chars>' \
 ```
 
 1. Signed in as `admin` (Administration → Users) and invited **sujith** with email `sujith.appikatla@gmail.com` and no password. Providers are invite-only by default.
-2. Opened `http://127.0.0.1:4330/login`, clicked **Continue with Google**, approved, and landed signed in as Sujith.
+2. Opened `http://127.0.0.1:4330/login` (now `/kalibra/login`), clicked **Continue with Google**, approved, and landed signed in as Sujith.
 3. Signed out, clicked **Continue with GitHub**, approved, and landed signed in as Sujith again.
 4. Administration → Users shows sujith with sign-in methods **github, google**. The Security log shows both logins with their provider.
 
@@ -38,7 +38,7 @@ The browser assistant cannot click on Google's or GitHub's sign-in and consent p
 
 ## For a real deployment
 
-- Create **new** OAuth apps/clients whose callback URLs use the real address (`https://kalibra.example.com/api/auth/sso/github/callback`, `…/google/callback`) and set `KALIBRA_PUBLIC_URL` to it.
+- Create **new** OAuth apps/clients whose callback URLs use the real address (`https://kalibra.example.com/kalibra/api/auth/sso/github/callback`, `…/google/callback`) and set `KALIBRA_PUBLIC_URL` to it.
 - **Google:**
   - for a Google Workspace organisation, set the audience to **Internal**;
   - otherwise publish the app, or keep Testing and add up to 100 test users.
@@ -59,10 +59,11 @@ The browser assistant cannot click on Google's or GitHub's sign-in and consent p
 ## GitHub
 
 - **Repository:** `LibreGuild/kalibra`, **private**, created with `gh repo create`; default branch `main`.
-- **CI** (`.github/workflows/ci.yml`) runs on every push and pull request. The first run passed.
+- **CI** (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main`: typecheck and tests only.
 - **Releases** (`.github/workflows/release.yml`) run on a `v*` tag.
 - **`v0.1.0-beta.1`:** a pre-release with the macOS (arm64 and x64) dmg/zip, the Windows setup.exe, the Linux AppImage and `SHA256SUMS.txt`. It took three tries: fixes for the Linux executable name and for which artifacts to download. The tag was moved before anything was public.
-- **`v0.1.0-beta.2`:** the end-to-end test of staged npm publishing.
+- **`v0.1.0-beta.2`:** the end-to-end test of staged npm publishing. Its staged version was rejected on npmjs.com.
+- **Installers dropped (2026-10-17):** Kalibra ships as the npm package and the Docker image only. The desktop app (Electron) was removed from the code, `release.yml` no longer builds installers (its GitHub releases carry install notes only), and the installer files attached to the `v0.1.0-beta.1` and `v0.1.0-beta.2` releases were deleted.
 - **Docker image:** `ghcr.io/libreguild/kalibra:<version>` and `:next` (amd64 and arm64), **private** like the repo. To make it public: GitHub → LibreGuild → Packages → kalibra → Package settings → Change visibility.
 
 ## npm (account `sujithappikatla`)

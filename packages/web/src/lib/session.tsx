@@ -19,12 +19,13 @@ import {
  * Who is signed in and which project you are in.
  *
  *   AuthGate      – the whole app: sends you to setup, sign-in or "choose a new password" on a
- *                   team server; does nothing on the desktop (local mode).
+ *                   team server; does nothing in local mode (`npx kalibra`).
  *   ProjectScope  – everything under /p/<id>: loads the project and your role in it, points
  *                   API calls at it, and subscribes to its live events.
  */
 
 import type { ProjectRole } from './roles';
+import { BASE } from './base';
 export type { ProjectRole } from './roles';
 const RANK: Record<ProjectRole, number> = { viewer: 0, editor: 1, owner: 2 };
 
@@ -103,6 +104,8 @@ export function AuthGate() {
  */
 export function safeNext(next: string | null | undefined): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(next) || next.startsWith('/api/')) return '/';
+  // Router paths leave out the base path (/kalibra); accept a full one too.
+  if (next === BASE || next.startsWith(`${BASE}/`)) return safeNext(next.slice(BASE.length) || '/');
   return next;
 }
 
@@ -136,7 +139,7 @@ export function useCanEdit(): boolean {
 
 /**
  * Whether you may add or change JavaScript (script targets, hooks, script checks). Team servers
- * keep that with administrators unless they open it up; the desktop always allows it.
+ * keep that with administrators unless they open it up; local mode always allows it.
  */
 export function useCanWriteCode(): boolean {
   const { isServer } = useSession();

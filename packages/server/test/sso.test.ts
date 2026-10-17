@@ -158,7 +158,7 @@ describe('sign-in providers', () => {
 
   /** Runs a whole browser sign-in: start → provider → callback. Returns where it ended and the session cookie. */
   async function signIn(providerId: string, next = '/projects', opts: { dropBinding?: boolean } = {}) {
-    const start = await fetch(`${srv.url}/api/auth/sso/${providerId}/start?next=${encodeURIComponent(next)}`, { redirect: 'manual' });
+    const start = await fetch(`${srv.url}/kalibra/api/auth/sso/${providerId}/start?next=${encodeURIComponent(next)}`, { redirect: 'manual' });
     expect(start.status).toBe(302);
     const binding = start.headers.get('set-cookie')?.split(';')[0] ?? '';
     const atProvider = await fetch(start.headers.get('location')!, { redirect: 'manual' });
@@ -167,11 +167,11 @@ describe('sign-in providers', () => {
     const cookies = back.headers.getSetCookie?.() ?? [];
     const session = cookies.find((c) => c.startsWith('kalibra_session='))?.split(';')[0];
     const flash = cookies.find((c) => c.startsWith('kalibra_login_error='))?.split(';')[0];
-    const error = flash ? ((await fetch(`${srv.url}/api/auth/status`, { headers: { cookie: flash } }).then((r) => r.json())).data.error as string) : undefined;
+    const error = flash ? ((await fetch(`${srv.url}/kalibra/api/auth/status`, { headers: { cookie: flash } }).then((r) => r.json())).data.error as string) : undefined;
     return { location: back.headers.get('location') ?? '', session, callback, binding, error };
   }
 
-  const me = async (cookie?: string) => (await fetch(`${srv.url}/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, cookie: cookie ?? '' } }).then((r) => r.json())).data;
+  const me = async (cookie?: string) => (await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, cookie: cookie ?? '' } }).then((r) => r.json())).data;
 
   it('signs in with OIDC, invite-only by default, linking the invited account by verified email', async () => {
     await hub.providers.save({ name: 'Company SSO', kind: 'oidc', issuer: idp.state.issuer, clientId: 'kalibra', clientSecret: idp.state.clientSecret });
@@ -179,15 +179,25 @@ describe('sign-in providers', () => {
 
     const refused = await signIn('company-sso');
     expect(refused.session).toBeUndefined();
-    expect(refused.location).toBe('/login');
+    expect(refused.location).toBe('/kalibra/login');
     expect(refused.error).toMatch(/^There is no Kalibra account for fran@corp\.example/);
 
     await hub.accounts.create({ username: 'fran', email: 'fran@corp.example', role: 'user' }, 'test');
     const ok = await signIn('company-sso', '/p/default/runs');
-    expect(ok.location).toBe('/p/default/runs');
+    expect(ok.location).toBe('/kalibra/p/default/runs');
     const fran = await me(ok.session);
     expect(fran.user.username).toBe('fran');
     expect(fran.identities).toEqual([expect.objectContaining({ provider: 'company-sso', providerName: 'Company SSO', email: 'fran@corp.example' })]);
+  });
+
+  it('keeps the sign-in round trip inside /kalibra: callback address and cookie paths', async () => {
+    const start = await fetch(`${srv.url}/kalibra/api/auth/sso/company-sso/start`, { redirect: 'manual' });
+    expect(start.headers.get('set-cookie')).toMatch(/^kalibra_sso=[^;]+; HttpOnly; SameSite=Lax; Path=\/kalibra\/api\/auth\/sso; Max-Age=600$/);
+    const redirectUri = new URL(start.headers.get('location')!).searchParams.get('redirect_uri');
+    expect(redirectUri).toBe(`${srv.url}/kalibra/api/auth/sso/company-sso/callback`);
+    const failed = await fetch(`${srv.url}/kalibra/api/auth/sso/company-sso/callback?state=bogus`, { redirect: 'manual' });
+    expect(failed.headers.get('location')).toBe('/kalibra/login');
+    expect(failed.headers.getSetCookie().find((c) => c.startsWith('kalibra_login_error='))).toMatch(/Path=\/kalibra\/api\/auth;/);
   });
 
   it('never links by an unverified email', async () => {
@@ -216,14 +226,25 @@ describe('sign-in providers', () => {
     const once = await signIn('company-sso');
     expect(once.session).toBeDefined();
     const replay = await fetch(once.callback, { redirect: 'manual', headers: { cookie: once.binding } });
-    expect(replay.headers.get('location')).toBe('/login');
+    expect(replay.headers.get('location')).toBe('/kalibra/login');
 
     expect(safeNext('//evil.example/x')).toBe('/');
     expect(safeNext('https://evil.example')).toBe('/');
     expect(safeNext('/api/hub/get_me')).toBe('/');
+    expect(safeNext('/kalibra/api/hub/get_me')).toBe('/');
+    expect(safeNext('/kalibra//evil.example')).toBe('/');
     expect(safeNext('/p/x/runs?tab=1')).toBe('/p/x/runs?tab=1');
-    const evil = await signIn('company-sso', '//evil.example');
-    expect(evil.location).toBe('/');
+    expect(safeNext('/kalibra/p/x/runs')).toBe('/p/x/runs');
+    // Wherever `next` points, the browser lands inside /kalibra.
+    for (const [next, landing] of [
+      ['//evil.example', '/kalibra/'],
+      ['https://evil.example', '/kalibra/'],
+      ['/kalibraevil', '/kalibra/kalibraevil'],
+      ['/other', '/kalibra/other'],
+      ['/kalibra/projects', '/kalibra/projects'],
+    ]) {
+      expect((await signIn('company-sso', next)).location, next).toBe(landing);
+    }
   });
 
   it('signs in with GitHub Enterprise, limited to organisations, with teams as groups', async () => {
@@ -241,13 +262,13 @@ describe('sign-in providers', () => {
 
   it('trusts gateway headers only from listed proxy addresses', async () => {
     await hub.providers.save({ name: 'Gateway', id: 'gate', kind: 'proxy', emailHeader: 'X-Forwarded-Email', nameHeader: 'X-Forwarded-User', trustedProxies: ['127.0.0.1', '::1'], autoCreate: true });
-    const r = await fetch(`${srv.url}/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-forwarded-email': 'ivy@corp.example', 'x-forwarded-user': 'Ivy' } }).then((x) => x.json());
+    const r = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-forwarded-email': 'ivy@corp.example', 'x-forwarded-user': 'Ivy' } }).then((x) => x.json());
     expect(r.data.user).toMatchObject({ email: 'ivy@corp.example', name: 'Ivy' });
     expect(inList('10.1.2.3', ['10.0.0.0/8'])).toBe(true);
     expect(inList('::ffff:10.1.2.3', ['10.0.0.0/8'])).toBe(true);
     expect(inList('192.168.1.1', ['10.0.0.0/8', '127.0.0.1'])).toBe(false);
     await hub.providers.save({ id: 'gate', trustedProxies: ['10.9.9.9'] });
-    const untrusted = await fetch(`${srv.url}/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-forwarded-email': 'ivy@corp.example' } });
+    const untrusted = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-forwarded-email': 'ivy@corp.example' } });
     expect(untrusted.status).toBe(403);
     await hub.providers.delete('gate');
   });
@@ -256,9 +277,9 @@ describe('sign-in providers', () => {
     await hub.providers.save({ name: 'IAP', id: 'iap', kind: 'proxy', jwtHeader: 'X-Goog-IAP-JWT-Assertion', jwksUrl, jwtAudience: 'kalibra-app', autoCreate: true });
     const jwt = (aud: string) =>
       new SignJWT({ email: 'jo@corp.example' }).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setAudience(aud).setSubject('jo').setIssuedAt().setExpirationTime('5m').sign(idp.privateKey);
-    const good = await fetch(`${srv.url}/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('kalibra-app') } }).then((r) => r.json());
+    const good = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('kalibra-app') } }).then((r) => r.json());
     expect(good.data.user.email).toBe('jo@corp.example');
-    const bad = await fetch(`${srv.url}/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('another-app') } });
+    const bad = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('another-app') } });
     expect(bad.status).toBe(403);
     await hub.providers.delete('iap');
   });
@@ -266,12 +287,12 @@ describe('sign-in providers', () => {
   it('can turn password sign-in off for everyone but administrators', async () => {
     await hub.accounts.create({ username: 'kim', password: PW, role: 'user' }, 'test');
     hub.updateSettings({ passwordLogin: false });
-    const login = (username: string) => fetch(`${srv.url}/api/auth/login`, { method: 'POST', headers: { origin: srv.url, 'content-type': 'application/json' }, body: JSON.stringify({ username, password: PW }) });
+    const login = (username: string) => fetch(`${srv.url}/kalibra/api/auth/login`, { method: 'POST', headers: { origin: srv.url, 'content-type': 'application/json' }, body: JSON.stringify({ username, password: PW }) });
     const kim = await login('kim');
     expect(kim.status).toBe(403);
     expect((await kim.json()).error.message).toMatch(/Password sign-in is turned off.*Company SSO/);
     expect((await login('admin')).status).toBe(200);
-    const status = await fetch(`${srv.url}/api/auth/status`).then((r) => r.json());
+    const status = await fetch(`${srv.url}/kalibra/api/auth/status`).then((r) => r.json());
     expect(status.data.passwordLogin).toBe(false);
     expect(status.data.providers.map((p: any) => p.id)).toEqual(expect.arrayContaining(['company-sso', 'ghe']));
     hub.updateSettings({ passwordLogin: true });
@@ -281,7 +302,7 @@ describe('sign-in providers', () => {
     const admin = { user: hub.accounts.find('admin')!, via: 'user' as const };
     const listed = await hub.call<any>(admin, 'list_auth_providers', {});
     expect(JSON.stringify(listed)).not.toContain(idp.state.clientSecret);
-    expect(listed.providers.find((p: any) => p.id === 'company-sso')).toMatchObject({ hasClientSecret: true, callbackUrl: '/api/auth/sso/company-sso/callback' });
+    expect(listed.providers.find((p: any) => p.id === 'company-sso')).toMatchObject({ hasClientSecret: true, callbackUrl: '/kalibra/api/auth/sso/company-sso/callback' });
     await expect(hub.call(admin, 'save_auth_provider', { name: 'Bad', kind: 'oidc', issuer: 'http://insecure.example', clientId: 'x', clientSecret: 'y' })).rejects.toThrow(/https/);
     await expect(hub.call(admin, 'save_auth_provider', { name: 'Open proxy', kind: 'proxy', emailHeader: 'X-Email' })).rejects.toThrow(/proxy addresses/);
     await expect(hub.call(admin, 'save_auth_provider', { name: 'No secret', kind: 'oidc', issuer: 'https://idp.example', clientId: 'x' })).rejects.toThrow(/client secret/);
