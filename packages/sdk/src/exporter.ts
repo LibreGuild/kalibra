@@ -9,11 +9,11 @@
  *   - pending traces are sent when the process is about to exit (`beforeExit`), and `flush()` /
  *     `shutdown()` let serverless code send them before returning.
  *
- *   POST {url}/api/projects/{project}/ingest/traces   Authorization: Bearer kik_…
+ *   POST {url}/kalibra/api/projects/{project}/ingest/traces   Authorization: Bearer kik_…
  *   { "traces": [TraceIn, …] }                         (docs/design/sdk-and-traces.md §2)
  */
 
-import type { ResolvedConfig } from './config.js';
+import { apiUrl, type ResolvedConfig } from './config.js';
 import { redactorFor } from './redact.js';
 import { warnOnce } from './warn.js';
 
@@ -204,7 +204,7 @@ export class Exporter {
   }
 
   private async post(body: string) {
-    const url = `${this.config.url}/api/projects/${encodeURIComponent(this.config.project)}/ingest/traces`;
+    const url = apiUrl(this.config.url, `/projects/${encodeURIComponent(this.config.project)}/ingest/traces`);
     for (let attempt = 0; ; attempt++) {
       try {
         const res = await this.fetchImpl(url, {

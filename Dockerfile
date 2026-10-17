@@ -3,6 +3,7 @@
 #   docker run -d -p 4317:4317 -v kalibra-data:/data \
 #     -e KALIBRA_PUBLIC_URL=https://kalibra.example.com ghcr.io/libreguild/kalibra:next
 #
+# Kalibra answers under /kalibra (UI https://kalibra.example.com/kalibra/, API …/kalibra/api/…).
 # The first start prints a one-time link to create the administrator (docker logs <container>).
 # Everything Kalibra stores lives in /data: back up that volume.
 
@@ -40,6 +41,6 @@ USER node
 VOLUME ["/data"]
 EXPOSE 4317
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.KALIBRA_PORT||4317)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.KALIBRA_PORT||4317)+'/kalibra/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 ENTRYPOINT ["node", "/app/kalibra.mjs"]
 CMD ["server"]

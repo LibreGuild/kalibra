@@ -25,10 +25,10 @@ describe('file uploads', () => {
   it('streams an upload to disk and serves the same bytes back', async () => {
     const body = Buffer.alloc(8 * 1024 * 1024);
     for (let i = 0; i < body.length; i += 4096) body[i] = i % 251;
-    const res = await fetch(`${srv.url}/api/projects/default/files`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-file-name': encodeURIComponent('long take.wav') }, body });
+    const res = await fetch(`${srv.url}/kalibra/api/projects/default/files`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-file-name': encodeURIComponent('long take.wav') }, body });
     const info = (await res.json()).data;
     expect(info).toMatchObject({ size: body.length, mime: 'audio/wav', name: 'long take.wav', hash: createHash('sha256').update(body).digest('hex') });
-    const back = Buffer.from(await (await fetch(`${srv.url}/api/projects/default/files/${info.hash}`)).arrayBuffer());
+    const back = Buffer.from(await (await fetch(`${srv.url}/kalibra/api/projects/default/files/${info.hash}`)).arrayBuffer());
     expect(back.equals(body)).toBe(true);
   });
 });

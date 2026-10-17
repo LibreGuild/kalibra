@@ -12,6 +12,7 @@ import { isMissingOp } from '../traces/types';
 import { IngestKeys } from './ingest-keys';
 import { jsSnippet, otelSnippet, proxySnippet, pythonSnippet, type SnippetContext } from './snippets';
 import { sdkDocsPath } from '../../sdk-docs/links';
+import { withBase } from '../../lib/base';
 
 /*
  * Connect your app: one key and one snippet, and the app's real calls start showing up under
@@ -124,7 +125,7 @@ export function ConnectPage() {
 /** The public SDK docs, in a new tab. */
 function SdkDocsLink({ href, children }: { href: string; children: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex w-fit items-center gap-1 text-[0.8125rem] font-medium text-accent-ink hover:underline">
+    <a href={withBase(href)} target="_blank" rel="noopener noreferrer" className="inline-flex w-fit items-center gap-1 text-[0.8125rem] font-medium text-accent-ink hover:underline">
       {children}
       <ArrowUpRight className="size-3.5" />
     </a>

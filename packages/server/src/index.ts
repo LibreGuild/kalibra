@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { DEFAULT_PROJECT, KalibraError, roleAtLeast, type EngineEvent, type Hub, type Principal } from '@kalibra/core';
+import { BASE_PATH, DEFAULT_PROJECT, KalibraError, publicOrigin, roleAtLeast, type EngineEvent, type Hub, type Principal } from '@kalibra/core';
 import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, ownOrigin, RateLimiter, readSessionCookie, sessionCookieName, type AuthConfig } from './auth.js';
 import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serveBlob, serveStatic } from './http.js';
 import { ingestRoutes, isIngestRoute } from './ingest.js';
@@ -8,7 +8,11 @@ import { ingestRoutes, isIngestRoute } from './ingest.js';
 /*
  * The HTTP API. `npx kalibra` (`kalibra serve`) runs it on 127.0.0.1 with a per-launch token
  * (local mode); a team server runs the same API with sign-in (server mode). Everything is an
- * operation, and every call goes through the hub, which decides access:
+ * operation, and every call goes through the hub, which decides access.
+ *
+ * Every address starts with BASE_PATH (/kalibra), so a load balancer can route on the path: the UI
+ * is /kalibra/, and the routes below are /kalibra/api/…. "/" redirects to /kalibra/; anything else
+ * outside /kalibra is 404. Routes are written here without the prefix:
  *
  *   GET  /api/health                         liveness (no auth)
  *   GET  /api/auth/status                    mode, whether setup is needed, who is signed in (no auth)
@@ -57,6 +61,11 @@ export interface RunningServer {
 
 export const newToken = () => randomBytes(32).toString('base64url');
 
+function redirect(res: ServerResponse, location: string, cookies: string[] = []) {
+  res.writeHead(302, { ...BASE_HEADERS, location, 'cache-control': 'no-store', ...(cookies.length ? { 'set-cookie': cookies } : {}) });
+  res.end();
+}
+
 /** Failed sign-in attempts per IP address in 10 minutes (each account also locks after repeated wrong passwords). */
 const LOGIN_LIMIT = 20;
 /** Largest file upload. */
@@ -68,7 +77,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const { hub } = opts;
   const host = opts.host ?? '127.0.0.1';
   let port = 0;
-  const cfg: AuthConfig = { hub, token: opts.token, allowedOrigins: opts.allowedOrigins ?? [], publicUrl: opts.publicUrl?.replace(/\/$/, ''), trustProxy: !!opts.trustProxy };
+  const cfg: AuthConfig = { hub, token: opts.token, allowedOrigins: opts.allowedOrigins ?? [], publicUrl: publicOrigin(opts.publicUrl), trustProxy: !!opts.trustProxy };
   const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000);
   const ingest = ingestRoutes(hub, cfg);
 
@@ -84,9 +93,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (hub.mode === 'local' ? !checkLocalOrigin(req, port, cfg) : !originAllowed(req, cfg)) return fail(res, 403, 'forbidden', 'Host or origin not allowed');
 
-    // `kalibra serve` opens /?token=… once; we turn it into an HttpOnly cookie for the UI.
+    // Everything lives under BASE_PATH; past this point paths are written without it.
+    if (url.pathname === '/' || url.pathname === BASE_PATH) return redirect(res, `${BASE_PATH}/${url.search}`);
+    if (!url.pathname.startsWith(`${BASE_PATH}/`)) return fail(res, 404, 'not_found', `Kalibra lives under ${BASE_PATH}/ (the API under ${BASE_PATH}/api/)`);
+    url.pathname = url.pathname.slice(BASE_PATH.length);
+
+    // `kalibra serve` opens /kalibra/?token=… once; we turn it into an HttpOnly cookie for the UI.
     if (hub.mode === 'local' && opts.token && url.searchParams.get('token') === opts.token && !url.pathname.startsWith('/api/')) {
-      res.writeHead(302, { ...BASE_HEADERS, 'set-cookie': `${LOCAL_COOKIE}=${opts.token}; HttpOnly; SameSite=Strict; Path=/`, location: url.pathname });
+      res.writeHead(302, { ...BASE_HEADERS, 'set-cookie': `${LOCAL_COOKIE}=${opts.token}; HttpOnly; SameSite=Strict; Path=${BASE_PATH}`, location: `${BASE_PATH}${url.pathname}` });
       return res.end();
     }
 
@@ -114,7 +128,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   function sessionCookie(req: IncomingMessage, value: string, maxAgeSec: number) {
     const secure = isSecure(req, cfg);
-    return `${sessionCookieName(secure)}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
+    // "__Host-" cookies must have Path=/; the plain one stays inside Kalibra's path.
+    return `${sessionCookieName(secure)}=${value}; HttpOnly; SameSite=Lax; Path=${secure ? '/' : BASE_PATH}; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
   }
 
   function newSession(req: IncomingMessage, userId: string) {
@@ -137,23 +152,19 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const ssoCookie = (req: IncomingMessage, value: string, maxAge: number) =>
     isSecure(req, cfg)
       ? `${ssoCookieName(req)}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}; Secure`
-      : `${ssoCookieName(req)}=${value}; HttpOnly; SameSite=Lax; Path=/api/auth/sso; Max-Age=${maxAge}`;
-  const redirect = (res: ServerResponse, location: string, cookies: string[] = []) => {
-    res.writeHead(302, { ...BASE_HEADERS, location, 'cache-control': 'no-store', ...(cookies.length ? { 'set-cookie': cookies } : {}) });
-    res.end();
-  };
+      : `${ssoCookieName(req)}=${value}; HttpOnly; SameSite=Lax; Path=${BASE_PATH}/api/auth/sso; Max-Age=${maxAge}`;
   /*
    * Why a sign-in failed travels in a short-lived cookie set by us, not in the URL: a link anyone
    * can craft (/login?error=…) must not be able to put text on our sign-in page.
    */
   const FLASH = 'kalibra_login_error';
   const flash = (req: IncomingMessage, message: string, maxAge = 120) =>
-    `${FLASH}=${encodeURIComponent(message.slice(0, 300))}; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=${maxAge}${isSecure(req, cfg) ? '; Secure' : ''}`;
+    `${FLASH}=${encodeURIComponent(message.slice(0, 300))}; HttpOnly; SameSite=Lax; Path=${BASE_PATH}/api/auth; Max-Age=${maxAge}${isSecure(req, cfg) ? '; Secure' : ''}`;
 
   /** Sign-in through a provider: start (redirect out) and callback (redirect back in). */
   async function ssoRoutes(req: IncomingMessage, res: ServerResponse, url: URL, providerId: string, step: string) {
     const ip = clientIp(req, cfg.trustProxy);
-    const callback = `${base(req)}/api/auth/sso/${encodeURIComponent(providerId)}/callback`;
+    const callback = `${base(req)}${BASE_PATH}/api/auth/sso/${encodeURIComponent(providerId)}/callback`;
     try {
       if (step === 'start') {
         const { url: to, binding } = await hub.sso.start(providerId, { redirectUri: callback, next: url.searchParams.get('next') ?? undefined });
@@ -161,15 +172,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       }
       if (logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
       try {
-        const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${url.pathname}${url.search}`, binding: cookie(req, ssoCookieName(req)), ip });
+        const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${BASE_PATH}${url.pathname}${url.search}`, binding: cookie(req, ssoCookieName(req)), ip });
         const s = newSession(req, user.id);
-        return redirect(res, next, [s.cookie, ssoCookie(req, '', 0)]);
+        // `next` is an app path (safeNext), so the browser always lands inside Kalibra.
+        return redirect(res, `${BASE_PATH}${next}`, [s.cookie, ssoCookie(req, '', 0)]);
       } catch (e) {
         logins.fail(ip);
         throw e;
       }
     } catch (e: any) {
-      return redirect(res, '/login', [ssoCookie(req, '', 0), flash(req, e?.message ?? String(e))]);
+      return redirect(res, `${BASE_PATH}/login`, [ssoCookie(req, '', 0), flash(req, e?.message ?? String(e))]);
     }
   }
 
@@ -198,7 +210,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     const sso = /^\/api\/auth\/sso\/([a-z0-9-]+)\/(start|callback)$/.exec(path);
     if (sso && req.method === 'GET') {
-      if (hub.mode === 'local') return redirect(res, '/');
+      if (hub.mode === 'local') return redirect(res, `${BASE_PATH}/`);
       return ssoRoutes(req, res, url, sso[1], sso[2]);
     }
 

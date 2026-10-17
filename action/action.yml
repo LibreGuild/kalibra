@@ -19,7 +19,7 @@ branding:
 
 inputs:
   server:
-    description: Address of your Kalibra team server
+    description: Address of your Kalibra team server, e.g. https://kalibra.example.com (Kalibra answers under /kalibra there)
     required: true
   token:
     description: A Kalibra access token (Account → Access tokens), stored as a repository secret

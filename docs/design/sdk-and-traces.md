@@ -59,7 +59,7 @@ ingest_keys (id, project_id, name, prefix, token_hash UNIQUE, created_at, create
 
 ## 2. HTTP endpoints (server)
 
-All under `/api/projects/:project/…`. Auth: an ingest key (`Authorization: Bearer kik_…`) or the normal session/token/local token with the editor role.
+All under `/kalibra/api/projects/:project/…` (every Kalibra address starts with `/kalibra`; the SDKs take the origin as `url` and add it). Auth: an ingest key (`Authorization: Bearer kik_…`) or the normal session/token/local token with the editor role.
 
 | Method & path | Body / query | Notes |
 |---|---|---|

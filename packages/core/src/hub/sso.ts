@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { BlockList, isIP } from 'node:net';
 import * as oidc from 'openid-client';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
+import { BASE_PATH } from '../base-path.js';
 import { KalibraError } from '../util.js';
 import type { Hub } from './hub.js';
 import { randomSecret } from './passwords.js';
@@ -334,11 +335,17 @@ export class SsoService {
   }
 }
 
-/** Only same-site paths are allowed as the page to return to (no open redirects). */
+/**
+ * Only app paths are allowed as the page to return to (no open redirects). The result is a path
+ * inside the app ("/p/x/runs"); the server puts BASE_PATH in front, so it can never leave Kalibra.
+ * A path that already starts with BASE_PATH is accepted too.
+ */
 export function safeNext(next?: string): string {
   // Browsers drop tabs and newlines in URLs and read a backslash as "/", so "/<tab>/evil.example" would become "//evil.example".
   if (!next || !next.startsWith('/') || /[\u0000-\u001f\u007f\\]/.test(next)) return '/';
-  if (next.startsWith('//') || next.startsWith('/api/')) return '/';
+  if (next === BASE_PATH || next.startsWith(`${BASE_PATH}/`) || next.startsWith(`${BASE_PATH}?`) || next.startsWith(`${BASE_PATH}#`)) next = next.slice(BASE_PATH.length) || '/';
+  if (!next.startsWith('/')) next = `/${next}`;
+  if (next.startsWith('//') || next === '/api' || next.startsWith('/api/')) return '/';
   return next;
 }
 

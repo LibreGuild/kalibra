@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { Hub } from '@kalibra/core';
+import { startServer } from '@kalibra/server';
 import { connect, openHub, secretsFor } from '../src/engine-client.js';
 
 describe('CLI access to Kalibra', () => {
@@ -25,6 +27,25 @@ describe('CLI access to Kalibra', () => {
     const store = secretsFor(dir);
     await expect(store.get('openai_api_key')).rejects.toThrow(/Delete secrets\.enc/);
     await expect(store.list()).rejects.toMatchObject({ code: 'unavailable' });
+  });
+
+  it('talks to a team server under /kalibra, with or without /kalibra in the address', async () => {
+    const hub = new Hub({ dir: tmp(), mode: 'server' });
+    await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: 'a-long-password-1' });
+    const { token } = hub.accounts.createToken(hub.accounts.find('admin')!.id, { name: 'cli' });
+    const srv = await startServer({ hub });
+    try {
+      for (const server of [srv.url, `${srv.url}/`, `${srv.url}/kalibra`, `${srv.url}/kalibra/`]) {
+        const client = await connect(tmp(), { kind: 'cli', id: 'cli' }, { server, token });
+        expect(client.mode).toBe('remote');
+        expect(client.serverUrl).toBe(srv.url);
+        expect(await client.call('list_datasets', {})).toEqual([]);
+        await client.close();
+      }
+    } finally {
+      await srv.close();
+      hub.close();
+    }
   });
 
   it('works in the default project and switches projects in process', async () => {

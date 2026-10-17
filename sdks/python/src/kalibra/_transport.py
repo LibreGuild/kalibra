@@ -33,6 +33,21 @@ MAX_BATCH_SPANS = 5000
 MAX_BATCH_BYTES = 1_800_000  # the server accepts up to 2 MB per request
 RETRY_DELAYS = (0.5, 1.0)
 
+# Kalibra serves everything under this path (same as BASE_PATH in the server), so a load balancer can
+# route on it. The configured URL is the server's origin; one that already ends in /kalibra works too.
+BASE_PATH = "/kalibra"
+
+
+def origin_of(url: str) -> str:
+    """``http://host:4317/kalibra/`` → ``http://host:4317``."""
+    trimmed = url.strip().rstrip("/")
+    return trimmed[: -len(BASE_PATH)] if trimmed.endswith(BASE_PATH) else trimmed
+
+
+def api_url(origin: str, path: str) -> str:
+    """A Kalibra API address: ``api_url(origin, "/projects/p/ingest/traces")``."""
+    return f"{origin}{BASE_PATH}/api{path}"
+
 _warned: set = set()
 
 
@@ -89,7 +104,7 @@ class Transport:
         timeout: float = 5.0,
         max_queued_spans: int = MAX_QUEUED_SPANS,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = origin_of(base_url)
         self.project = project
         self.key = key
         self.redact = redact
@@ -112,11 +127,11 @@ class Transport:
 
     @property
     def traces_url(self) -> str:
-        return f"{self.base_url}/api/projects/{_quote(self.project)}/ingest/traces"
+        return api_url(self.base_url, f"/projects/{_quote(self.project)}/ingest/traces")
 
     @property
     def tools_url(self) -> str:
-        return f"{self.base_url}/api/projects/{_quote(self.project)}/ingest/tools"
+        return api_url(self.base_url, f"/projects/{_quote(self.project)}/ingest/tools")
 
     def enqueue(self, trace: Dict[str, Any], spans: int) -> None:
         cost = spans + 1

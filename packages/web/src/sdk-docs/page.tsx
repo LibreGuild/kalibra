@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { AlertTriangle, ArrowUpRight, Info, Lightbulb, Moon, Sun } from 'lucide-react';
 import { CopyButton } from '../components/ui/display';
+import { withBase } from '../lib/base';
 import { useTheme } from '../lib/theme';
 import { GROUPS, SECTIONS, SDK_BRIEF } from './content';
 import { highlight } from './highlight';
@@ -103,7 +104,7 @@ function TopBar({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1240px] items-center gap-3 px-4 sm:px-6 lg:px-8">
-        <a href="/" className="flex min-w-0 items-center gap-2" title="Open Kalibra">
+        <a href={withBase('/')} className="flex min-w-0 items-center gap-2" title="Open Kalibra">
           <Logo />
           <span className="truncate text-[0.9375rem] font-semibold tracking-tight">Kalibra</span>
           <span className="hidden rounded-md bg-raised px-1.5 py-0.5 text-[0.71875rem] font-medium text-ink-muted sm:inline">SDK docs</span>
@@ -127,7 +128,7 @@ function TopBar({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {
 function Logo() {
   const [failed, setFailed] = useState(false);
   if (failed) return <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent">K</span>;
-  return <img src="/logo.png" alt="" draggable={false} onError={() => setFailed(true)} className="size-7 shrink-0 rounded-lg object-cover" />;
+  return <img src={withBase('/logo.png')} alt="" draggable={false} onError={() => setFailed(true)} className="size-7 shrink-0 rounded-lg object-cover" />;
 }
 
 function LangSwitch({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {

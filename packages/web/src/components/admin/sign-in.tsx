@@ -8,6 +8,7 @@ import { Dialog, Tip, useConfirm } from '../ui/overlay';
 import { SimpleTable } from '../ui/table';
 import { toast, toastError } from '../ui/toast';
 import { hubOp, useHubOp } from '../../lib/api';
+import { BASE } from '../../lib/base';
 
 /*
  * Administration → Sign-in: providers people can sign in with besides (or instead of) passwords.
@@ -232,7 +233,7 @@ function ProviderDialog({ provider, callbackBase, onClose }: { provider: Provide
   const set = <K extends keyof Provider>(k: K, v: Provider[K]) => setP((cur) => ({ ...cur, [k]: v }));
   const text = (k: keyof Provider) => (e: { target: { value: string } }) => set(k, e.target.value as any);
   const id = isNew ? slug(p.name) : p.id;
-  const callback = isNew ? `${callbackBase || location.origin}/api/auth/sso/${id || '<id>'}/callback` : absolute((provider as Provider).callbackUrl);
+  const callback = isNew ? `${callbackBase || location.origin}${BASE}/api/auth/sso/${id || '<id>'}/callback` : absolute((provider as Provider).callbackUrl);
   const pickPreset = (pid: string) => {
     const pr = PRESETS.find((x) => x.id === pid)!;
     setPreset(pid);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate as useRawNavigate } from 'react-router';
 import { NavLink } from '../../lib/nav';
+import { withBase } from '../../lib/base';
 import clsx from 'clsx';
 import { Activity, BookOpen, Bot, Braces, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -224,7 +225,7 @@ function Logo({ className }: { className?: string }) {
   if (failed) {
     return <span className={clsx('grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent', className)}>K</span>;
   }
-  return <img src="/logo.png" alt="" draggable={false} onError={() => setFailed(true)} className={clsx('size-7 shrink-0 rounded-lg object-cover', className)} />;
+  return <img src={withBase('/logo.png')} alt="" draggable={false} onError={() => setFailed(true)} className={clsx('size-7 shrink-0 rounded-lg object-cover', className)} />;
 }
 
 /**
@@ -251,7 +252,7 @@ function ProfileMenu({ collapsed }: { collapsed: boolean }) {
     }
     qc.clear();
     forgetProject();
-    window.location.assign('/login');
+    window.location.assign(withBase('/login'));
   };
   return (
     <div className="mt-auto border-t border-line pt-1.5">
@@ -261,7 +262,7 @@ function ProfileMenu({ collapsed }: { collapsed: boolean }) {
         trigger={
           <button
             type="button"
-            aria-label={`${name}: account, settings, docs and coding agents`}
+            aria-label={`${name}: account, coding agents, docs and settings`}
             className={clsx('flex h-10 w-full items-center rounded-lg text-left text-[0.8125rem] hover:bg-hover', collapsed ? 'justify-center' : 'gap-2.5 px-2')}
           >
             <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-[0.75rem] font-bold text-accent-ink">{initial}</span>
@@ -285,17 +286,17 @@ function ProfileMenu({ collapsed }: { collapsed: boolean }) {
           </MenuItem>
         )}
         {signedIn && <MenuSeparator />}
-        <MenuItem icon={<Settings />} onSelect={() => navigate('/settings')} hint="Theme, reading font, text size">
-          Settings
-        </MenuItem>
-        <MenuItem icon={<BookOpen />} onSelect={() => navigate('/docs')} hint="Short, illustrated guides">
-          Docs
+        <MenuItem icon={<Bot />} onSelect={() => navigate('/agents')} hint="Claude Code, Codex, Cursor… through MCP">
+          Coding agents
         </MenuItem>
         <MenuItem icon={<Braces />} onSelect={() => setSdkDocs(true)} hint="JavaScript and Python SDK reference">
           SDK docs
         </MenuItem>
-        <MenuItem icon={<Bot />} onSelect={() => navigate('/agents')} hint="Claude Code, Codex, Cursor… through MCP">
-          Coding agents
+        <MenuItem icon={<BookOpen />} onSelect={() => navigate('/docs')} hint="Using Kalibra: short, illustrated guides">
+          Platform docs
+        </MenuItem>
+        <MenuItem icon={<Settings />} onSelect={() => navigate('/settings')} hint="Theme, reading font, text size">
+          Settings
         </MenuItem>
         {signedIn && (
           <>

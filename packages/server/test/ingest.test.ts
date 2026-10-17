@@ -42,7 +42,7 @@ function browser() {
 const send = (path: string, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`${srv.url}${path}`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', ...headers }, body: typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body) });
 
-const traces = async (query: Record<string, unknown> = {}) => (await admin.call(`/api/projects/${project.id}/ops/list_traces`, query)).body.data;
+const traces = async (query: Record<string, unknown> = {}) => (await admin.call(`/kalibra/api/projects/${project.id}/ops/list_traces`, query)).body.data;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kalibra-ingest-'));
@@ -50,10 +50,10 @@ beforeAll(async () => {
   await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
   srv = await startServer({ hub });
   admin = browser();
-  await admin.call('/api/auth/login', { username: 'admin', password: PW });
-  project = (await admin.call('/api/hub/create_project', { name: 'Support bot' })).body.data;
-  other = (await admin.call('/api/hub/create_project', { name: 'Other team' })).body.data;
-  const created = (await admin.call('/api/hub/create_ingest_key', { project: project.id, name: 'support-bot dev' })).body.data;
+  await admin.call('/kalibra/api/auth/login', { username: 'admin', password: PW });
+  project = (await admin.call('/kalibra/api/hub/create_project', { name: 'Support bot' })).body.data;
+  other = (await admin.call('/kalibra/api/hub/create_project', { name: 'Other team' })).body.data;
+  const created = (await admin.call('/kalibra/api/hub/create_ingest_key', { project: project.id, name: 'support-bot dev' })).body.data;
   key = created.key;
   keyId = created.id;
 });
@@ -67,7 +67,7 @@ afterAll(async () => {
 describe('ingest keys', () => {
   it('are created once, listed without the secret, and kept out of MCP', async () => {
     expect(key).toMatch(/^kik_[A-Za-z0-9_-]{20,}$/);
-    const list = (await admin.call('/api/hub/list_ingest_keys', { project: project.id })).body.data;
+    const list = (await admin.call('/kalibra/api/hub/list_ingest_keys', { project: project.id })).body.data;
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: keyId, name: 'support-bot dev', prefix: key.slice(0, 10) });
     expect(JSON.stringify(list)).not.toContain(key);
@@ -75,45 +75,45 @@ describe('ingest keys', () => {
   });
 
   it('send traces to their own project only, and read nothing', async () => {
-    const ok = await send(`/api/projects/${project.id}/ingest/traces`, { traces: [{ id: 'k-1', name: 'answer', input: 'hi', output: 'hello', spans: [{ name: 'llm', kind: 'llm' }] }] });
+    const ok = await send(`/kalibra/api/projects/${project.id}/ingest/traces`, { traces: [{ id: 'k-1', name: 'answer', input: 'hi', output: 'hello', spans: [{ name: 'llm', kind: 'llm' }] }] });
     expect(ok.status).toBe(202);
     expect(await ok.json()).toEqual({ accepted: 1, rejected: [] });
     expect((await traces({ name: 'answer' })).traces.map((t: any) => t.id)).toEqual(['k-1']);
 
     // Another project looks like it doesn't exist; so does the default-project shortcut.
-    expect((await send(`/api/projects/${other.id}/ingest/traces`, { traces: [{ name: 'x' }] })).status).toBe(404);
-    expect((await send('/api/ingest/traces', { traces: [{ name: 'x' }] })).status).toBe(404);
+    expect((await send(`/kalibra/api/projects/${other.id}/ingest/traces`, { traces: [{ name: 'x' }] })).status).toBe(404);
+    expect((await send('/kalibra/api/ingest/traces', { traces: [{ name: 'x' }] })).status).toBe(404);
     // Not an access token: operations refuse it.
-    expect((await send(`/api/projects/${project.id}/ops/list_traces`, {})).status).toBe(401);
-    expect((await send('/api/hub/list_projects', {})).status).toBe(401);
-    expect((await send(`/api/projects/${project.id}/ingest/traces`, { traces: [{ name: 'x' }] }, { authorization: 'Bearer kik_not-a-real-key' })).status).toBe(401);
+    expect((await send(`/kalibra/api/projects/${project.id}/ops/list_traces`, {})).status).toBe(401);
+    expect((await send('/kalibra/api/hub/list_projects', {})).status).toBe(401);
+    expect((await send(`/kalibra/api/projects/${project.id}/ingest/traces`, { traces: [{ name: 'x' }] }, { authorization: 'Bearer kik_not-a-real-key' })).status).toBe(401);
   });
 
   it('stop working when revoked', async () => {
-    const tmp = (await admin.call('/api/hub/create_ingest_key', { project: project.id, name: 'temporary' })).body.data;
-    const use = () => send(`/api/projects/${project.id}/ingest/traces`, { traces: [{ name: 'x' }] }, { authorization: `Bearer ${tmp.key}` });
+    const tmp = (await admin.call('/kalibra/api/hub/create_ingest_key', { project: project.id, name: 'temporary' })).body.data;
+    const use = () => send(`/kalibra/api/projects/${project.id}/ingest/traces`, { traces: [{ name: 'x' }] }, { authorization: `Bearer ${tmp.key}` });
     expect((await use()).status).toBe(202);
-    expect((await admin.call('/api/hub/revoke_ingest_key', { project: project.id, id: tmp.id })).status).toBe(200);
+    expect((await admin.call('/kalibra/api/hub/revoke_ingest_key', { project: project.id, id: tmp.id })).status).toBe(200);
     expect((await use()).status).toBe(401);
-    expect((await admin.call('/api/hub/list_ingest_keys', { project: project.id })).body.data.map((k: any) => k.id)).toEqual([keyId]);
+    expect((await admin.call('/kalibra/api/hub/list_ingest_keys', { project: project.id })).body.data.map((k: any) => k.id)).toEqual([keyId]);
   });
 });
 
 describe('signed-in senders', () => {
   it('need the editor role (and an Origin when using a cookie)', async () => {
-    await admin.call('/api/hub/create_user', { username: 'ed', password: PW, mustChangePassword: false });
-    await admin.call('/api/hub/create_user', { username: 'vi', password: PW, mustChangePassword: false });
-    await admin.call('/api/hub/set_member', { project: project.id, user: 'ed', role: 'editor' });
-    await admin.call('/api/hub/set_member', { project: project.id, user: 'vi', role: 'viewer' });
+    await admin.call('/kalibra/api/hub/create_user', { username: 'ed', password: PW, mustChangePassword: false });
+    await admin.call('/kalibra/api/hub/create_user', { username: 'vi', password: PW, mustChangePassword: false });
+    await admin.call('/kalibra/api/hub/set_member', { project: project.id, user: 'ed', role: 'editor' });
+    await admin.call('/kalibra/api/hub/set_member', { project: project.id, user: 'vi', role: 'viewer' });
     const ed = browser();
-    await ed.call('/api/auth/login', { username: 'ed', password: PW });
+    await ed.call('/kalibra/api/auth/login', { username: 'ed', password: PW });
     const vi = browser();
-    await vi.call('/api/auth/login', { username: 'vi', password: PW });
-    const path = `/api/projects/${project.id}/ingest/traces`;
+    await vi.call('/kalibra/api/auth/login', { username: 'vi', password: PW });
+    const path = `/kalibra/api/projects/${project.id}/ingest/traces`;
     expect((await ed.call(path, { traces: [{ name: 'from-editor' }] })).status).toBe(202);
     expect((await vi.call(path, { traces: [{ name: 'from-viewer' }] })).status).toBe(403);
-    expect((await vi.call(`/api/hub/list_ingest_keys`, { project: project.id })).status).toBe(403);
-    expect((await ed.call(`/api/projects/${other.id}/ingest/traces`, { traces: [{ name: 'x' }] })).status).toBe(404);
+    expect((await vi.call(`/kalibra/api/hub/list_ingest_keys`, { project: project.id })).status).toBe(403);
+    expect((await ed.call(`/kalibra/api/projects/${other.id}/ingest/traces`, { traces: [{ name: 'x' }] })).status).toBe(404);
     const noOrigin = await fetch(`${srv.url}${path}`, { method: 'POST', headers: { cookie: ed.cookie(), 'content-type': 'application/json' }, body: '{"traces":[{"name":"csrf"}]}' });
     expect(noOrigin.status).toBe(403);
     expect((await fetch(`${srv.url}${path}`, { method: 'POST', body: '{}' })).status).toBe(401);
@@ -122,7 +122,7 @@ describe('signed-in senders', () => {
 
 describe('limits and validation', () => {
   it('answers clearly for bad bodies, too many traces and oversize requests', async () => {
-    const path = `/api/projects/${project.id}/ingest/traces`;
+    const path = `/kalibra/api/projects/${project.id}/ingest/traces`;
     expect((await send(path, '{not json')).status).toBe(400);
     const none = await send(path, { traces: [{ name: '' }, { spans: 3 }] });
     expect(none.status).toBe(400);
@@ -142,7 +142,7 @@ describe('OpenTelemetry', () => {
   });
 
   it('accepts OTLP/HTTP JSON (also gzipped) and explains that protobuf is not supported', async () => {
-    const path = `/api/projects/${project.id}/otlp/v1/traces`;
+    const path = `/kalibra/api/projects/${project.id}/otlp/v1/traces`;
     const ok = await send(path, span('chat gpt'));
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({});
@@ -158,7 +158,7 @@ describe('OpenTelemetry', () => {
 
 describe('tool recordings', () => {
   it('records a response and finds it again by the hash of its arguments', async () => {
-    const path = `/api/projects/${project.id}/ingest/tools`;
+    const path = `/kalibra/api/projects/${project.id}/ingest/tools`;
     const args = { user: 'u1', filters: { status: 'open', since: '2026-01-01' } };
     const stored = await (await send(path, { tool: 'search_orders', args, output: [{ id: 'A12' }], argsHash: 'deadbeef' })).json();
     expect(stored).toMatchObject({ stored: true, argsHash: argsHash(args), warning: expect.stringMatching(/differs/) });
@@ -172,7 +172,7 @@ describe('tool recordings', () => {
     expect(await get(`tool=send_email&argsHash=${argsHash({})}`)).toEqual({ found: true, output: null, error: 'smtp down' });
     expect((await fetch(`${srv.url}${path}?tool=x&argsHash=nothex`, { headers: { 'x-kalibra-key': key } })).status).toBe(400);
     expect((await send(path, null)).status).toBe(400);
-    expect((await admin.call(`/api/projects/${project.id}/ops/list_tool_recordings`, {})).body.data.total).toBe(2);
+    expect((await admin.call(`/kalibra/api/projects/${project.id}/ops/list_tool_recordings`, {})).body.data.total).toBe(2);
   });
 });
 
@@ -203,13 +203,13 @@ describe('the OpenAI proxy', () => {
       });
     });
     await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
-    const set = await admin.call(`/api/projects/${project.id}/ops/set_trace_settings`, { proxyOpenaiUpstream: `http://127.0.0.1:${(upstream.address() as any).port}` });
+    const set = await admin.call(`/kalibra/api/projects/${project.id}/ops/set_trace_settings`, { proxyOpenaiUpstream: `http://127.0.0.1:${(upstream.address() as any).port}` });
     expect(set.status).toBe(200);
   });
   afterAll(() => new Promise<void>((r) => upstream.close(() => r())));
 
   const proxied = (path: string, body: unknown, headers: Record<string, string> = {}) =>
-    fetch(`${srv.url}/api/projects/${project.id}/proxy/openai${path}`, {
+    fetch(`${srv.url}/kalibra/api/projects/${project.id}/proxy/openai${path}`, {
       method: 'POST',
       headers: { authorization: 'Bearer sk-live-SECRET-123', 'x-kalibra-key': key, 'content-type': 'application/json', cookie: 'kalibra_session=nope', ...headers },
       body: JSON.stringify(body),
@@ -228,7 +228,7 @@ describe('the OpenAI proxy', () => {
 
     const list = await traces({ source: 'proxy' });
     expect(list.total).toBe(1);
-    const t = (await admin.call(`/api/projects/${project.id}/ops/get_trace`, { id: list.traces[0].id })).body.data;
+    const t = (await admin.call(`/kalibra/api/projects/${project.id}/ops/get_trace`, { id: list.traces[0].id })).body.data;
     expect(t).toMatchObject({ name: 'openai.chat.completions', output: 'Hi there', resultId: 'res_42' });
     expect(t.spans[0].attributes).toMatchObject({ model: 'gpt-test', tokens_in: 7, tokens_out: 3, streamed: false });
     expect(JSON.stringify(t)).not.toContain('SECRET');
@@ -259,10 +259,10 @@ describe('the OpenAI proxy', () => {
   });
 
   it('needs the key in x-kalibra-key, and says when the upstream is down', async () => {
-    const res = await fetch(`${srv.url}/api/projects/${project.id}/proxy/openai/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: '{}' });
+    const res = await fetch(`${srv.url}/kalibra/api/projects/${project.id}/proxy/openai/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: '{}' });
     expect(res.status).toBe(401);
     expect((await res.json()).error.message).toMatch(/x-kalibra-key/);
-    await admin.call(`/api/projects/${project.id}/ops/set_trace_settings`, { proxyOpenaiUpstream: 'http://127.0.0.1:9' });
+    await admin.call(`/kalibra/api/projects/${project.id}/ops/set_trace_settings`, { proxyOpenaiUpstream: 'http://127.0.0.1:9' });
     const down = await proxied('/v1/chat/completions', { model: 'x' });
     expect(down.status).toBe(502);
     expect((await down.json()).error.type).toBe('kalibra_proxy_error');

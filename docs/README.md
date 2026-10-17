@@ -21,6 +21,6 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 | [competitors.md](competitors.md) | Feature × competitor matrix for prioritizing |
 | [research/market-and-product-analysis.md](research/market-and-product-analysis.md) | The original market research and product analysis |
 
-End-user guides live inside the app (sidebar → **Docs**).
+End-user guides live inside the app (profile menu → **Platform docs**); the SDK reference is at `/kalibra/sdk-docs` (profile menu → **SDK docs**).
 
 **Package code maps:** [core](../packages/core/README.md) · [core/src](../packages/core/src/README.md) · [server](../packages/server/README.md) · [cli](../packages/cli/src/README.md) · [web](../packages/web/README.md) · [demo](../packages/demo/README.md)

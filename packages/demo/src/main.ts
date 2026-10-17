@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { BASE_PATH } from '@kalibra/core';
 import { startDemoServers } from './servers.js';
 import { seedWorkspace, type Call } from './seed.js';
 
@@ -46,12 +47,13 @@ async function engineCall(workspace: string): Promise<{ call: Call; mode: string
   const info = join(workspace, '.engine.json');
   if (existsSync(info)) {
     const { url, token } = JSON.parse(readFileSync(info, 'utf8'));
-    const ok = await fetch(`${url}/api/health`).then((r) => r.ok, () => false);
+    // Kalibra's API lives under BASE_PATH (/kalibra).
+    const ok = await fetch(`${url}${BASE_PATH}/api/health`).then((r) => r.ok, () => false);
     if (ok) {
       const headers: Record<string, string> = { 'content-type': 'application/json', 'x-kalibra-actor': JSON.stringify({ kind: 'cli', id: 'demo-seed' }) };
       if (token) headers.authorization = `Bearer ${token}`;
       const call: Call = async (name, input) => {
-        const res = await fetch(`${url}/api/ops/${name}`, { method: 'POST', headers, body: JSON.stringify(input) });
+        const res = await fetch(`${url}${BASE_PATH}/api/ops/${name}`, { method: 'POST', headers, body: JSON.stringify(input) });
         const body: any = await res.json();
         if (!res.ok) throw new Error(`${name}: ${body?.error?.message}`);
         return body.data;

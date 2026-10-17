@@ -9,11 +9,11 @@
 
 ```bash
 npm install
-npm run dev                 # engine :4317 (tsx watch) + UI :5173 (Vite) + demo apps :4400
+npm run dev                 # engine :4317 (tsx watch) + UI :5173/kalibra/ (Vite) + demo apps :4400
 npm run demo -- --seed      # once: fill ./.kalibra-dev with demo datasets, targets, suites
 ```
 
-Open http://localhost:5173. The dev workspace is `./.kalibra-dev` (git-ignored).
+Open http://localhost:5173/kalibra/. The dev workspace is `./.kalibra-dev` (git-ignored). Everything Kalibra serves is under `/kalibra` (see [deploy.md](deploy.md#addresses-everything-under-kalibra)); Vite proxies `/kalibra/api` to the engine.
 
 Run pieces separately:
 

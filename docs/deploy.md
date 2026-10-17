@@ -12,6 +12,21 @@ Ways to run Kalibra, and how a release is made. Sign-in and roles: [users-and-pr
 
 Kalibra is for developers, so it ships as the npm package and the Docker image only. There are no desktop installers (they were dropped on 2026-10-17).
 
+## Addresses: everything under `/kalibra`
+
+Every address Kalibra serves starts with `/kalibra`:
+
+| What | Address |
+|---|---|
+| UI | `/kalibra/` (`/` redirects there) |
+| API, sign-in, live events, files | `/kalibra/api/…` |
+| Health check | `/kalibra/api/health` |
+| Traces from apps (SDKs, OpenTelemetry, OpenAI proxy) | `/kalibra/api/projects/<project>/…` |
+
+Anything else is `404`. `KALIBRA_PUBLIC_URL`, `KALIBRA_URL` and `--server` take the origin (`https://kalibra.example.com`); Kalibra adds `/kalibra` itself, and an address that already ends in `/kalibra` works too.
+
+**Behind a load balancer** (AWS ALB, Google Cloud Load Balancing, nginx, Traefik…): route the path prefix `/kalibra/*` (and `/kalibra`) to Kalibra's port 4317, and use `/kalibra/api/health` as the health check. Other apps can share the same host name on other paths. Live updates are a long-lived event stream (`/kalibra/api/projects/<p>/events`): give that route an idle timeout of a minute or more (Kalibra sends a keep-alive every 30 s) and turn off response buffering.
+
 ## Docker
 
 ```sh
@@ -22,7 +37,8 @@ docker logs kalibra        # one-time link to create the administrator
 ```
 
 - Runs `kalibra server` as an unprivileged user (uid 1000). All data is in `/data`, and `/backups` is for backups.
-- Health check: `GET /api/health`. `docker ps` shows `healthy`.
+- Health check: `GET /kalibra/api/health`. `docker ps` shows `healthy`.
+- The UI is at `https://kalibra.example.com/kalibra/` (see [Addresses](#addresses-everything-under-kalibra)).
 - Images exist for amd64 and arm64. Tags: `<version>`, `next` (newest pre-release) and `latest` (newest stable).
 - Environment variables:
   - `KALIBRA_PUBLIC_URL`;

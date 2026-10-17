@@ -21,7 +21,7 @@ The web UI, used by `npx kalibra` and team servers alike: React 19, Vite, Tailwi
 
 ## Run and test
 
-- `npm run dev` from the repo root starts the engine and Vite (http://localhost:5173), with hot reload.
+- `npm run dev` from the repo root starts the engine and Vite (http://localhost:5173/kalibra/), with hot reload. The app is built with Vite `base: '/kalibra/'`; raw URLs go through `withBase()` (`src/lib/base.ts`), router paths don't (React Router's `basename`).
 - `npx tsc -p packages/web` typechecks; `npm run build -w @kalibra/web` builds into `dist/`, which the CLI serves (and bundles for npm and Docker).
 
 ## Where to start

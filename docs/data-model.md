@@ -33,7 +33,7 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 
 - Content-addressed: `blobs/ab/cd/<sha256>`; identical files are stored once.
 - Dataset cells for audio/image/file columns hold `{ blob, name, mime, size }`.
-- Served with Range support (`GET /api/files/:hash`) so audio can seek.
+- Served with Range support (`GET /kalibra/api/projects/:p/files/:hash`) so audio can seek.
 
 ## Secrets
 

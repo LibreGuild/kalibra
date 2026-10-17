@@ -1,4 +1,5 @@
 import { Link, opensNewTab } from '../../lib/nav';
+import { withBase } from '../../lib/base';
 import clsx from 'clsx';
 import {
   ArrowLeftRight,
@@ -134,7 +135,7 @@ export function BlockView({ block }: { block: Block }) {
     case 'image':
       return (
         <figure className="overflow-hidden rounded-2xl border border-line bg-raised">
-          <img src={block.src} alt={block.alt} loading="lazy" className="aspect-[3/2] w-full object-cover" />
+          <img src={withBase(block.src)} alt={block.alt} loading="lazy" className="aspect-[3/2] w-full object-cover" />
           {block.caption && <figcaption className="border-t border-line bg-surface px-4 py-2 text-sm text-ink-muted">{block.caption}</figcaption>}
         </figure>
       );

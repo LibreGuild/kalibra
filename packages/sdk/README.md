@@ -204,7 +204,7 @@ Redaction applies to traces. Tool recordings are sent exactly as they are (see [
 | Variable | Meaning |
 |---|---|
 | `KALIBRA_ENABLED` | `false` = kill switch; `true` = on when a key is set |
-| `KALIBRA_URL` | Kalibra address (default `http://127.0.0.1:4317`) |
+| `KALIBRA_URL` | Kalibra's origin (default `http://127.0.0.1:4317`); its API is under `/kalibra` there, and an address ending in `/kalibra` works too |
 | `KALIBRA_KEY` | ingest key `kik_…` (traces and tool recordings only) |
 | `KALIBRA_PROJECT` | project id or name (default `default`) |
 | `KALIBRA_SAMPLE_RATE` | share of traces kept, 0..1 |

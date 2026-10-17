@@ -1,4 +1,6 @@
 # Replace with your server's DNS name. Caddy gets and renews the HTTPS certificate.
+# Kalibra answers under /kalibra (https://kalibra.example.com/kalibra/); "/" redirects there. To share
+# the host with other apps, route only "handle /kalibra*" to Kalibra.
 kalibra.example.com {
 	encode gzip
 	reverse_proxy kalibra:4317 {

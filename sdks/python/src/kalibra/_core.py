@@ -25,7 +25,7 @@ import time
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple, TypeVar, Union
 
 from . import _serialize
-from ._transport import Transport, warn_once
+from ._transport import Transport, origin_of, warn_once
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -93,7 +93,7 @@ def init(
     with _state.lock:
         old = _state.transport
         _state.initialized = True
-        _state.url = (url or os.environ.get("KALIBRA_URL") or DEFAULT_URL).rstrip("/")
+        _state.url = origin_of(url or os.environ.get("KALIBRA_URL") or DEFAULT_URL)
         _state.key = key or os.environ.get("KALIBRA_KEY") or None
         _state.project = project or os.environ.get("KALIBRA_PROJECT") or "default"
         rate = sample_rate if sample_rate is not None else _float(os.environ.get("KALIBRA_SAMPLE_RATE"), 1.0)

@@ -104,7 +104,7 @@ See [users and projects](docs/users-and-projects.md) and [deploy](docs/deploy.md
 
 ## Docs
 
-- **In the app:** profile menu → **Docs** (short, illustrated guides).
+- **In the app:** profile menu → **Platform docs** (short, illustrated guides) and **SDK docs** (JavaScript/TypeScript and Python).
 - **Developers:** [docs/](docs/README.md): [architecture](docs/architecture.md) · [engine](docs/engine.md) · [data model](docs/data-model.md) · [targets & checks](docs/targets-and-checks.md) · [MCP](docs/mcp-and-agents.md) · [testing](docs/testing.md) · [build & run](docs/build-and-run.md)
 - **Product:** [features](docs/features.md) · [roadmap](docs/roadmap.md)
 
@@ -112,7 +112,7 @@ See [users and projects](docs/users-and-projects.md) and [deploy](docs/deploy.md
 
 ```bash
 npm install
-npm run dev                 # engine :4317 + UI http://localhost:5173 + demo apps :4400
+npm run dev                 # engine :4317 + UI http://localhost:5173/kalibra/ + demo apps :4400
 npm run demo -- --seed      # once: demo datasets, targets and suites in ./.kalibra-dev
 npm run typecheck && npm test
 ```

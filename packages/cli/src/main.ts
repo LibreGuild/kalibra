@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { newToken, startServer } from '@kalibra/server';
-import { providersFromEnv, renderEvalReport } from '@kalibra/core';
+import { BASE_PATH, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
 import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
 import { runMcp } from './mcp.js';
@@ -41,12 +41,13 @@ Usage:
 Options:
   --dir <path>         Data folder (default: $KALIBRA_DIR or ~/Kalibra/default)
   --project <p>        Project id or name (default: $KALIBRA_PROJECT or the default project)
-  --server <url>       Talk to a team server (with KALIBRA_TOKEN set to an access token)
+  --server <url>       Talk to a team server, e.g. https://kalibra.example.com (with KALIBRA_TOKEN set)
   --dev                Development mode (data in ./.kalibra-dev, allows the Vite dev server)
 
 Team server (kalibra server, or kalibra serve with KALIBRA_MODE=server):
   --host <addr>        Listen address (default 127.0.0.1; put a TLS reverse proxy in front)
   --public-url <url>   The address people use, e.g. https://kalibra.example.com ($KALIBRA_PUBLIC_URL)
+                       Kalibra answers under /kalibra there (UI /kalibra/, API /kalibra/api/…)
   --trust-proxy        Trust X-Forwarded-* headers from that proxy ($KALIBRA_TRUST_PROXY=1)
   --folder-root <dir>  Allow folder sync inside this folder only ($KALIBRA_FOLDER_ROOT; off otherwise)
   KALIBRA_ADMIN_USERNAME / KALIBRA_ADMIN_PASSWORD create the first administrator at start.
@@ -184,8 +185,8 @@ async function serveLocal(dir: string, values: Flags) {
     meta: { mode: values.dev ? 'dev' : 'cli', version: VERSION, mcp: mcpCommand(dir) },
   });
   writeEngineInfo(dir, { url: srv.url, token, pid: process.pid });
-  const openUrl = token ? `${srv.url}/?token=${token}` : srv.url;
-  console.log(`Kalibra running\n  data: ${dir}\n  url:  ${openUrl}${staticDir ? '' : '\n  (UI not built — use the Vite dev server on http://localhost:5173)'}`);
+  const openUrl = `${srv.url}${BASE_PATH}/${token ? `?token=${token}` : ''}`;
+  console.log(`Kalibra running\n  data: ${dir}\n  url:  ${openUrl}${staticDir ? '' : `\n  (UI not built — use the Vite dev server on http://localhost:5173${BASE_PATH}/)`}`);
   if (values.open) {
     const { exec } = await import('node:child_process');
     exec(`${process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open'} "${openUrl}"`);
@@ -217,8 +218,8 @@ async function serveTeam(dir: string, values: Flags) {
     allowedOrigins: values.dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
     meta: { mode: 'server', version: VERSION },
   });
-  const base = publicUrl?.replace(/\/$/, '') ?? srv.url;
-  console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}`);
+  const base = `${publicOrigin(publicUrl) ?? srv.url}${BASE_PATH}`;
+  console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
   if (!folderRoot) console.log('  Folder sync is off (set --folder-root to allow it inside one folder).');
   const providers = hub.providers.enabled();

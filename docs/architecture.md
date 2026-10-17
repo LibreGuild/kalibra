@@ -18,9 +18,9 @@ An npm-workspaces monorepo, TypeScript everywhere.
 
 ```
                  ┌───────────────── Engine (core) ─────────────────┐
-  Web UI ───────►│ HTTP API (server)  POST /api/ops/:name          │
-  (browser)      │                    GET  /api/events  (SSE)      │
-                 │                    POST /api/files, GET /files  │
+  Web UI ───────►│ HTTP API (server)  POST /kalibra/api/ops/:name  │
+  (browser)      │                    GET  /kalibra/api/events     │
+                 │                    POST|GET /kalibra/api/files  │
                  │        │                                        │
   kalibra CLI ──►│  Operation registry ─► repos (SQLite) ─► blobs/  │
                  │        │                                        │
@@ -44,14 +44,16 @@ An npm-workspaces monorepo, TypeScript everywhere.
 
 | Mode | Processes |
 |---|---|
-| `npx kalibra` / `kalibra` | One Node process (bundled CLI) runs engine + server and opens the browser at `http://127.0.0.1:<port>/?token=…` |
+| `npx kalibra` / `kalibra` | One Node process (bundled CLI) runs engine + server and opens the browser at `http://127.0.0.1:<port>/kalibra/?token=…` |
 | Team server (`kalibra server`, Docker) | One Node process with sign-in; see [deploy.md](deploy.md) |
-| Dev (`npm run dev`) | Engine on :4317 (tsx watch) + Vite UI on :5173 (proxy `/api`) + demo apps on :4400 |
+| Dev (`npm run dev`) | Engine on :4317 (tsx watch) + Vite UI on http://localhost:5173/kalibra/ (proxy `/kalibra/api`) + demo apps on :4400 |
 | CI | `kalibra run …` opens the workspace directly, exits non-zero on failure |
 
 ## Where state lives
 
 ```
+
+Every HTTP address starts with `/kalibra` (`BASE_PATH` in `packages/core/src/base-path.ts`), so a load balancer can route on the path: the UI is `/kalibra/`, the API `/kalibra/api/…`, and `/` redirects to `/kalibra/`.
 <workspace>/            default ~/Kalibra/default, or KALIBRA_DIR / --dir
   kalibra.db            SQLite (WAL): datasets, rows, definitions, runs, comparisons, results, labels, insights, activity
   blobs/ab/cd/<sha256>  uploaded and generated files, stored once by content hash
@@ -70,7 +72,7 @@ Each package has a README with its code map: [core](../packages/core/README.md) 
 | **a new check** | `packages/core/src/checks/<category>.ts` (`defineCheck`) + register it in `checks/index.ts`. The UI form comes from its `fields`. Tests: `packages/core/test/checks.test.ts`. |
 | **a new operation** (UI + CLI + MCP at once) | `packages/core/src/ops/<area>.ts` (`defineOp`) + `ops/index.ts`. Set `access` when the default role is wrong. `test/registry.test.ts` guards descriptions and roles. |
 | **a new target kind** | the config schema in `packages/core/src/specs.ts` (`TargetSpec`), the executor in `targets/<kind>.ts` + `targets/index.ts`, the form in `packages/web/src/components/targets/` |
-| **sign-in providers** | `packages/core/src/hub/providers.ts` (config, env shortcuts), `hub/sso.ts` (OIDC, GitHub, gateways, who gets in), routes in `packages/server/src/index.ts` (`/api/auth/sso/*`), admin UI in `packages/web/src/components/admin/sign-in.tsx` |
+| **sign-in providers** | `packages/core/src/hub/providers.ts` (config, env shortcuts), `hub/sso.ts` (OIDC, GitHub, gateways, who gets in), routes in `packages/server/src/index.ts` (`/kalibra/api/auth/sso/*`), admin UI in `packages/web/src/components/admin/sign-in.tsx` |
 | **permissions** | project roles and `opAccess` in `packages/core/src/registry.ts`; the decision in `hub/hub.ts` (`callProject`, `roleIn`, `capsFor`); code and folder policies in `policy.ts`; hub operations' rules in `hub/ops.ts`. Overview: [users-and-projects.md](users-and-projects.md). |
 | **request authentication** (tokens, cookies, CSRF) | `packages/server/src/auth.ts` |
 | **the UI for X** | the route in `packages/web/src/routes.tsx` → `src/pages/<x>.tsx` → parts in `src/components/<x>/`; shared building blocks in `src/components/ui/` |

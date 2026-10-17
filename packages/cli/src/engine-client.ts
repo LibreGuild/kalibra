@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
+import { BASE_PATH, DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, publicOrigin, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
 
 /*
  * How the CLI and the MCP bridge reach Kalibra, in order of preference:
@@ -100,7 +100,8 @@ export interface ConnectOptions {
 }
 
 export async function connect(dir: string, actor: Actor, opts: ConnectOptions = {}): Promise<OpsClient> {
-  const server = (opts.server ?? process.env.KALIBRA_URL)?.replace(/\/$/, '');
+  // The server's origin; Kalibra's API is under BASE_PATH there (an address ending in /kalibra works too).
+  const server = publicOrigin(opts.server ?? process.env.KALIBRA_URL);
   if (server) {
     const token = opts.token ?? process.env.KALIBRA_TOKEN;
     if (!token) throw new Error('Set KALIBRA_TOKEN to a personal access token (create one in Kalibra under Account → Access tokens)');
@@ -108,13 +109,14 @@ export async function connect(dir: string, actor: Actor, opts: ConnectOptions = 
   }
   const info = readEngineInfo(dir);
   if (info) {
-    const health = await fetch(`${info.url}/api/health`, { signal: AbortSignal.timeout(2000) }).catch(() => undefined);
+    const health = await fetch(`${info.url}${BASE_PATH}/api/health`, { signal: AbortSignal.timeout(2000) }).catch(() => undefined);
     if (health?.ok) return remote(info.url, info.token, actor, opts.project);
   }
   return inProcess(dir, actor, opts.project);
 }
 
-async function remote(url: string, token: string | undefined, actor: Actor, wanted?: string): Promise<OpsClient> {
+async function remote(origin: string, token: string | undefined, actor: Actor, wanted?: string): Promise<OpsClient> {
+  const url = `${origin}${BASE_PATH}`;
   const headers: Record<string, string> = { 'content-type': 'application/json', 'x-kalibra-actor': JSON.stringify(actor) };
   if (token) headers.authorization = `Bearer ${token}`;
   const post = async (path: string, input: unknown) => {

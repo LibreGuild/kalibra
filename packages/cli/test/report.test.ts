@@ -31,7 +31,8 @@ describe('git details for CI runs', () => {
   });
 
   it('links runs only on a team server', () => {
-    expect(runUrl('https://kalibra.example.com/', 'Team evals', 'run_1')).toBe('https://kalibra.example.com/p/Team%20evals/runs/run_1');
+    expect(runUrl('https://kalibra.example.com/', 'Team evals', 'run_1')).toBe('https://kalibra.example.com/kalibra/p/Team%20evals/runs/run_1');
+    expect(runUrl('https://kalibra.example.com/kalibra', 'p', 'r')).toBe('https://kalibra.example.com/kalibra/p/p/runs/r');
     expect(runUrl(undefined, 'p', 'r')).toBeUndefined();
   });
 });

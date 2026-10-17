@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import type { GitInfo } from '@kalibra/core';
+import { BASE_PATH, publicOrigin, type GitInfo } from '@kalibra/core';
 
 /*
  * CI helpers for `kalibra run --baseline … --report markdown` and `kalibra eval-report`: which
@@ -45,5 +45,5 @@ export function detectGit(env: Env, flags: { branch?: string; commit?: string; b
 /** Link to a run on a team server (none for the local app, whose address needs its per-launch token). */
 export function runUrl(server: string | undefined, project: string, runId: string): string | undefined {
   if (!server) return undefined;
-  return `${server.replace(/\/$/, '')}/p/${encodeURIComponent(project)}/runs/${encodeURIComponent(runId)}`;
+  return `${publicOrigin(server)}${BASE_PATH}/p/${encodeURIComponent(project)}/runs/${encodeURIComponent(runId)}`;
 }

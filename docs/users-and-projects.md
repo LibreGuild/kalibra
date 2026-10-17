@@ -11,7 +11,7 @@ How Kalibra decides who can see and change what. Code: `packages/core/src/hub/`,
 | Projects | yes | yes, with members and roles |
 | Users, groups, members | hidden | managed by administrators and project owners |
 
-Same code, same UI. The UI asks `GET /api/auth/status` for the mode and hides account features locally.
+Same code, same UI. The UI asks `GET /kalibra/api/auth/status` for the mode and hides account features locally.
 
 ## Data layout
 
@@ -102,7 +102,7 @@ KALIBRA_PROXY_JWT_HEADER=X-Goog-IAP-JWT-Assertion KALIBRA_PROXY_JWKS_URL=https:/
 KALIBRA_AUTH_CONFIG=/etc/kalibra/auth.json
 ```
 
-Register the callback URL `https://<your server>/api/auth/sso/<provider id>/callback` at the provider. Kalibra needs no account with Google, GitHub or anyone else: each deployment registers its own OAuth client.
+Register the callback URL `https://<your server>/kalibra/api/auth/sso/<provider id>/callback` at the provider (Administration → Sign-in shows it). Kalibra needs no account with Google, GitHub or anyone else: each deployment registers its own OAuth client.
 
 If a provider breaks, administrators can still sign in with a password even when password sign-in is turned off for everyone else. As a last resort, use `kalibra users reset-password` on the server.
 

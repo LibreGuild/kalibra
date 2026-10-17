@@ -211,7 +211,7 @@ export const SECTIONS: Section[] = [
         head: ['Option', 'Environment', 'Default', 'What it does'],
         rows: [
           ['`enabled`', '`KALIBRA_ENABLED`', 'on with a key', 'On or off. `KALIBRA_ENABLED=false` always wins.'],
-          ['`url`', '`KALIBRA_URL`', '`http://127.0.0.1:4317`', 'Where Kalibra runs.'],
+          ['`url`', '`KALIBRA_URL`', '`http://127.0.0.1:4317`', 'Where Kalibra runs: its origin. The SDK adds `/kalibra/api/…`; an address ending in `/kalibra` works too.'],
           ['`key`', '`KALIBRA_KEY`', 'none', 'Ingest key `kik_…`. No key means off.'],
           ['`project`', '`KALIBRA_PROJECT`', '`default`', 'Project id or name.'],
           [t('`sampleRate`', '`sample_rate`'), '`KALIBRA_SAMPLE_RATE`', '`1`', 'Share of traces to keep, 0 to 1. Eval-run traces are always kept.'],
@@ -873,7 +873,7 @@ export const SECTIONS: Section[] = [
         label: 'OpenTelemetry (LangChain, LlamaIndex, Vercel AI SDK, OpenAI Agents SDK…)',
         syntax: 'bash',
         code: both(src`
-          OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317/api/projects/<project>/otlp
+          OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317/kalibra/api/projects/<project>/otlp
           OTEL_EXPORTER_OTLP_PROTOCOL=http/json
           OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20kik_…
         `),
@@ -888,7 +888,7 @@ export const SECTIONS: Section[] = [
             const dev = process.env.NODE_ENV !== 'production';
             export const openai = new OpenAI({
               ...(dev && {
-                baseURL: 'http://127.0.0.1:4317/api/projects/<project>/proxy/openai/v1',
+                baseURL: 'http://127.0.0.1:4317/kalibra/api/projects/<project>/proxy/openai/v1',
                 defaultHeaders: { 'x-kalibra-key': process.env.KALIBRA_KEY },
               }),
             });
@@ -898,7 +898,7 @@ export const SECTIONS: Section[] = [
 
             dev = os.getenv("ENV") != "production"
             client = OpenAI(**({
-                "base_url": "http://127.0.0.1:4317/api/projects/<project>/proxy/openai/v1",
+                "base_url": "http://127.0.0.1:4317/kalibra/api/projects/<project>/proxy/openai/v1",
                 "default_headers": {"x-kalibra-key": os.environ.get("KALIBRA_KEY", "")},
             } if dev else {}))
           `,

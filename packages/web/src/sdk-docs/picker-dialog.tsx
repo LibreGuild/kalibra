@@ -2,6 +2,7 @@ import { ArrowUpRight } from 'lucide-react';
 import { buttonClass } from '../components/ui/button';
 import { Dialog } from '../components/ui/overlay';
 import { SDK_BRIEF } from './content';
+import { withBase } from '../lib/base';
 import { sdkDocsPath } from './links';
 import type { Lang } from './types';
 
@@ -25,7 +26,7 @@ export function SdkDocsDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 <p className="mt-1 text-[0.8125rem] text-ink-muted">{sdk.text}</p>
               </div>
               <code className="w-fit rounded-md bg-surface px-2 py-1 font-mono text-[0.75rem] text-ink-muted">{sdk.install}</code>
-              <a href={sdkDocsPath(lang)} target="_blank" rel="noopener noreferrer" className={buttonClass('primary', 'sm', 'mt-auto w-fit')}>
+              <a href={withBase(sdkDocsPath(lang))} target="_blank" rel="noopener noreferrer" className={buttonClass('primary', 'sm', 'mt-auto w-fit')}>
                 Documentation
                 <ArrowUpRight className="size-3.5" />
               </a>

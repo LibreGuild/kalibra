@@ -1,6 +1,7 @@
 import { QueryClient, useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useMatch } from 'react-router';
+import { withBase } from './base';
 
 /*
  * Talking to Kalibra. Two kinds of calls:
@@ -99,7 +100,7 @@ async function request<T>(url: string, init: RequestInit = {}, fallback = 'Reque
 const post = (url: string, input: unknown) =>
   ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input ?? {}) }) satisfies RequestInit;
 
-const projectBase = (project: string) => `/api/projects/${encodeURIComponent(project)}`;
+const projectBase = (project: string) => withBase(`/api/projects/${encodeURIComponent(project)}`);
 
 /** Calls one operation of a project (default: the current one). Every UI action goes through here, exactly like the CLI and MCP. */
 export function op<T = any>(name: string, input: unknown = {}, project = currentProject): Promise<T> {
@@ -108,12 +109,12 @@ export function op<T = any>(name: string, input: unknown = {}, project = current
 
 /** Calls a hub operation: account, projects, members, administration. */
 export function hubOp<T = any>(name: string, input: unknown = {}): Promise<T> {
-  return request<T>(`/api/hub/${name}`, post('', input));
+  return request<T>(withBase(`/api/hub/${name}`), post('', input));
 }
 
 /** Sign-in endpoints (setup, login, logout). */
 export function authCall<T = any>(path: 'setup' | 'login' | 'logout', input: unknown = {}): Promise<T> {
-  return request<T>(`/api/auth/${path}`, post('', input));
+  return request<T>(withBase(`/api/auth/${path}`), post('', input));
 }
 
 export interface UploadedFile {
@@ -264,7 +265,7 @@ export interface ServerMeta {
 
 /** Facts about the running server (version, how to start the MCP bridge). */
 export function useMeta() {
-  return useQuery<ServerMeta>({ queryKey: ['meta'], queryFn: () => request<ServerMeta>('/api/meta'), staleTime: Infinity });
+  return useQuery<ServerMeta>({ queryKey: ['meta'], queryFn: () => request<ServerMeta>(withBase('/api/meta')), staleTime: Infinity });
 }
 
 export interface User {
@@ -291,7 +292,7 @@ export interface AuthStatus {
   error?: string;
 }
 
-export const fetchAuthStatus = () => request<AuthStatus>('/api/auth/status');
+export const fetchAuthStatus = () => request<AuthStatus>(withBase('/api/auth/status'));
 
 /** Sign-in state: local (`npx kalibra`) or team server, and who is signed in. */
 export function useAuthStatus() {

@@ -16,7 +16,8 @@ import { authenticate, type AuthConfig } from './auth.js';
 import { fail, readBody, send } from './http.js';
 
 /*
- * Where apps send what happened inside them (docs/design/sdk-and-traces.md §2):
+ * Where apps send what happened inside them (docs/design/sdk-and-traces.md §2). Paths here are
+ * after the /kalibra base path, which index.ts strips:
  *
  *   POST /api/projects/:p/ingest/traces     SDK batches            → 202 { accepted, rejected }
  *   POST /api/projects/:p/otlp/v1/traces    OpenTelemetry (JSON)   → 200 {}

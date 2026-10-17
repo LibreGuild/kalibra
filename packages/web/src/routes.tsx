@@ -1,4 +1,5 @@
 import { createBrowserRouter, isRouteErrorResponse, Navigate, useLocation, useRouteError, type RouteObject } from 'react-router';
+import { BASE } from './lib/base';
 import { AppShell, Page } from './components/layout/shell';
 import { buttonClass } from './components/ui/button';
 import { ErrorBox, Loading } from './components/ui/display';
@@ -92,7 +93,7 @@ export const router = createBrowserRouter([
       },
     ],
   },
-]);
+], { basename: BASE });
 
 /** "/" opens the project you used last (if you can still open it), else the default one, else your first. */
 function HomeRedirect() {

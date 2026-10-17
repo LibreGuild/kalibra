@@ -93,7 +93,7 @@ with kalibra.step("claude", kind="llm") as s:
     s.set(model=msg.model, tokens_in=msg.usage.input_tokens, tokens_out=msg.usage.output_tokens)
 ```
 
-No code at all: point an OpenAI client at Kalibra's proxy, `base_url=f"{KALIBRA_URL}/api/projects/<project>/proxy/openai/v1"`, with header `x-kalibra-key`, or export OpenTelemetry traces to Kalibra. See **Connect your app** in Kalibra.
+No code at all: point an OpenAI client at Kalibra's proxy, `base_url=f"{KALIBRA_URL}/kalibra/api/projects/<project>/proxy/openai/v1"`, with header `x-kalibra-key`, or export OpenTelemetry traces to Kalibra. See **Connect your app** in Kalibra.
 
 ## RAG: sources
 
@@ -180,7 +180,7 @@ def test_support_bot():
 | `init()` argument | Environment | Default |
 |---|---|---|
 | `enabled` | `KALIBRA_ENABLED` (kill switch) | on when a key is set |
-| `url` | `KALIBRA_URL` | `http://127.0.0.1:4317` |
+| `url` | `KALIBRA_URL` | `http://127.0.0.1:4317` (the server's origin; Kalibra's API is under `/kalibra` there, and an address ending in `/kalibra` works too) |
 | `key` | `KALIBRA_KEY` | none (an ingest key `kik_…`) |
 | `project` | `KALIBRA_PROJECT` | `default` (id or name) |
 | `sample_rate` | `KALIBRA_SAMPLE_RATE` | `1` |
@@ -213,7 +213,7 @@ Measured on an Apple M-series laptop (Python 3.12, `tests/test_perf.py`):
 
 ## What is sent
 
-`POST {url}/api/projects/{project}/ingest/traces` with `Authorization: Bearer <key>`:
+`POST {url}/kalibra/api/projects/{project}/ingest/traces` with `Authorization: Bearer <key>`:
 
 ```json
 {"traces": [{
@@ -233,7 +233,7 @@ Measured on an Apple M-series laptop (Python 3.12, `tests/test_perf.py`):
 - `runId` and `resultId` appear only when the request came from a Kalibra eval run.
 
 **Tool recordings:**
-- `POST {url}/api/projects/{project}/ingest/tools` with body `{"tool", "args", "argsHash", "output" | "error"}`;
+- `POST {url}/kalibra/api/projects/{project}/ingest/tools` with body `{"tool", "args", "argsHash", "output" | "error"}`;
 - replay reads `GET …/ingest/tools?tool=<name>&argsHash=<sha256>`, which answers `{"found", "output", "error"}`.
 
 ## Development

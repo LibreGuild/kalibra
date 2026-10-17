@@ -25,6 +25,7 @@ import {
  */
 
 import type { ProjectRole } from './roles';
+import { BASE } from './base';
 export type { ProjectRole } from './roles';
 const RANK: Record<ProjectRole, number> = { viewer: 0, editor: 1, owner: 2 };
 
@@ -103,6 +104,8 @@ export function AuthGate() {
  */
 export function safeNext(next: string | null | undefined): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(next) || next.startsWith('/api/')) return '/';
+  // Router paths leave out the base path (/kalibra); accept a full one too.
+  if (next === BASE || next.startsWith(`${BASE}/`)) return safeNext(next.slice(BASE.length) || '/');
   return next;
 }
 
