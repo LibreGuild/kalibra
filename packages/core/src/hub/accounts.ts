@@ -163,6 +163,42 @@ export class Accounts {
     this.db.run('UPDATE users SET last_login_at = ? WHERE id = ?', nowIso(), id);
   }
 
+  /** A free username based on `wanted` (adds a number when it is taken). */
+  freeUsername(wanted: string): string {
+    let base = wanted.toLowerCase().replace(/[^a-z0-9._@-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 56) || 'user';
+    if (base.length < 2) base = `${base}-user`;
+    let name = base;
+    for (let n = 2; this.find(name); n++) name = `${base}-${n}`;
+    return name;
+  }
+
+  // ── Provider identities ───────────────────────────────────────────────────
+
+  /** The account linked to a provider identity. */
+  byIdentity(provider: string, subject: string): User | undefined {
+    const r = this.db.get('SELECT u.* FROM identities i JOIN users u ON u.id = i.user_id WHERE i.provider = ? AND i.subject = ?', provider, subject);
+    return r ? toUser(r) : undefined;
+  }
+
+  linkIdentity(provider: string, subject: string, userId: string, email: string, data: unknown) {
+    const now = nowIso();
+    this.db.run(
+      `INSERT INTO identities (provider, subject, user_id, email, data, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (provider, subject) DO UPDATE SET email = excluded.email, data = excluded.data, last_login_at = excluded.last_login_at`,
+      provider, subject, userId, email, JSON.stringify(data ?? {}), now, now,
+    );
+  }
+
+  identities(userId: string): { provider: string; email: string; lastLoginAt?: string }[] {
+    return this.db
+      .all('SELECT provider, email, last_login_at FROM identities WHERE user_id = ? ORDER BY provider', userId)
+      .map((r) => ({ provider: r.provider, email: r.email, ...(r.last_login_at ? { lastLoginAt: r.last_login_at } : {}) }));
+  }
+
+  unlinkIdentity(userId: string, provider: string) {
+    this.db.run('DELETE FROM identities WHERE user_id = ? AND provider = ?', userId, provider);
+  }
+
   // ── Sessions ──────────────────────────────────────────────────────────────
 
   /** Starts a browser session. Returns the cookie value; only its hash is stored. */

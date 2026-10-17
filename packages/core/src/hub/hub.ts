@@ -4,12 +4,14 @@ import { z } from 'zod';
 import { Db } from '../db.js';
 import { Engine } from '../engine.js';
 import { ALL_CAPABILITIES, Registry, type Actor, type Capabilities, type ProjectRole } from '../registry.js';
-import type { SecretStore } from '../storage.js';
+import { FileSecretStore, type SecretStore } from '../storage.js';
 import { KalibraError, notFound, nowIso, parseJson } from '../util.js';
 import { Accounts } from './accounts.js';
 import { HUB_OPS, type HubOpContext, type HubOpDef } from './ops.js';
 import { randomSecret } from './passwords.js';
 import { DEFAULT_PROJECT, Projects } from './projects.js';
+import { Providers } from './providers.js';
+import { SsoService } from './sso.js';
 import { HUB_MIGRATIONS } from './schema.js';
 import { actorOf, LOCAL_ACCOUNT, type HubMode, type Principal, type Project, type User } from './types.js';
 
@@ -36,6 +38,10 @@ export const ServerSettings = z.object({
     .default('everyone')
     .describe('Who may add or change JavaScript (script targets, hooks, script checks). It runs on the server with the server’s permissions.'),
   sessionDays: z.number().int().min(1).max(365).default(14).describe('How long a sign-in lasts'),
+  passwordLogin: z
+    .boolean()
+    .default(true)
+    .describe('Allow signing in with a username and password. When off, only administrators can (so a broken sign-in provider never locks everyone out).'),
 });
 export type ServerSettings = z.infer<typeof ServerSettings>;
 
@@ -47,6 +53,12 @@ export interface HubOptions {
   secretsFor?: (projectDir: string) => SecretStore;
   /** Server only: folder sync may only use folders inside this one. Unset turns folder sync off on servers. */
   folderRoot?: string;
+  /** The address people use (https://kalibra.example.com); shown as the sign-in callback base. */
+  publicUrl?: string;
+  /** Sign-in providers from configuration (see providersFromEnv). Read-only in the app. */
+  authProviders?: { config: unknown; clientSecret?: string }[];
+  /** Where client secrets of sign-in providers made in the app are kept. Defaults to hub-secrets.json (0600). */
+  hubSecrets?: SecretStore;
 }
 
 export class Hub {
@@ -55,6 +67,8 @@ export class Hub {
   readonly db: Db;
   readonly accounts: Accounts;
   readonly projects: Projects;
+  readonly providers: Providers;
+  readonly sso: SsoService;
   readonly registry = new Registry<HubOpContext, HubOpDef>({
     authorize: (def, ctx) => {
       if (def.serverOnly && this.mode === 'local') throw new KalibraError('unavailable', `${def.title} is only available on a team server`);
@@ -75,6 +89,8 @@ export class Hub {
     this.db = new Db(join(this.dir, 'hub.db'), HUB_MIGRATIONS);
     this.accounts = new Accounts(this.db);
     this.projects = new Projects(this.db);
+    this.providers = new Providers(this.db, opts.hubSecrets ?? new FileSecretStore(join(this.dir, 'hub-secrets.json')), opts.authProviders);
+    this.sso = new SsoService(this);
     this.projects.ensureDefault(this.mode === 'local' ? 'My project' : 'Default');
     this.registry.add(...HUB_OPS);
     this.accounts.pruneSessions();
@@ -97,6 +113,11 @@ export class Hub {
   /** Records a security-relevant event (sign-ins, account and permission changes). */
   audit(actor: Actor | { kind: 'anonymous'; id: string }, action: string, subject = '', details: unknown = {}, ip = '') {
     this.db.run('INSERT INTO audit (at, actor, action, subject, details, ip) VALUES (?, ?, ?, ?, ?, ?)', nowIso(), JSON.stringify(actor), action, subject, JSON.stringify(details ?? {}), ip.slice(0, 64));
+  }
+
+  /** The public address for sign-in callbacks, when configured. */
+  publicUrl(): string | undefined {
+    return this.opts.publicUrl?.replace(/\/$/, '');
   }
 
   // ── First administrator ───────────────────────────────────────────────────

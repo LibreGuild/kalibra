@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, type Actor, type HubMode, type SecretStore } from '@kalibra/core';
+import { DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
 
 /*
  * How the CLI and the MCP bridge reach Kalibra, in order of preference:
@@ -65,7 +65,7 @@ export function secretsFor(projectDir: string): SecretStore {
 }
 
 /** The hub for a folder, opened in this process. */
-export function openHub(dir: string, mode: HubMode = 'local', opts: { folderRoot?: string } = {}) {
+export function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders'> = {}) {
   return new Hub({ dir, mode, secretsFor, ...opts });
 }
 

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { newToken, startServer } from '@kalibra/server';
+import { providersFromEnv } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
 import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
 import { runMcp } from './mcp.js';
@@ -166,12 +167,12 @@ async function serveLocal(dir: string, values: Flags) {
 /** A team server: everyone signs in; projects have members and roles. */
 async function serveTeam(dir: string, values: Flags) {
   const folderRoot = (values['folder-root'] as string | undefined) ?? process.env.KALIBRA_FOLDER_ROOT;
-  const hub = openHub(dir, 'server', folderRoot ? { folderRoot: resolve(folderRoot) } : {});
+  const publicUrl = (values['public-url'] as string | undefined) ?? process.env.KALIBRA_PUBLIC_URL;
+  const hub = openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv() });
   hub.openAll();
   const adminUser = process.env.KALIBRA_ADMIN_USERNAME;
   const adminPassword = process.env.KALIBRA_ADMIN_PASSWORD;
   if (adminUser && adminPassword && hub.needsSetup()) await hub.ensureAdmin(adminUser, adminPassword);
-  const publicUrl = (values['public-url'] as string | undefined) ?? process.env.KALIBRA_PUBLIC_URL;
   const host = String(values.host ?? process.env.KALIBRA_HOST ?? '127.0.0.1');
   const srv = await startServer({
     hub,
@@ -187,6 +188,9 @@ async function serveTeam(dir: string, values: Flags) {
   console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
   if (!folderRoot) console.log('  Folder sync is off (set --folder-root to allow it inside one folder).');
+  const providers = hub.providers.enabled();
+  if (providers.length) console.log(`  Sign-in: password${hub.settings().passwordLogin ? '' : ' (administrators only)'}, ${providers.map((p) => p.name).join(', ')}`);
+  if (providers.some((p) => p.kind !== 'proxy') && !publicUrl) console.warn('  Note: set --public-url so sign-in providers send people back to the right address.');
   const code = hub.setupCode();
   if (code) console.log(`\n  No administrator yet. Open this link to create one:\n  ${base}/setup?code=${code}\n`);
   onStop(async () => {

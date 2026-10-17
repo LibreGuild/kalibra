@@ -50,7 +50,7 @@ export function isSecure(req: IncomingMessage, cfg: AuthConfig): boolean {
 }
 
 /** The origin the browser sees for this server. */
-function ownOrigin(req: IncomingMessage, cfg: AuthConfig): string | undefined {
+export function ownOrigin(req: IncomingMessage, cfg: AuthConfig): string | undefined {
   if (cfg.publicUrl) return new URL(cfg.publicUrl).origin;
   const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
   return host ? `${isSecure(req, cfg) ? 'https' : 'http'}://${host}` : undefined;
@@ -101,11 +101,11 @@ const sameSecret = (given: string, expected: string) => {
 };
 
 export type AuthResult =
-  | { ok: true; principal: Principal; via: 'local' | 'session' | 'token' }
+  | { ok: true; principal: Principal; via: 'local' | 'session' | 'token' | 'proxy' }
   | { ok: false; status: number; code: string; message: string };
 
 /** Works out who is calling. Does not check what they may do; the hub does that per call. */
-export function authenticate(req: IncomingMessage, cfg: AuthConfig): AuthResult {
+export async function authenticate(req: IncomingMessage, cfg: AuthConfig): Promise<AuthResult> {
   const { hub } = cfg;
   const header = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1]?.trim();
   const tagged = viaHeader(req);
@@ -126,8 +126,16 @@ export function authenticate(req: IncomingMessage, cfg: AuthConfig): AuthResult 
 
   const secret = cookie(req, sessionCookieName(true)) ?? cookie(req, sessionCookieName(false));
   const session = secret ? hub.accounts.resolveSession(secret) : undefined;
-  if (!session) return { ok: false, status: 401, code: 'unauthorized', message: 'Sign in to continue' };
-  return { ok: true, principal: { user: session.user, via: 'user', sessionId: session.sessionId }, via: 'session' };
+  if (session) return { ok: true, principal: { user: session.user, via: 'user', sessionId: session.sessionId }, via: 'session' };
+
+  // Behind a login gateway, every request carries the signed-in user.
+  try {
+    const user = await hub.sso.fromProxy(req.headers, clientIp(req, cfg.trustProxy));
+    if (user) return { ok: true, principal: { user, via: 'user' }, via: 'proxy' };
+  } catch (e: any) {
+    return { ok: false, status: 403, code: 'forbidden', message: e?.message ?? String(e) };
+  }
+  return { ok: false, status: 401, code: 'unauthorized', message: 'Sign in to continue' };
 }
 
 /**

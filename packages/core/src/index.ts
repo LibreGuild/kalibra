@@ -9,4 +9,5 @@ export { summarize } from './runner/summary.js';
 export { Hub, ServerSettings, DEFAULT_PROJECT, type HubOptions } from './hub/hub.js';
 export { actorOf, LOCAL_ACCOUNT, type HubMode, type Principal, type User, type Project, type Member, type ServerRole } from './hub/types.js';
 export { TOKEN_PREFIX } from './hub/accounts.js';
+export { providersFromEnv, AuthProviderConfig } from './hub/providers.js';
 export { PROJECT_ROLES, roleAtLeast, ALL_CAPABILITIES, type ProjectRole, type Capabilities } from './registry.js';

@@ -226,6 +226,16 @@ export class Projects {
     return g;
   }
 
+  /** The group mirroring a provider group, created on first sight. */
+  ensureExternalGroup(source: string, externalKey: string): Group {
+    const found = this.db.get('SELECT id FROM user_groups WHERE source = ? AND external_key = ?', source, externalKey);
+    if (found) return this.group(found.id);
+    // Group names are unique; prefix with the provider when a local group already has the name.
+    let name = externalKey.slice(0, 80);
+    if (this.db.get('SELECT 1 FROM user_groups WHERE name = ?', name)) name = `${source}: ${externalKey}`.slice(0, 80);
+    return this.createGroup({ name, description: `Synced from ${source}`, source, externalKey });
+  }
+
   groupMembers(groupId: string): { id: string; username: string; name: string }[] {
     return this.db.all('SELECT u.id, u.username, u.name FROM user_group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.group_id = ? ORDER BY u.name COLLATE NOCASE', groupId);
   }

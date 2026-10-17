@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_PROJECT, KalibraError, roleAtLeast, type EngineEvent, type Hub, type Principal } from '@kalibra/core';
-import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, RateLimiter, sessionCookieName, type AuthConfig } from './auth.js';
+import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, ownOrigin, RateLimiter, sessionCookieName, type AuthConfig } from './auth.js';
 import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serveBlob, serveStatic } from './http.js';
 
 /*
@@ -12,6 +12,8 @@ import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serv
  *   GET  /api/health                         liveness (no auth)
  *   GET  /api/auth/status                    mode, whether setup is needed, who is signed in (no auth)
  *   POST /api/auth/setup | login | logout    first administrator, sign in, sign out (server mode)
+ *   GET  /api/auth/sso/:provider/start       sign in with a provider (redirects there)
+ *   GET  /api/auth/sso/:provider/callback    the provider sends the browser back here
  *   GET  /api/meta                           version, how to start the MCP bridge
  *   GET  /api/hub                            hub operations (+ JSON Schemas)
  *   POST /api/hub/:op                        your account, projects, members, administration
@@ -86,11 +88,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra' });
     if (url.pathname.startsWith('/api/auth/')) return authRoutes(req, res, url);
 
-    const auth = authenticate(req, cfg);
+    const auth = await authenticate(req, cfg);
     if (!auth.ok) return fail(res, auth.status, auth.code, auth.message);
     const p = auth.principal;
     // A browser session must not write with another site's help (CSRF): writes need our Origin.
-    if (auth.via === 'session' && req.method !== 'GET' && req.method !== 'HEAD' && !req.headers.origin) {
+    if ((auth.via === 'session' || auth.via === 'proxy') && req.method !== 'GET' && req.method !== 'HEAD' && !req.headers.origin) {
       return fail(res, 403, 'forbidden', 'Missing Origin header');
     }
     // Accounts given a starting password must pick their own before doing anything else.
@@ -107,11 +109,45 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     return `${sessionCookieName(secure)}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
   }
 
-  async function startSession(req: IncomingMessage, res: ServerResponse, userId: string) {
+  function newSession(req: IncomingMessage, userId: string) {
     const days = hub.settings().sessionDays;
     const s = hub.accounts.createSession(userId, { days, ip: clientIp(req, cfg.trustProxy), userAgent: String(req.headers['user-agent'] ?? '') });
+    return { ...s, cookie: sessionCookie(req, s.secret, days * 86_400) };
+  }
+
+  async function startSession(req: IncomingMessage, res: ServerResponse, userId: string) {
+    const s = newSession(req, userId);
     const me = await hub.call({ user: hub.accounts.get(userId), via: 'user', sessionId: s.id }, 'get_me', {});
-    sendData(res, me, { 'set-cookie': sessionCookie(req, s.secret, days * 86_400) });
+    sendData(res, me, { 'set-cookie': s.cookie });
+  }
+
+  /** Where providers send the browser back to. */
+  const base = (req: IncomingMessage) => cfg.publicUrl ?? ownOrigin(req, cfg) ?? '';
+  const SSO_COOKIE = 'kalibra_sso';
+  const ssoCookie = (req: IncomingMessage, value: string, maxAge: number) =>
+    `${SSO_COOKIE}=${value}; HttpOnly; SameSite=Lax; Path=/api/auth/sso; Max-Age=${maxAge}${isSecure(req, cfg) ? '; Secure' : ''}`;
+  const redirect = (res: ServerResponse, location: string, cookies: string[] = []) => {
+    res.writeHead(302, { ...BASE_HEADERS, location, 'cache-control': 'no-store', ...(cookies.length ? { 'set-cookie': cookies } : {}) });
+    res.end();
+  };
+  const loginError = (message: string) => `/login?error=${encodeURIComponent(message)}`;
+
+  /** Sign-in through a provider: start (redirect out) and callback (redirect back in). */
+  async function ssoRoutes(req: IncomingMessage, res: ServerResponse, url: URL, providerId: string, step: string) {
+    const ip = clientIp(req, cfg.trustProxy);
+    const callback = `${base(req)}/api/auth/sso/${encodeURIComponent(providerId)}/callback`;
+    try {
+      if (step === 'start') {
+        const { url: to, binding } = await hub.sso.start(providerId, { redirectUri: callback, next: url.searchParams.get('next') ?? undefined });
+        return redirect(res, to, [ssoCookie(req, binding, 600)]);
+      }
+      if (!logins.allow(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
+      const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${url.pathname}${url.search}`, binding: cookie(req, SSO_COOKIE), ip });
+      const s = newSession(req, user.id);
+      return redirect(res, next, [s.cookie, ssoCookie(req, '', 0)]);
+    } catch (e: any) {
+      return redirect(res, loginError(e?.message ?? String(e)), [ssoCookie(req, '', 0)]);
+    }
   }
 
   async function authRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
@@ -119,13 +155,22 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const path = url.pathname;
 
     if (path === '/api/auth/status' && req.method === 'GET') {
-      const auth = authenticate(req, cfg);
+      const auth = await authenticate(req, cfg);
+      const server = hub.mode === 'server';
       return sendData(res, {
         mode: hub.mode,
         setupRequired: hub.needsSetup(),
         user: auth.ok ? auth.principal.user : null,
-        providers: [],
+        providers: server ? hub.providers.enabled().map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
+        passwordLogin: server ? hub.settings().passwordLogin : true,
+        ...(!auth.ok && auth.status === 403 ? { error: auth.message } : {}),
       });
+    }
+
+    const sso = /^\/api\/auth\/sso\/([a-z0-9-]+)\/(start|callback)$/.exec(path);
+    if (sso && req.method === 'GET') {
+      if (hub.mode === 'local') return redirect(res, '/');
+      return ssoRoutes(req, res, url, sso[1], sso[2]);
     }
 
     if (req.method !== 'POST') return fail(res, 404, 'not_found', `No route ${req.method} ${path}`);
@@ -133,7 +178,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (!req.headers.origin) return fail(res, 403, 'forbidden', 'Missing Origin header');
 
     if (path === '/api/auth/logout') {
-      const auth = authenticate(req, cfg);
+      const auth = await authenticate(req, cfg);
       if (auth.ok && auth.principal.sessionId) hub.accounts.revokeSession(auth.principal.sessionId);
       return sendData(res, { signedOut: true }, { 'set-cookie': sessionCookie(req, '', 0) });
     }
@@ -155,6 +200,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       }
       try {
         const user = await hub.accounts.authenticate(username, str(body.password));
+        // With password sign-in off, administrators keep it so a broken provider never locks everyone out.
+        if (!hub.settings().passwordLogin && user.role !== 'admin') {
+          const names = hub.providers.enabled().map((x) => x.name).join(' or ');
+          throw new KalibraError('forbidden', `Password sign-in is turned off on this server${names ? `. Sign in with ${names}.` : '.'}`);
+        }
         hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
         return startSession(req, res, user.id);
       } catch (e) {
@@ -229,6 +279,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const stillAllowed = () => {
       try {
         if (p.sessionId && !hub.accounts.resolveSession(cookieValue(req) ?? '')) return false;
+        if (!p.sessionId && !p.tokenId && hub.mode === 'server' && hub.accounts.get(p.user.id).disabled) return false;
         if (p.tokenId && !hub.accounts.resolveToken(/^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '')) return false;
         hub.projectFor(hub.mode === 'local' ? p : { ...p, user: hub.accounts.get(p.user.id) }, project.id);
         return true;

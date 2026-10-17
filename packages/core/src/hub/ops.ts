@@ -3,6 +3,7 @@ import { PROJECT_ROLES, roleAtLeast, type Actor, type BaseOpDef, type ProjectRol
 import { invalid, KalibraError, notFound, parseJson } from '../util.js';
 import type { Hub } from './hub.js';
 import { PASSWORD_MAX } from './passwords.js';
+import { AuthProviderConfig } from './providers.js';
 import type { Principal } from './types.js';
 
 /*
@@ -50,6 +51,15 @@ function memberRef(hub: Hub, i: { user?: string; group?: string }): { type: 'use
   return { type: 'group', id: hub.projects.group(i.group!).id };
 }
 
+/** Linked sign-in methods of a user, with the provider's display name. */
+function identitiesOf(hub: Hub, userId: string) {
+  const names = new Map(hub.providers.list().map((p) => [p.id, p.name]));
+  return hub.accounts.identities(userId).map((i) => ({ ...i, providerName: names.get(i.provider) ?? i.provider }));
+}
+
+/** Where providers send people back to; relative when the server's public address is not configured. */
+const callbackBase = (hub: Hub) => hub.publicUrl() ?? '';
+
 const publicUser = (u: { id: string; username: string; name: string }) => ({ id: u.id, username: u.username, name: u.name });
 
 export const HUB_OPS: HubOpDef<any, any>[] = [
@@ -73,6 +83,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
         canCreateProjects: hub.mode === 'local' || isAdmin || !!s?.allowProjectCreation,
         canWriteCode: hub.capsFor(principal).code,
         groups: hub.mode === 'server' ? hub.projects.userGroups(principal.user.id) : [],
+        identities: hub.mode === 'server' ? identitiesOf(hub, principal.user.id) : [],
       };
     },
   }),
@@ -369,7 +380,8 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub }) => hub.accounts.list().map((u) => ({ ...u, groups: hub.projects.userGroups(u.id), projects: hub.projects.rolesOf(u.id).size })),
+    handler: ({ hub }) =>
+      hub.accounts.list().map((u) => ({ ...u, groups: hub.projects.userGroups(u.id), projects: hub.projects.rolesOf(u.id).size, identities: hub.accounts.identities(u.id).map((i) => i.provider) })),
   }),
 
   defineHubOp({
@@ -533,11 +545,63 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
       allowProjectCreation: z.boolean().optional(),
       codePolicy: z.enum(['everyone', 'admins']).optional(),
       sessionDays: z.number().int().min(1).max(365).optional(),
+      passwordLogin: z.boolean().optional(),
     }),
     handler: ({ hub, actor, ip }, i) => {
       const next = hub.updateSettings(i);
       hub.audit(actor, 'settings.updated', 'server', i, ip);
       return next;
+    },
+  }),
+
+  defineHubOp({
+    name: 'list_auth_providers',
+    title: 'Sign-in providers',
+    description: 'Ways to sign in besides a password (OIDC such as Google or company SSO, GitHub / GitHub Enterprise, a login gateway), with who each lets in.',
+    category: 'admin',
+    access: 'admin',
+    serverOnly: true,
+    mcp: false,
+    readOnly: true,
+    input: z.object({}),
+    handler: async ({ hub }) => ({
+      providers: await Promise.all(hub.providers.list().map((p) => hub.providers.view(p, callbackBase(hub)))),
+      callbackBase: callbackBase(hub),
+    }),
+  }),
+
+  defineHubOp({
+    name: 'save_auth_provider',
+    title: 'Save a sign-in provider',
+    description: 'Adds or changes a sign-in provider made in the app. The client secret is write-only: send it to set or replace it.',
+    category: 'admin',
+    access: 'admin',
+    serverOnly: true,
+    mcp: false,
+    quiet: true,
+    input: AuthProviderConfig.partial().extend({ id: z.string().optional(), clientSecret: z.string().max(2000).optional() }),
+    handler: async ({ hub, actor, ip }, i) => {
+      const saved = await hub.providers.save(i);
+      hub.audit(actor, 'provider.saved', saved.name, { id: saved.id, kind: saved.kind, enabled: saved.enabled, secretChanged: !!i.clientSecret }, ip);
+      return hub.providers.view(saved, callbackBase(hub));
+    },
+  }),
+
+  defineHubOp({
+    name: 'delete_auth_provider',
+    title: 'Remove a sign-in provider',
+    description: 'Removes a provider made in the app. Accounts stay; people who only used it need a password or another provider.',
+    category: 'admin',
+    access: 'admin',
+    serverOnly: true,
+    mcp: false,
+    destructive: true,
+    input: z.object({ id: z.string() }),
+    handler: async ({ hub, actor, ip }, i) => {
+      const p = hub.providers.get(i.id);
+      await hub.providers.delete(i.id);
+      hub.audit(actor, 'provider.deleted', p.name, { id: p.id }, ip);
+      return { deleted: p.id };
     },
   }),
 
