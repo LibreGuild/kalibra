@@ -16,7 +16,7 @@ describe('kalibra backup', () => {
 
   it('copies every project while Kalibra is running, and the copy opens as-is', async () => {
     const dir = tmp();
-    const hub = openHub(dir);
+    const hub = await openHub(dir);
     const me = hub.localPrincipal();
     const voice = await hub.call<any>(me, 'create_project', { name: 'Voice' });
     await hub.callProject(me, 'default', 'create_dataset', { name: 'D1', columns: [{ key: 'q' }] });
@@ -27,33 +27,33 @@ describe('kalibra backup', () => {
     // The hub stays open (as a running server would) while the backup is taken.
     const out = join(tmp(), 'backup');
     const r = backup(dir, out);
-    hub.close();
+    await hub.close();
     expect(r.databases).toBe(3); // hub.db + two projects
     expect(readdirSync(out)).not.toContain('.engine.json');
     expect(readdirSync(out).some((f) => f.endsWith('-wal'))).toBe(false);
 
-    const restored = openHub(out);
+    const restored = await openHub(out);
     const p = restored.localPrincipal();
     expect((await restored.call<any[]>(p, 'list_projects', {})).map((x) => x.name).sort()).toEqual(['My project', 'Voice']);
     expect((await restored.callProject<any[]>(p, voice.id, 'list_datasets', {})).map((d) => d.name)).toEqual(['D2']);
-    expect((await restored.engine(voice.id).blobs.get(blob.hash)).toString()).toBe('hello');
-    restored.close();
+    expect((await (await restored.engine(voice.id)).blobs.get(blob.hash)).toString()).toBe('hello');
+    await restored.close();
   });
 
-  it('does not copy a backup folder kept inside the data folder into itself', () => {
+  it('does not copy a backup folder kept inside the data folder into itself', async () => {
     const dir = tmp();
-    openHub(dir).close();
+    await (await openHub(dir)).close();
     const r = backup(dir, join(dir, 'backups', 'today'));
     expect(r.databases).toBe(1); // hub.db (no project opened yet)
     expect(readdirSync(join(dir, 'backups', 'today', 'backups'))).toEqual([]);
   });
 
-  it('refuses a folder that already has files and a folder without Kalibra data', () => {
+  it('refuses a folder that already has files and a folder without Kalibra data', async () => {
     const full = tmp();
     writeFileSync(join(full, 'x'), 'x');
     expect(() => backup(tmp(), join(tmp(), 'b'))).toThrow(/No Kalibra data/);
     const dir = tmp();
-    openHub(dir).close();
+    await (await openHub(dir)).close();
     expect(() => backup(dir, full)).toThrow(/not empty/);
   });
 });

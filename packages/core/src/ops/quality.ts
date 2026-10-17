@@ -14,9 +14,9 @@ import { ConnectionSpec } from '../specs.js';
 
 const datasetRef = z.string().describe('Dataset id or name');
 
-function loadRows(engine: Engine, dataset: string) {
-  const ds = engine.repos.datasets.get(dataset);
-  const rows: QualityRow[] = engine.repos.datasets.listRows(ds.id, { limit: 1_000_000 }).rows.map((r) => ({ id: r.id, data: r.data, tags: r.tags, status: r.status }));
+async function loadRows(engine: Engine, dataset: string) {
+  const ds = await engine.repos.datasets.get(dataset);
+  const rows: QualityRow[] = (await engine.repos.datasets.listRows(ds.id, { limit: 1_000_000 })).rows.map((r) => ({ id: r.id, data: r.data, tags: r.tags, status: r.status }));
   return { ds, rows };
 }
 
@@ -41,7 +41,7 @@ async function findGroups(
   };
 }
 
-function rejectRest(engine: Engine, datasetId: string, rows: QualityRow[], groups: string[][], keep: 'first' | 'longest', actor: Actor) {
+async function rejectRest(engine: Engine, datasetId: string, rows: QualityRow[], groups: string[][], keep: 'first' | 'longest', actor: Actor) {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const toReject: string[] = [];
   const kept: string[] = [];
@@ -52,7 +52,7 @@ function rejectRest(engine: Engine, datasetId: string, rows: QualityRow[], group
     kept.push(keeper);
     toReject.push(...members.filter((id) => id !== keeper));
   }
-  const rejected = toReject.length ? engine.repos.datasets.setStatus(datasetId, toReject, 'rejected') : 0;
+  const rejected = toReject.length ? await engine.repos.datasets.setStatus(datasetId, toReject, 'rejected') : 0;
   if (rejected) engine.events.emit({ type: 'rows.changed', datasetId, count: rejected, actor });
   return { rejected, kept: kept.length };
 }
@@ -66,8 +66,8 @@ export const qualityOps = [
     category: 'datasets',
     readOnly: true,
     input: z.object({ dataset: datasetRef }),
-    handler: ({ engine }, i) => {
-      const { ds, rows } = loadRows(engine, i.dataset);
+    handler: async ({ engine }, i) => {
+      const { ds, rows } = await loadRows(engine, i.dataset);
       return { datasetId: ds.id, ...buildReport(ds.schema.columns, rows) };
     },
   }),
@@ -90,7 +90,7 @@ export const qualityOps = [
       model: z.string().optional(),
     }),
     handler: async ({ engine }, i) => {
-      const { ds, rows } = loadRows(engine, i.dataset);
+      const { ds, rows } = await loadRows(engine, i.dataset);
       const unknown = (i.columns ?? []).filter((c) => !ds.schema.columns.some((k) => k.key === c));
       if (unknown.length) throw invalid(`Unknown columns: ${unknown.join(', ')}`);
       const active = activeRows(rows);
@@ -112,10 +112,10 @@ export const qualityOps = [
       method: z.enum(['exact', 'near']).default('exact').describe('Used only when groups are omitted'),
     }),
     handler: async ({ engine, actor }, i) => {
-      const { ds, rows } = loadRows(engine, i.dataset);
+      const { ds, rows } = await loadRows(engine, i.dataset);
       const active = activeRows(rows);
       const groups = i.groups ?? (await findGroups(engine, active, { method: i.method })).groups.map((g) => g.rowIds);
-      return rejectRest(engine, ds.id, active, groups, i.keep, actor);
+      return await rejectRest(engine, ds.id, active, groups, i.keep, actor);
     },
   }),
 
@@ -134,8 +134,8 @@ export const qualityOps = [
       connectionId: z.string(),
       model: z.string().default(''),
     }),
-    handler: ({ engine, actor }, i) => {
-      const { ds, rows } = loadRows(engine, i.dataset);
+    handler: async ({ engine, actor }, i) => {
+      const { ds, rows } = await loadRows(engine, i.dataset);
       const col = ds.schema.columns.find((c) => c.key === i.column);
       if (!col) throw invalid(`Unknown column: ${i.column}`);
       if (['audio', 'image', 'file'].includes(col.type)) throw invalid('Gaps can only be filled for text-like columns');
@@ -249,7 +249,7 @@ export const qualityOps = [
       let res;
       if (i.spec) {
         const spec = ConnectionSpec.parse(i.spec);
-        const tmp = new Embeddings(() => ({ getConnection: () => spec, secrets: engine.secrets }));
+        const tmp = new Embeddings(() => ({ getConnection: async () => spec, secrets: engine.secrets }));
         res = await tmp.embed(pair, { connectionId: 'unsaved', model: i.model || undefined });
       } else {
         res = await engine.embeddings.embed(pair, i.connectionId ? { connectionId: i.connectionId, model: i.model } : {});

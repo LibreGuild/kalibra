@@ -142,14 +142,14 @@ describe('sign-in providers', () => {
     });
     await new Promise<void>((r) => jwks.listen(0, '127.0.0.1', () => r()));
     jwksUrl = `http://127.0.0.1:${(jwks.address() as any).port}/jwks`;
-    hub = new Hub({ dir, mode: 'server' });
-    await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
+    hub = await Hub.open({ dir, mode: 'server' });
+    await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: PW });
     srv = await startServer({ hub });
   });
 
   afterAll(async () => {
     await srv?.close();
-    hub?.close();
+    await hub?.close();
     await idp?.close();
     await gh?.close();
     await new Promise<void>((r) => jwks.close(() => r()));
@@ -286,7 +286,7 @@ describe('sign-in providers', () => {
 
   it('can turn password sign-in off for everyone but administrators', async () => {
     await hub.accounts.create({ username: 'kim', password: PW, role: 'user' }, 'test');
-    hub.updateSettings({ passwordLogin: false });
+    await hub.updateSettings({ passwordLogin: false });
     const login = (username: string) => fetch(`${srv.url}/kalibra/api/auth/login`, { method: 'POST', headers: { origin: srv.url, 'content-type': 'application/json' }, body: JSON.stringify({ username, password: PW }) });
     const kim = await login('kim');
     expect(kim.status).toBe(403);
@@ -295,11 +295,11 @@ describe('sign-in providers', () => {
     const status = await fetch(`${srv.url}/kalibra/api/auth/status`).then((r) => r.json());
     expect(status.data.passwordLogin).toBe(false);
     expect(status.data.providers.map((p: any) => p.id)).toEqual(expect.arrayContaining(['company-sso', 'ghe']));
-    hub.updateSettings({ passwordLogin: true });
+    await hub.updateSettings({ passwordLogin: true });
   });
 
   it('keeps client secrets write-only and validates provider settings', async () => {
-    const admin = { user: hub.accounts.find('admin')!, via: 'user' as const };
+    const admin = { user: (await hub.accounts.find('admin'))!, via: 'user' as const };
     const listed = await hub.call<any>(admin, 'list_auth_providers', {});
     expect(JSON.stringify(listed)).not.toContain(idp.state.clientSecret);
     expect(listed.providers.find((p: any) => p.id === 'company-sso')).toMatchObject({ hasClientSecret: true, callbackUrl: '/kalibra/api/auth/sso/company-sso/callback' });
@@ -322,7 +322,7 @@ describe('providers from the environment', () => {
     expect(out[2]).toMatchObject({ config: { name: 'Example SSO', allowedDomains: ['example.com'] }, clientSecret: 'os' });
   });
 
-  it('reads a config file with secrets from the environment or files', () => {
+  it('reads a config file with secrets from the environment or files', async () => {
     const d = mkdtempSync(join(tmpdir(), 'kalibra-authcfg-'));
     writeFileSync(join(d, 'secret.txt'), 'from-file\n');
     writeFileSync(
@@ -336,10 +336,10 @@ describe('providers from the environment', () => {
     expect(out.map((p) => p.clientSecret)).toEqual(['from-env', 'from-file']);
     rmSync(d, { recursive: true, force: true });
     const hubDir = mkdtempSync(join(tmpdir(), 'kalibra-cfghub-'));
-    const h = new Hub({ dir: hubDir, mode: 'server', authProviders: out });
-    expect(h.providers.list().map((p) => [p.id, p.source])).toEqual([['kc', 'config'], ['okta', 'config']]);
-    expect(() => new Hub({ dir: hubDir, mode: 'server', authProviders: [{ config: { id: 'x', name: 'X', kind: 'proxy', emailHeader: 'X-Email' } }] })).toThrow(/proxy addresses/);
-    h.close();
+    const h = await Hub.open({ dir: hubDir, mode: 'server', authProviders: out });
+    expect((await h.providers.list()).map((p) => [p.id, p.source])).toEqual([['kc', 'config'], ['okta', 'config']]);
+    await expect(Hub.open({ dir: hubDir, mode: 'server', authProviders: [{ config: { id: 'x', name: 'X', kind: 'proxy', emailHeader: 'X-Email' } }] })).rejects.toThrow(/proxy addresses/);
+    await h.close();
     rmSync(hubDir, { recursive: true, force: true });
   });
 });

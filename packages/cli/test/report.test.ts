@@ -45,7 +45,7 @@ describe('kalibra eval-report', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-report-'));
-    const hub = openHub(dir);
+    const hub = await openHub(dir);
     const me = hub.localPrincipal();
     const call = (op: string, input: unknown) => hub.callProject<any>(me, 'default', op, input);
     await call('create_dataset', { name: 'Math', columns: [{ key: 'q' }, { key: 'expected' }] });
@@ -58,7 +58,7 @@ describe('kalibra eval-report', () => {
     };
     await codeRun('main', (q) => String(eval(q)));
     feature = await codeRun('feature/x', (q) => (q === '2+2' ? '5' : String(eval(q))));
-    hub.close();
+    await hub.close();
   }, 60_000);
 
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

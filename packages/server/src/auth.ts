@@ -129,13 +129,13 @@ export async function authenticate(req: IncomingMessage, cfg: AuthConfig): Promi
   }
 
   if (header) {
-    const found = header.startsWith(TOKEN_PREFIX) ? hub.accounts.resolveToken(header) : undefined;
+    const found = header.startsWith(TOKEN_PREFIX) ? await hub.accounts.resolveToken(header) : undefined;
     if (!found) return { ok: false, status: 401, code: 'unauthorized', message: 'Invalid or expired access token' };
     return { ok: true, principal: { user: found.user, via: tagged.via ?? 'cli', client: tagged.client, model: tagged.model, tokenId: found.tokenId }, via: 'token' };
   }
 
   const secret = readSessionCookie(req, cfg);
-  const session = secret ? hub.accounts.resolveSession(secret) : undefined;
+  const session = secret ? await hub.accounts.resolveSession(secret) : undefined;
   if (session) return { ok: true, principal: { user: session.user, via: 'user', sessionId: session.sessionId }, via: 'session' };
 
   // Behind a login gateway, every request carries the signed-in user.

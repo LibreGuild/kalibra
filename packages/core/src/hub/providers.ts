@@ -92,32 +92,34 @@ export class Providers {
     }
   }
 
-  private stored(): AuthProviderConfig[] {
-    const raw = parseJson<unknown[]>(this.db.get("SELECT value FROM settings WHERE key = 'auth_providers'")?.value, []);
+  private async stored(): Promise<AuthProviderConfig[]> {
+    const raw = parseJson<unknown[]>((await this.db.get("SELECT value FROM settings WHERE key = 'auth_providers'"))?.value, []);
     return raw.flatMap((r) => {
       const p = AuthProviderConfig.safeParse(r);
       return p.success ? [p.data] : [];
     });
   }
 
-  private saveStored(all: AuthProviderConfig[]) {
-    this.db.run("INSERT INTO settings (key, value) VALUES ('auth_providers', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(all));
+  private async saveStored(all: AuthProviderConfig[]) {
+    return this.db.tx(async () => {
+      await this.db.run("INSERT INTO settings (key, value) VALUES ('auth_providers', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(all));
+    });
   }
 
   /** Every provider; configuration wins over the app for the same id. */
-  list(): AuthProvider[] {
+  async list(): Promise<AuthProvider[]> {
     const out = new Map<string, AuthProvider>();
-    for (const p of this.stored()) out.set(p.id, { ...p, source: 'app' });
+    for (const p of await this.stored()) out.set(p.id, { ...p, source: 'app' });
     for (const { config } of this.fromConfig.values()) out.set(config.id, { ...config, source: 'config' });
     return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  enabled(): AuthProvider[] {
-    return this.list().filter((p) => p.enabled);
+  async enabled(): Promise<AuthProvider[]> {
+    return (await this.list()).filter((p) => p.enabled);
   }
 
-  get(id: string): AuthProvider {
-    const p = this.list().find((x) => x.id === id);
+  async get(id: string): Promise<AuthProvider> {
+    const p = (await this.list()).find((x) => x.id === id);
     if (!p) throw notFound('Sign-in provider', id);
     return p;
   }
@@ -135,7 +137,7 @@ export class Providers {
   /** Creates or updates a provider made in the app. `clientSecret` replaces the stored one when given. */
   async save(input: Partial<AuthProviderConfig> & { id?: string; clientSecret?: string }): Promise<AuthProvider> {
     const { clientSecret, ...rest } = input;
-    const all = this.stored();
+    const all = await this.stored();
     const id = rest.id || slug(rest.name ?? '');
     if (this.fromConfig.has(id)) throw new KalibraError('conflict', `"${id}" is set in the server configuration and cannot be changed here`);
     const existing = all.find((p) => p.id === id);
@@ -146,15 +148,15 @@ export class Providers {
     if (clientSecret) await this.secrets.set(secretKey(id), clientSecret);
     const needsSecret = parsed.data.kind !== 'proxy';
     if (needsSecret && parsed.data.enabled && !clientSecret && !(await this.secrets.get(secretKey(id)))) throw invalid('Enter the client secret from the provider');
-    this.saveStored([...all.filter((p) => p.id !== id), parsed.data]);
+    await this.saveStored([...all.filter((p) => p.id !== id), parsed.data]);
     return { ...parsed.data, source: 'app' };
   }
 
   async delete(id: string) {
     if (this.fromConfig.has(id)) throw new KalibraError('conflict', `"${id}" is set in the server configuration; remove it there`);
-    const all = this.stored();
+    const all = await this.stored();
     if (!all.some((p) => p.id === id)) throw notFound('Sign-in provider', id);
-    this.saveStored(all.filter((p) => p.id !== id));
+    await this.saveStored(all.filter((p) => p.id !== id));
     await this.secrets.delete(secretKey(id));
   }
 }

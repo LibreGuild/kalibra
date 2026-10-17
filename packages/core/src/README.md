@@ -6,16 +6,16 @@ Read top to bottom. Each folder's files start with a comment explaining what the
 
 | File | Owns |
 |---|---|
-| `engine.ts` | `Engine`: one project's state (SQLite db, blobs, secrets, registry, runner, jobs, LLM and embedding clients). `Engine.call(op, input, actor, {role, caps})` is how every operation runs. |
+| `engine.ts` | `Engine`: one project's state (db, blobs, secrets, registry, runner, jobs, LLM and embedding clients). Open with `await Engine.open({ dir })`. `Engine.call(op, input, actor, {role, caps})` is how every operation runs. |
 | `registry.ts` | `defineOp`, `Registry`, actors, project roles (`viewer < editor < owner`), `opAccess`, `Capabilities` |
 | `policy.ts` | host policies checked where data is written: who may add code, folder sync roots; the current call context (`AsyncLocalStorage`) |
-| `db.ts` | SQLite wrapper (`node:sqlite`), statement cache, transactions, **project migrations** |
+| `db.ts` | The async `Db` interface every store uses (`run`/`get`/`all`/`exec`/`tx`, `?` placeholders) and its SQLite driver (`node:sqlite`: one write connection used by one transaction at a time, a read-only connection for reads outside transactions, statement caches); **project migrations**. Wrap read-check-write sequences in `db.tx()` so other requests cannot slip in between. |
 | `specs.ts` | zod schemas of everything users configure: columns, targets, suites, connections, run settings |
 | `storage.ts` | content-addressed blob store (files, audio, images), secret stores |
 | `jobs.ts` | background jobs (generation, transcription, clustering…) with progress and cancel |
 | `events.ts` | live change events (the UI subscribes over SSE) |
 | `template.ts` / `script.ts` | `{{placeholders}}` with filters; user JavaScript (expressions, hooks, script targets) |
-| `util.ts` | ids, `KalibraError` (codes map to HTTP statuses), JSON helpers |
+| `util.ts` | ids, `KalibraError` (codes map to HTTP statuses), JSON helpers, `mapSeq` (async map, in order) |
 | `index.ts` | the public exports used by server and cli |
 
 ## Folders

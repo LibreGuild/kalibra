@@ -10,15 +10,15 @@ import { opAccess } from '../src/registry.js';
 
 const dirs: string[] = [];
 const hubs: Hub[] = [];
-function makeHub(mode: 'local' | 'server', extra: { folderRoot?: string } = {}) {
+async function makeHub(mode: 'local' | 'server', extra: { folderRoot?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'kalibra-hub-'));
   dirs.push(dir);
-  const hub = new Hub({ dir, mode, ...extra });
+  const hub = await Hub.open({ dir, mode, ...extra });
   hubs.push(hub);
   return hub;
 }
-afterEach(() => {
-  hubs.splice(0).forEach((h) => h.close());
+afterEach(async () => {
+  for (const h of hubs.splice(0)) await h.close();
   dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
 });
 
@@ -26,8 +26,8 @@ const PW = 'correct horse battery';
 const as = (user: User, extra: Partial<Principal> = {}): Principal => ({ user, via: 'user', ...extra });
 
 async function serverWithPeople() {
-  const hub = makeHub('server');
-  const admin = await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
+  const hub = await makeHub('server');
+  const admin = await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: PW });
   const mk = (username: string) => hub.call(as(admin), 'create_user', { username, password: PW, mustChangePassword: false });
   const [alice, bob, carol] = await Promise.all([mk('alice'), mk('bob'), mk('carol')]);
   return { hub, admin, alice, bob, carol };
@@ -53,9 +53,9 @@ describe('passwords', () => {
 
 describe('local hub (npx kalibra)', () => {
   it('has a default project and keeps projects apart', async () => {
-    const hub = makeHub('local');
+    const hub = await makeHub('local');
     const me = hub.localPrincipal();
-    expect(hub.needsSetup()).toBe(false);
+    expect(await hub.needsSetup()).toBe(false);
     const projects = await hub.call<any[]>(me, 'list_projects', {});
     expect(projects.map((p) => p.id)).toEqual(['default']);
     const second = await hub.call<any>(me, 'create_project', { name: 'Voice' });
@@ -69,14 +69,14 @@ describe('local hub (npx kalibra)', () => {
   });
 
   it('has no accounts, members or tokens', async () => {
-    const hub = makeHub('local');
+    const hub = await makeHub('local');
     await expect(hub.call(hub.localPrincipal(), 'list_users', {})).rejects.toMatchObject({ code: 'unavailable' });
     await expect(hub.call(hub.localPrincipal(), 'create_token', { name: 'x' })).rejects.toMatchObject({ code: 'unavailable' });
     expect((await hub.call<any>(hub.localPrincipal(), 'get_me', {})).user.name).toBe('You');
   });
 
   it('cannot delete the default project; others go to the trash and come back', async () => {
-    const hub = makeHub('local');
+    const hub = await makeHub('local');
     const me = hub.localPrincipal();
     await expect(hub.call(me, 'delete_project', { project: 'default' })).rejects.toThrow(/cannot be deleted/);
     const p = await hub.call<any>(me, 'create_project', { name: 'Temp' });
@@ -90,15 +90,15 @@ describe('local hub (npx kalibra)', () => {
 
 describe('server setup and sign-in', () => {
   it('needs a one-time code to create the first administrator', async () => {
-    const hub = makeHub('server');
-    expect(hub.needsSetup()).toBe(true);
-    const code = hub.setupCode()!;
+    const hub = await makeHub('server');
+    expect(await hub.needsSetup()).toBe(true);
+    const code = (await hub.setupCode())!;
     expect(code.length).toBeGreaterThan(20);
     await expect(hub.completeSetup('nope', { username: 'admin', password: PW })).rejects.toMatchObject({ code: 'forbidden' });
     const admin = await hub.completeSetup(code, { username: 'admin', password: PW });
     expect(admin.role).toBe('admin');
-    expect(hub.needsSetup()).toBe(false);
-    expect(hub.setupCode()).toBeUndefined();
+    expect(await hub.needsSetup()).toBe(false);
+    expect(await hub.setupCode()).toBeUndefined();
     await expect(hub.completeSetup(code, { username: 'admin2', password: PW })).rejects.toMatchObject({ code: 'conflict' });
     expect(() => hub.localPrincipal()).toThrow(/Sign in/);
   });
@@ -115,29 +115,29 @@ describe('server setup and sign-in', () => {
 
   it('refuses disabled accounts and their sessions and tokens', async () => {
     const { hub, admin, bob } = await serverWithPeople();
-    const session = hub.accounts.createSession(bob.id, { days: 1 });
-    const token = hub.accounts.createToken(bob.id, { name: 'agent' });
-    expect(hub.accounts.resolveSession(session.secret)?.user.id).toBe(bob.id);
-    expect(hub.accounts.resolveToken(token.token)?.user.id).toBe(bob.id);
+    const session = await hub.accounts.createSession(bob.id, { days: 1 });
+    const token = await hub.accounts.createToken(bob.id, { name: 'agent' });
+    expect((await hub.accounts.resolveSession(session.secret))?.user.id).toBe(bob.id);
+    expect((await hub.accounts.resolveToken(token.token))?.user.id).toBe(bob.id);
     await hub.call(as(admin), 'update_user', { id: 'bob', disabled: true });
-    expect(hub.accounts.resolveSession(session.secret)).toBeUndefined();
-    expect(hub.accounts.resolveToken(token.token)).toBeUndefined();
+    expect(await hub.accounts.resolveSession(session.secret)).toBeUndefined();
+    expect(await hub.accounts.resolveToken(token.token)).toBeUndefined();
     await expect(hub.accounts.authenticate('bob', PW)).rejects.toThrow(/Wrong username or password/);
   });
 
   it('stores only hashes of sessions and tokens, and expires and revokes them', async () => {
     const { hub, alice } = await serverWithPeople();
-    const s = hub.accounts.createSession(alice.id, { days: 1 });
-    const t = hub.accounts.createToken(alice.id, { name: 'ci', expiresInDays: 1 });
+    const s = await hub.accounts.createSession(alice.id, { days: 1 });
+    const t = await hub.accounts.createToken(alice.id, { name: 'ci', expiresInDays: 1 });
     expect(t.token.startsWith('kal_')).toBe(true);
-    const raw = JSON.stringify([hub.db.all('SELECT * FROM sessions'), hub.db.all('SELECT * FROM tokens')]);
+    const raw = JSON.stringify([await hub.db.all('SELECT * FROM sessions'), await hub.db.all('SELECT * FROM tokens')]);
     expect(raw).not.toContain(s.secret);
     expect(raw).not.toContain(t.token);
-    hub.db.run('UPDATE sessions SET expires_at = ?', '2000-01-01T00:00:00.000Z');
-    expect(hub.accounts.resolveSession(s.secret)).toBeUndefined();
-    hub.accounts.revokeToken(t.id, alice.id);
-    expect(hub.accounts.resolveToken(t.token)).toBeUndefined();
-    expect(hub.accounts.resolveToken('not-a-token')).toBeUndefined();
+    await hub.db.run('UPDATE sessions SET expires_at = ?', '2000-01-01T00:00:00.000Z');
+    expect(await hub.accounts.resolveSession(s.secret)).toBeUndefined();
+    await hub.accounts.revokeToken(t.id, alice.id);
+    expect(await hub.accounts.resolveToken(t.token)).toBeUndefined();
+    expect(await hub.accounts.resolveToken('not-a-token')).toBeUndefined();
   });
 
   it('keeps one active administrator and stops admins disabling themselves', async () => {
@@ -146,18 +146,18 @@ describe('server setup and sign-in', () => {
     await expect(hub.call(as(admin), 'update_user', { id: admin.id, disabled: true })).rejects.toThrow(/your own account/);
     await hub.call(as(admin), 'update_user', { id: alice.id, role: 'admin' });
     await hub.call(as(admin), 'update_user', { id: admin.id, role: 'user' });
-    expect(hub.accounts.get(admin.id).role).toBe('user');
+    expect((await hub.accounts.get(admin.id)).role).toBe('user');
   });
 
   it('changes passwords only with the current one, and signs other sessions out', async () => {
     const { hub, alice } = await serverWithPeople();
-    const keep = hub.accounts.createSession(alice.id, { days: 1 });
-    const other = hub.accounts.createSession(alice.id, { days: 1 });
+    const keep = await hub.accounts.createSession(alice.id, { days: 1 });
+    const other = await hub.accounts.createSession(alice.id, { days: 1 });
     const me = as(alice, { sessionId: keep.id });
     await expect(hub.call(me, 'change_password', { current: 'wrong password!', next: 'another long one' })).rejects.toThrow(/current password is wrong/);
     await hub.call(me, 'change_password', { current: PW, next: 'another long one' });
-    expect(hub.accounts.resolveSession(keep.secret)).toBeDefined();
-    expect(hub.accounts.resolveSession(other.secret)).toBeUndefined();
+    expect(await hub.accounts.resolveSession(keep.secret)).toBeDefined();
+    expect(await hub.accounts.resolveSession(other.secret)).toBeUndefined();
     expect((await hub.accounts.authenticate('alice', 'another long one')).id).toBe(alice.id);
   });
 
@@ -197,9 +197,9 @@ describe('project access on a server', () => {
     await hub.call(as(admin), 'create_group', { name: 'Speech team', users: ['carol'] });
     await hub.call(as(alice), 'set_member', { project: p.id, group: 'Speech team', role: 'editor' });
     await hub.call(as(alice), 'set_member', { project: p.id, user: 'carol', role: 'viewer' });
-    expect(hub.roleIn(as(carol), p.id)).toBe('editor');
+    expect(await hub.roleIn(as(carol), p.id)).toBe('editor');
     await hub.call(as(admin), 'delete_group', { id: 'Speech team' });
-    expect(hub.roleIn(as(carol), p.id)).toBe('viewer');
+    expect(await hub.roleIn(as(carol), p.id)).toBe('viewer');
   });
 
   it('keeps an owner in every project', async () => {
@@ -212,7 +212,7 @@ describe('project access on a server', () => {
   it('makes administrators owners everywhere and can stop users creating projects', async () => {
     const { hub, admin, alice } = await serverWithPeople();
     const p = await hub.call<any>(as(alice), 'create_project', { name: 'Private' });
-    expect(hub.roleIn(as(admin), p.id)).toBe('owner');
+    expect(await hub.roleIn(as(admin), p.id)).toBe('owner');
     await hub.call(as(admin), 'update_server_settings', { allowProjectCreation: false });
     await expect(hub.call(as(alice), 'create_project', { name: 'Another' })).rejects.toMatchObject({ code: 'forbidden' });
     expect((await hub.call<any>(as(alice), 'get_me', {})).canCreateProjects).toBe(false);
@@ -230,12 +230,12 @@ describe('project access on a server', () => {
 describe('password resets by an administrator', () => {
   it('end sessions and, by default, access tokens', async () => {
     const { hub, admin, alice } = await serverWithPeople();
-    const t1 = hub.accounts.createToken(alice.id, { name: 'agent' });
+    const t1 = await hub.accounts.createToken(alice.id, { name: 'agent' });
     await hub.call(as(admin), 'reset_user_password', { id: 'alice', password: 'temporary password 1' });
-    expect(hub.accounts.resolveToken(t1.token)).toBeUndefined();
-    const t2 = hub.accounts.createToken(alice.id, { name: 'agent' });
+    expect(await hub.accounts.resolveToken(t1.token)).toBeUndefined();
+    const t2 = await hub.accounts.createToken(alice.id, { name: 'agent' });
     await hub.call(as(admin), 'reset_user_password', { id: 'alice', password: 'temporary password 2', revokeTokens: false });
-    expect(hub.accounts.resolveToken(t2.token)?.user.id).toBe(alice.id);
+    expect((await hub.accounts.resolveToken(t2.token))?.user.id).toBe(alice.id);
   });
 });
 
@@ -243,7 +243,7 @@ describe('access tokens', () => {
   it('work in projects but never for account management or secrets', async () => {
     const { hub, alice } = await serverWithPeople();
     const p = await hub.call<any>(as(alice), 'create_project', { name: 'Agents' });
-    const t = hub.accounts.createToken(alice.id, { name: 'claude' });
+    const t = await hub.accounts.createToken(alice.id, { name: 'claude' });
     const viaToken = as(alice, { via: 'agent', tokenId: t.id });
     expect(await hub.callProject(viaToken, p.id, 'list_datasets', {})).toEqual([]);
     expect((await hub.call<any[]>(viaToken, 'list_projects', {})).length).toBe(1);
@@ -283,14 +283,14 @@ describe('server policies', () => {
     const { hub, admin, alice } = await serverWithPeople();
     const p = await hub.call<any>(as(alice), 'create_project', { name: 'Bundles' });
     // Team servers let only administrators write code by default.
-    expect(hub.settings().codePolicy).toBe('admins');
+    expect((await hub.settings()).codePolicy).toBe('admins');
     await expect(hub.callProject(as(alice), p.id, 'create_target', { name: 'Script', spec: scriptTarget })).rejects.toThrow(/only administrators/);
     await hub.callProject(as(admin), p.id, 'create_target', { name: 'Script', spec: scriptTarget });
     await hub.callProject(as(alice), p.id, 'create_dataset', { name: 'D', columns: [{ key: 'q' }] });
     const bundle = await hub.callProject<any>(as(alice), p.id, 'export_bundle', { everything: true });
     const other = await hub.call<any>(as(alice), 'create_project', { name: 'Receiver' });
     // Blobs are per project: upload the bundle into the receiving project first.
-    const bytes = await hub.engine(p.id).blobs.get(bundle.hash);
+    const bytes = await (await hub.engine(p.id)).blobs.get(bundle.hash);
     const up = await hub.callProject<any>(as(alice), other.id, 'upload_file', { name: 'b.kalibra', base64: Buffer.from(bytes).toString('base64') });
     await expect(hub.callProject(as(alice), other.id, 'import_bundle', { blob: up.hash })).rejects.toThrow(/contains JavaScript/);
     expect(await hub.callProject(as(alice), other.id, 'list_datasets', {})).toEqual([]);
@@ -305,8 +305,8 @@ describe('server policies', () => {
 
     const root = mkdtempSync(join(tmpdir(), 'kalibra-root-'));
     dirs.push(root);
-    const confined = makeHub('server', { folderRoot: root });
-    const admin = await confined.completeSetup(confined.setupCode()!, { username: 'admin', password: PW });
+    const confined = await makeHub('server', { folderRoot: root });
+    const admin = await confined.completeSetup((await confined.setupCode())!, { username: 'admin', password: PW });
     const q = await confined.call<any>(as(admin), 'create_project', { name: 'F' });
     await confined.callProject(as(admin), q.id, 'export_to_folder', { dir: 'team-evals' });
     await expect(confined.callProject(as(admin), q.id, 'export_to_folder', { dir: '../escape' })).rejects.toThrow(/must be inside/);
@@ -322,15 +322,15 @@ describe('server policies', () => {
 });
 
 describe('operation access levels', () => {
-  it('needs editor for read-only calls that spend money or use secrets, and owner for secrets and the disk', () => {
-    const hub = makeHub('local');
-    const access = (name: string) => opAccess(hub.engine('default').registry.get(name)!);
-    for (const n of ['list_datasets', 'get_run', 'query_results', 'export_bundle', 'preflight_run', 'list_secrets']) expect(access(n), n).toBe('viewer');
+  it('needs editor for read-only calls that spend money or use secrets, and owner for secrets and the disk', async () => {
+    const hub = await makeHub('local');
+    const access = async (name: string) => opAccess((await hub.engine('default')).registry.get(name)!);
+    for (const n of ['list_datasets', 'get_run', 'query_results', 'export_bundle', 'preflight_run', 'list_secrets']) expect(await access(n), n).toBe('viewer');
     for (const n of ['test_target', 'test_connection', 'list_models', 'test_conversation', 'test_embeddings', 'find_duplicates', 'create_dataset', 'start_run', 'label_result'])
-      expect(access(n), n).toBe('editor');
+      expect(await access(n), n).toBe('editor');
     for (const n of ['set_secret', 'delete_secret', 'create_connection', 'update_connection', 'delete_connection', 'export_to_folder', 'import_from_folder', 'set_sharing_settings'])
-      expect(access(n), n).toBe('owner');
+      expect(await access(n), n).toBe('owner');
     // Every op says what it needs.
-    for (const d of hub.engine('default').registry.describe()) expect(['viewer', 'editor', 'owner']).toContain(d.access);
+    for (const d of (await hub.engine('default')).registry.describe()) expect(['viewer', 'editor', 'owner']).toContain(d.access);
   });
 });

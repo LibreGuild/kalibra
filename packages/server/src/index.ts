@@ -132,15 +132,15 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     return `${sessionCookieName(secure)}=${value}; HttpOnly; SameSite=Lax; Path=${secure ? '/' : BASE_PATH}; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
   }
 
-  function newSession(req: IncomingMessage, userId: string) {
-    const days = hub.settings().sessionDays;
-    const s = hub.accounts.createSession(userId, { days, ip: clientIp(req, cfg.trustProxy), userAgent: String(req.headers['user-agent'] ?? '') });
+  async function newSession(req: IncomingMessage, userId: string) {
+    const days = (await hub.settings()).sessionDays;
+    const s = await hub.accounts.createSession(userId, { days, ip: clientIp(req, cfg.trustProxy), userAgent: String(req.headers['user-agent'] ?? '') });
     return { ...s, cookie: sessionCookie(req, s.secret, days * 86_400) };
   }
 
   async function startSession(req: IncomingMessage, res: ServerResponse, userId: string) {
-    const s = newSession(req, userId);
-    const me = await hub.call({ user: hub.accounts.get(userId), via: 'user', sessionId: s.id }, 'get_me', {});
+    const s = await newSession(req, userId);
+    const me = await hub.call({ user: await hub.accounts.get(userId), via: 'user', sessionId: s.id }, 'get_me', {});
     sendData(res, me, { 'set-cookie': s.cookie });
   }
 
@@ -173,7 +173,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
       try {
         const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${BASE_PATH}${url.pathname}${url.search}`, binding: cookie(req, ssoCookieName(req)), ip });
-        const s = newSession(req, user.id);
+        const s = await newSession(req, user.id);
         // `next` is an app path (safeNext), so the browser always lands inside Kalibra.
         return redirect(res, `${BASE_PATH}${next}`, [s.cookie, ssoCookie(req, '', 0)]);
       } catch (e) {
@@ -198,10 +198,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         res,
         {
           mode: hub.mode,
-          setupRequired: hub.needsSetup(),
+          setupRequired: await hub.needsSetup(),
           user: auth.ok ? auth.principal.user : null,
-          providers: server ? hub.providers.enabled().map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
-          passwordLogin: server ? hub.settings().passwordLogin : true,
+          providers: server ? (await hub.providers.enabled()).map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
+          passwordLogin: server ? (await hub.settings()).passwordLogin : true,
           ...(error ? { error } : {}),
         },
         flashed !== undefined ? { 'set-cookie': flash(req, '', 0) } : {},
@@ -220,7 +220,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     if (path === '/api/auth/logout') {
       const auth = await authenticate(req, cfg);
-      if (auth.ok && auth.principal.sessionId) hub.accounts.revokeSession(auth.principal.sessionId);
+      if (auth.ok && auth.principal.sessionId) await hub.accounts.revokeSession(auth.principal.sessionId);
       return sendData(res, { signedOut: true }, { 'set-cookie': sessionCookie(req, '', 0) });
     }
 
@@ -239,21 +239,21 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (path === '/api/auth/login') {
       const username = str(body.username).trim();
       if (logins.blocked(ip)) {
-        hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
+        await hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
         return fail(res, 429, 'rate_limited', 'Too many sign-in attempts. Wait a few minutes.');
       }
       try {
         const user = await hub.accounts.authenticate(username, str(body.password));
         // With password sign-in off, administrators keep it so a broken provider never locks everyone out.
-        if (!hub.settings().passwordLogin && user.role !== 'admin') {
-          const names = hub.providers.enabled().map((x) => x.name).join(' or ');
+        if (!(await hub.settings()).passwordLogin && user.role !== 'admin') {
+          const names = (await hub.providers.enabled()).map((x) => x.name).join(' or ');
           throw new KalibraError('forbidden', `Password sign-in is turned off on this server${names ? `. Sign in with ${names}.` : '.'}`);
         }
-        hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
+        await hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
         return startSession(req, res, user.id);
       } catch (e) {
         logins.fail(ip);
-        hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
+        await hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
         throw e;
       }
     }
@@ -287,17 +287,17 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const rest = m ? m[2] : path.replace(/^\/api/, '');
 
     if (rest === '/ops' && req.method === 'GET') {
-      const { project } = hub.projectFor(p, projectId);
-      return send(res, 200, hub.engine(project.id).registry.describe());
+      const { project } = await hub.projectFor(p, projectId);
+      return send(res, 200, (await hub.engine(project.id)).registry.describe());
     }
 
     const op = /^\/ops\/([a-z0-9_]+)$/.exec(rest);
     if (op && req.method === 'POST') return sendData(res, await hub.callProject(p, projectId, op[1], await readJson(req)));
 
-    if (rest === '/events' && req.method === 'GET') return events(req, res, p, projectId);
+    if (rest === '/events' && req.method === 'GET') return await events(req, res, p, projectId);
 
     if (rest === '/files' && req.method === 'POST') {
-      const { project, role } = hub.projectFor(p, projectId);
+      const { project, role } = await hub.projectFor(p, projectId);
       if (!roleAtLeast(role, 'editor')) throw new KalibraError('forbidden', 'Uploading files needs the editor role in this project');
       let name: string | undefined;
       try {
@@ -307,7 +307,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       }
       const type = String(req.headers['content-type'] ?? '');
       const meta = { name, mime: type && type !== 'application/octet-stream' ? type : undefined };
-      const blobs = hub.engine(project.id).blobs;
+      const blobs = (await hub.engine(project.id)).blobs;
       // Streamed to disk while hashing: a 2 GB upload must not need 2–4 GB of memory.
       if (blobs.putStream) return sendData(res, await blobs.putStream(req, meta, MAX_UPLOAD));
       return sendData(res, await blobs.put(await readBody(req, MAX_UPLOAD), meta));
@@ -315,32 +315,34 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     const file = /^\/files\/([a-f0-9]{64})$/.exec(rest);
     if (file && (req.method === 'GET' || req.method === 'HEAD')) {
-      const { project } = hub.projectFor(p, projectId);
-      return serveBlob(hub.engine(project.id), req, res, file[1], url);
+      const { project } = await hub.projectFor(p, projectId);
+      return await serveBlob(await hub.engine(project.id), req, res, file[1], url);
     }
 
     fail(res, 404, 'not_found', `No route ${req.method} ${path}`);
   }
 
   /** Live events of one project, for as long as the caller may see it. */
-  function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string) {
-    const { project } = hub.projectFor(p, projectId);
-    const engine = hub.engine(project.id);
+  async function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string) {
+    const { project } = await hub.projectFor(p, projectId);
+    const engine = await hub.engine(project.id);
+    // The browser may have gone while the project opened: 'close' already fired, so don't subscribe.
+    if (req.destroyed || res.destroyed || req.socket.destroyed) return;
     res.writeHead(200, { ...BASE_HEADERS, 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
     res.write(': connected\n\n');
     const unsubscribe = engine.events.subscribe((e: EngineEvent) => res.write(`data: ${JSON.stringify(e)}\n\n`));
-    const stillAllowed = () => {
+    const stillAllowed = async () => {
       try {
-        if (p.sessionId && !hub.accounts.resolveSession(cookieValue(req) ?? '')) return false;
-        if (!p.sessionId && !p.tokenId && hub.mode === 'server' && hub.accounts.get(p.user.id).disabled) return false;
-        if (p.tokenId && !hub.accounts.resolveToken(/^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '')) return false;
-        hub.projectFor(hub.mode === 'local' ? p : { ...p, user: hub.accounts.get(p.user.id) }, project.id);
+        if (p.sessionId && !(await hub.accounts.resolveSession(cookieValue(req) ?? ''))) return false;
+        if (!p.sessionId && !p.tokenId && hub.mode === 'server' && (await hub.accounts.get(p.user.id)).disabled) return false;
+        if (p.tokenId && !(await hub.accounts.resolveToken(/^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? ''))) return false;
+        await hub.projectFor(hub.mode === 'local' ? p : { ...p, user: await hub.accounts.get(p.user.id) }, project.id);
         return true;
       } catch {
         return false;
       }
     };
-    const ping = setInterval(() => (stillAllowed() ? res.write(': ping\n\n') : res.end()), RECHECK_MS);
+    const ping = setInterval(() => void stillAllowed().then((ok) => (ok ? res.write(': ping\n\n') : res.end()), () => res.end()), RECHECK_MS);
     req.on('close', () => {
       clearInterval(ping);
       unsubscribe();

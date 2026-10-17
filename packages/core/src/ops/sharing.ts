@@ -21,7 +21,7 @@ function refuseCode(code: CodeItem[], source: string) {
 }
 
 async function blobBytes(engine: Engine, hash: string) {
-  if (!engine.blobs.info(hash) || !engine.blobs.has(hash)) throw invalid('Upload the file first (blob not found)');
+  if (!(await engine.blobs.info(hash)) || !(await engine.blobs.has(hash))) throw invalid('Upload the file first (blob not found)');
   return new Uint8Array(await engine.blobs.get(hash));
 }
 
@@ -86,7 +86,7 @@ export const sharingOps: OpDef<any, any>[] = [
     category: 'workspace',
     readOnly: true,
     input: z.object({}),
-    handler: ({ engine }) => settingsGet(engine),
+    handler: async ({ engine }) => await settingsGet(engine),
   }),
 
   defineOp({
@@ -97,7 +97,7 @@ export const sharingOps: OpDef<any, any>[] = [
     access: 'owner',
     quiet: true,
     input: z.object({ folder: z.string().optional(), includeRows: z.boolean().optional(), includeMedia: z.boolean().optional() }),
-    handler: ({ engine }, i) => settingsSet(engine, i),
+    handler: async ({ engine }, i) => await settingsSet(engine, i),
   }),
 
   defineOp({
@@ -134,7 +134,7 @@ export const sharingOps: OpDef<any, any>[] = [
     category: 'datasets',
     readOnly: true,
     input: z.object({ blob: z.string() }),
-    handler: async ({ engine }, i) => inspectExternal(await blobBytes(engine, i.blob), engine.blobs.info(i.blob)?.name ?? ''),
+    handler: async ({ engine }, i) => inspectExternal(await blobBytes(engine, i.blob), (await engine.blobs.info(i.blob))?.name ?? ''),
   }),
 
   defineOp({
@@ -159,8 +159,8 @@ export const sharingOps: OpDef<any, any>[] = [
           throw invalid('The graders file is not valid JSON');
         }
       }
-      const fileName = engine.blobs.info(i.blob)?.name ?? '';
-      return importExternal(engine, bytes, { format: i.format, name: i.name || fileName.replace(/\.[^.]+$/, '') || undefined, fileName, graders }, actor);
+      const fileName = (await engine.blobs.info(i.blob))?.name ?? '';
+      return await importExternal(engine, bytes, { format: i.format, name: i.name || fileName.replace(/\.[^.]+$/, '') || undefined, fileName, graders }, actor);
     },
   }),
 ];

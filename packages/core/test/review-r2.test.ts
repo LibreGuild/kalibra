@@ -30,14 +30,14 @@ async function runAndWait(input: Record<string, unknown>) {
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kalibra-r2-'));
-  engine = new Engine({ dir });
+  engine = await Engine.open({ dir });
   await engine.call('create_dataset', { name: 'Qs', columns: [{ key: 'q' }] });
   await engine.call('add_dataset_rows', { dataset: 'Qs', rows: [{ data: { q: 'good' } }, { data: { q: 'bad' } }] });
   await engine.call('create_suite', { name: 'Lenient', spec: { checks: [{ id: 'any', type: 'expression', config: { expression: 'true' } }] } });
 });
 
-afterAll(() => {
-  engine?.close();
+afterAll(async () => {
+  await engine?.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -91,24 +91,24 @@ describe('engine shutdown during a run', () => {
     const onRejection = (e: unknown) => rejections.push(e);
     process.on('unhandledRejection', onRejection);
     try {
-      let e1 = new Engine({ dir: own });
+      let e1 = await Engine.open({ dir: own });
       await e1.call('create_dataset', { name: 'D', columns: [{ key: 'q' }] });
       await e1.call('add_dataset_rows', { dataset: 'D', rows: [1, 2, 3, 4].map((n) => ({ data: { q: String(n) } })) });
       await e1.call('create_target', { name: 'Slow', spec: { config: { kind: 'script', code: 'await new Promise((r) => setTimeout(r, 150)); return "ok";' } } });
       await e1.call('create_suite', { name: 'S', spec: { checks: [] } });
       const run = await e1.call<any>('start_run', { dataset: 'D', target: 'Slow', suite: 'S', settings: { concurrency: 1, retries: 0 } });
       await new Promise((r) => setTimeout(r, 200)); // first row done, second in flight
-      e1.close();
+      await e1.close();
       await new Promise((r) => setTimeout(r, 400)); // let the in-flight row and the run loop wind down
       expect(rejections).toEqual([]);
 
-      e1 = new Engine({ dir: own });
+      e1 = await Engine.open({ dir: own });
       expect((await e1.call<any>('get_run', { runId: run.id })).status).toBe('interrupted');
       await e1.call('resume_run', { runId: run.id });
       const done = await e1.runner.wait(run.id, 20);
       expect(done.status).toBe('completed');
       expect(done.summary.completed).toBe(4);
-      e1.close();
+      await e1.close();
     } finally {
       process.off('unhandledRejection', onRejection);
       rmSync(own, { recursive: true, force: true });

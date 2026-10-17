@@ -41,6 +41,7 @@ export class TraceStore {
   readonly repo: TraceRepo;
   readonly tools: ToolRecordingRepo;
   private queue: TraceWithSpans[] = [];
+  private writing = 0;
   private timer?: ReturnType<typeof setTimeout>;
   /** Fires 'written' with the result ids of each written batch (for waitForResult). */
   private written = new EventEmitter();
@@ -57,16 +58,18 @@ export class TraceStore {
 
   // ── Settings ─────────────────────────────────────────────────────────────
 
-  settings(): TraceSettings {
-    return { ...DEFAULT_TRACE_SETTINGS, ...parseJson<Partial<TraceSettings>>(this.engine.db.get("SELECT value FROM meta WHERE key = 'traces'")?.value, {}) };
+  async settings(): Promise<TraceSettings> {
+    return { ...DEFAULT_TRACE_SETTINGS, ...parseJson<Partial<TraceSettings>>((await this.engine.db.get("SELECT value FROM meta WHERE key = 'traces'"))?.value, {}) };
   }
 
-  setSettings(patch: Partial<TraceSettings>): TraceSettings {
-    const next = { ...this.settings(), ...patch };
-    if (!Number.isInteger(next.retentionDays) || next.retentionDays < 1 || next.retentionDays > 3650) throw invalid('Keep traces between 1 and 3650 days');
-    next.proxyOpenaiUpstream = checkUpstream(next.proxyOpenaiUpstream);
-    this.engine.db.run("INSERT INTO meta (key, value) VALUES ('traces', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", JSON.stringify(next));
-    return next;
+  async setSettings(patch: Partial<TraceSettings>): Promise<TraceSettings> {
+    return this.engine.db.tx(async () => {
+      const next = { ...(await this.settings()), ...patch };
+      if (!Number.isInteger(next.retentionDays) || next.retentionDays < 1 || next.retentionDays > 3650) throw invalid('Keep traces between 1 and 3650 days');
+      next.proxyOpenaiUpstream = checkUpstream(next.proxyOpenaiUpstream);
+      await this.engine.db.run("INSERT INTO meta (key, value) VALUES ('traces', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", JSON.stringify(next));
+      return next;
+    });
   }
 
   // ── Ingest ───────────────────────────────────────────────────────────────
@@ -90,44 +93,48 @@ export class TraceStore {
       this.queue.push(t);
     }
     if (traces.length && !this.timer) {
-      this.timer = setTimeout(() => this.flush(), FLUSH_DELAY_MS);
+      this.timer = setTimeout(() => void this.flush().catch((e) => console.error(`Could not store traces: ${e?.message ?? e}`)), FLUSH_DELAY_MS);
       this.timer.unref?.();
     }
   }
 
   /** Writes everything queued now (also on engine close). */
-  flush() {
+  async flush() {
     clearTimeout(this.timer);
     this.timer = undefined;
     if (!this.queue.length) return;
     const batch = this.queue;
     this.queue = [];
+    this.writing += batch.length;
     try {
-      this.repo.write(batch);
+      await this.repo.write(batch);
     } catch (e: any) {
       // A closed database (app quitting) drops the batch.
       if (/not open/i.test(e?.message ?? '')) return;
       // Otherwise one bad trace must not drop everyone else's: write them one by one.
       for (const t of batch) {
         try {
-          this.repo.write([t]);
+          await this.repo.write([t]);
         } catch (err: any) {
           console.error(`Could not store trace ${t.id}: ${err?.message ?? err}`);
         }
       }
+    } finally {
+      this.writing -= batch.length;
     }
     const resultIds = [...new Set(batch.map((t) => t.resultId).filter((x): x is string => !!x))];
     this.written.emit('written', resultIds);
     this.engine.events.emit({ type: 'traces.ingested', count: batch.length, ...(resultIds.length ? { resultIds } : {}) });
-    if (Date.now() - this.lastPrune > PRUNE_EVERY_MS) this.prune();
+    if (Date.now() - this.lastPrune > PRUNE_EVERY_MS) await this.prune();
   }
 
+  /** Traces queued or being written (the engine stays open until they are stored). */
   pending() {
-    return this.queue.length;
+    return this.queue.length + this.writing;
   }
 
-  close() {
-    this.flush();
+  async close() {
+    await this.flush();
     this.closed = true;
     this.written.removeAllListeners();
   }
@@ -163,9 +170,9 @@ export class TraceStore {
    * arrived; an app that sends nothing just costs the wait.
    */
   async waitForResult(resultId: string, ms: number, signal?: AbortSignal): Promise<{ steps: Step[]; traceIds: string[] }> {
-    this.flush();
-    const found = () => this.repo.byResult(resultId);
-    if (!found().length && ms > 0) {
+    await this.flush();
+    const found = async () => await this.repo.byResult(resultId);
+    if (!(await found()).length && ms > 0) {
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer);
@@ -179,10 +186,10 @@ export class TraceStore {
         signal?.addEventListener('abort', done, { once: true });
       });
       // Let the rest of a multi-trace row land (bounded; most apps send one trace per call).
-      if (found().length && !signal?.aborted) await new Promise((r) => setTimeout(r, Math.min(150, ms)));
-      this.flush();
+      if ((await found()).length && !signal?.aborted) await new Promise((r) => setTimeout(r, Math.min(150, ms)));
+      await this.flush();
     }
-    const traces = found();
+    const traces = await found();
     return { steps: stepsFromSpans(traces.flatMap((t) => t.spans)), traceIds: traces.map((t) => t.id) };
   }
 
@@ -193,11 +200,11 @@ export class TraceStore {
 
   // ── Retention ────────────────────────────────────────────────────────────
 
-  prune() {
+  async prune() {
     this.lastPrune = Date.now();
-    const before = new Date(Date.now() - this.settings().retentionDays * 86_400_000).toISOString();
+    const before = new Date(Date.now() - (await this.settings()).retentionDays * 86_400_000).toISOString();
     try {
-      return this.repo.prune(before);
+      return await this.repo.prune(before);
     } catch {
       return 0;
     }

@@ -44,28 +44,28 @@ const slug = (s: string, max = 40) =>
 const isEmpty = (v: unknown) => v === undefined || v === null || v === '';
 const rowScope = (row: RowRecord) => ({ ...row.data, row: row.data, row_id: row.id, tags: row.tags });
 
-function column(engine: Engine, datasetId: string, key: string, allowed: ColumnType[]): ColumnSpec {
-  const ds = engine.repos.datasets.get(datasetId);
+async function column(engine: Engine, datasetId: string, key: string, allowed: ColumnType[]): Promise<ColumnSpec> {
+  const ds = await engine.repos.datasets.get(datasetId);
   const col = ds.schema.columns.find((c) => c.key === key);
   if (!col) throw invalid(`Column "${key}" does not exist in "${ds.name}". Add it first (update_dataset).`);
   if (!allowed.includes(col.type)) throw invalid(`Column "${key}" is ${col.type}; this needs a ${allowed.join(' or ')} column.`);
   return col;
 }
 
-function selectRows(engine: Engine, datasetId: string, opts: { rowIds?: string[]; limit?: number; filter?: (r: RowRecord) => boolean }) {
-  let rows = engine.repos.datasets.listRows(datasetId, { ids: opts.rowIds, limit: 1_000_000 }).rows.filter((r) => r.status !== 'rejected' || opts.rowIds?.includes(r.id));
+async function selectRows(engine: Engine, datasetId: string, opts: { rowIds?: string[]; limit?: number; filter?: (r: RowRecord) => boolean }) {
+  let rows = (await engine.repos.datasets.listRows(datasetId, { ids: opts.rowIds, limit: 1_000_000 })).rows.filter((r) => r.status !== 'rejected' || opts.rowIds?.includes(r.id));
   if (opts.filter) rows = rows.filter(opts.filter);
   if (opts.limit) rows = rows.slice(0, opts.limit);
   return rows;
 }
 
-function connectionProvider(engine: Engine, connectionId: string) {
-  return engine.repos.defs.get('connection', connectionId).spec.provider as string;
+async function connectionProvider(engine: Engine, connectionId: string) {
+  return (await engine.repos.defs.get('connection', connectionId)).spec.provider as string;
 }
 
 /** Merges `patch` into a row's provenance (media provenance per column). */
-function noteProvenance(engine: Engine, rowId: string, patch: Record<string, unknown>) {
-  engine.db.run("UPDATE rows SET provenance = json_patch(COALESCE(provenance, '{}'), ?) WHERE id = ?", JSON.stringify(patch), rowId);
+async function noteProvenance(engine: Engine, rowId: string, patch: Record<string, unknown>) {
+  await engine.db.run("UPDATE rows SET provenance = json_patch(COALESCE(provenance, '{}'), ?) WHERE id = ?", JSON.stringify(patch), rowId);
 }
 
 async function putFile(engine: Engine, data: Uint8Array, mime: string, base: string) {
@@ -73,8 +73,8 @@ async function putFile(engine: Engine, data: Uint8Array, mime: string, base: str
   return { blob: info.hash, name: info.name, mime: info.mime, size: info.size };
 }
 
-function setRowFile(engine: Engine, actor: Actor, row: RowRecord, col: string, file: unknown, extra: { tags?: string[]; status?: z.infer<typeof RowStatus> } = {}) {
-  const updated = engine.repos.datasets.updateRow(row.id, { data: { [col]: file }, tags: extra.tags, status: extra.status }, actor);
+async function setRowFile(engine: Engine, actor: Actor, row: RowRecord, col: string, file: unknown, extra: { tags?: string[]; status?: z.infer<typeof RowStatus> } = {}) {
+  const updated = await engine.repos.datasets.updateRow(row.id, { data: { [col]: file }, tags: extra.tags, status: extra.status }, actor);
   engine.events.emit({ type: 'rows.changed', datasetId: row.datasetId, count: 1, actor });
   return updated;
 }
@@ -175,20 +175,20 @@ export const mediaOps: OpDef<any, any>[] = [
         .optional()
         .describe('Keep every image at or under this many KB (1 KB = 1000 bytes): larger images are re-encoded as JPEG and scaled down. Leave out for no limit.'),
     }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      column(engine, ds.id, i.column, ['image', 'file']);
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      await column(engine, ds.id, i.column, ['image', 'file']);
       if (i.mode === 'new_rows') {
         if (!i.prompts.filter((p) => p.trim()).length) throw invalid('new_rows needs at least one prompt');
-        if (i.promptColumn) column(engine, ds.id, i.promptColumn, ['text']);
+        if (i.promptColumn) await column(engine, ds.id, i.promptColumn, ['text']);
       } else if (!i.promptTemplate.trim()) throw invalid('promptTemplate is required');
-      const provider = connectionProvider(engine, i.connectionId);
+      const provider = await connectionProvider(engine, i.connectionId);
       const openai = provider === 'openai' || provider === 'azure';
       const options: Record<string, unknown> = {};
       if (i.quality && openai) options.quality = i.quality;
       // With a size limit the image is decoded and re-encoded, which needs PNG or JPEG: ask GPT Image
       // models for PNG (their default, but a connection may be set to WebP). DALL·E rejects the option.
-      const spec = engine.repos.defs.get('connection', i.connectionId).spec as { imageModel?: string; defaultModel?: string };
+      const spec = (await engine.repos.defs.get('connection', i.connectionId)).spec as { imageModel?: string; defaultModel?: string };
       const modelId = i.model || spec.imageModel || '';
       if (i.maxKb && openai && /^gpt-image/i.test(modelId)) options.output_format = 'png';
       const maxBytes = i.maxKb ? Math.floor(i.maxKb * 1000) : undefined;
@@ -230,7 +230,7 @@ export const mediaOps: OpDef<any, any>[] = [
               const { res, file, sizing } = await draw(prompt, job.signal);
               const data: Record<string, unknown> = { [i.column]: file };
               if (i.promptColumn) data[i.promptColumn] = p;
-              const out = engine.repos.datasets.addRows(ds.id, [{ data, status: i.status ?? 'needs_review' }], actor, {
+              const out = await engine.repos.datasets.addRows(ds.id, [{ data, status: i.status ?? 'needs_review' }], actor, {
                 provenance: { source: 'generated', kind: 'image', model: res.model, prompt, connectionId: i.connectionId, ...(sizing ? { sizing } : {}) },
               });
               if (out.rejected.length) throw new Error(out.rejected[0].errors.join('; '));
@@ -238,13 +238,13 @@ export const mediaOps: OpDef<any, any>[] = [
               return 'created';
             });
           }
-          const rows = selectRows(engine, ds.id, { rowIds: i.rowIds, limit: i.limit, filter: i.mode === 'fill_empty' ? (r) => isEmpty(r.data[i.column]) : undefined });
+          const rows = await selectRows(engine, ds.id, { rowIds: i.rowIds, limit: i.limit, filter: i.mode === 'fill_empty' ? (r) => isEmpty(r.data[i.column]) : undefined });
           return eachItem(job, rows, i.concurrency, (r) => r.id, async (row) => {
             const prompt = await render(i.promptTemplate, rowScope(row), engine.templateEnv());
             if (!prompt.trim()) return 'skipped';
             const { res, file, sizing } = await draw(prompt, job.signal);
-            setRowFile(engine, actor, row, i.column, file, { status: i.status });
-            noteProvenance(engine, row.id, { media: { [i.column]: { source: 'generated', kind: 'image', model: res.model, prompt, ...(sizing ? { sizing } : {}) } } });
+            await setRowFile(engine, actor, row, i.column, file, { status: i.status });
+            await noteProvenance(engine, row.id, { media: { [i.column]: { source: 'generated', kind: 'image', model: res.model, prompt, ...(sizing ? { sizing } : {}) } } });
             return 'updated';
           });
         },
@@ -280,11 +280,11 @@ export const mediaOps: OpDef<any, any>[] = [
       concurrency: z.number().int().min(1).max(8).default(3),
       status: RowStatus.optional(),
     }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      column(engine, ds.id, i.column, ['audio', 'file']);
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      await column(engine, ds.id, i.column, ['audio', 'file']);
       if (!i.textTemplate.trim()) throw invalid('textTemplate is required');
-      const rows = selectRows(engine, ds.id, { rowIds: i.rowIds, limit: i.limit, filter: i.mode === 'fill_empty' ? (r) => isEmpty(r.data[i.column]) : undefined });
+      const rows = await selectRows(engine, ds.id, { rowIds: i.rowIds, limit: i.limit, filter: i.mode === 'fill_empty' ? (r) => isEmpty(r.data[i.column]) : undefined });
       const voiceFor = new Map(rows.map((r, n) => [r.id, i.voices.length ? i.voices[n % i.voices.length] : '']));
 
       const job = engine.jobs.start(
@@ -300,8 +300,8 @@ export const mediaOps: OpDef<any, any>[] = [
             const res = await engine.llm.speech({ connectionId: i.connectionId, model: i.model || undefined, text, voice, instructions, speed: i.speed, language: i.language || undefined, format: i.format, signal: job.signal });
             const file = await putFile(engine, res.audio.data, res.audio.mime, `${slug(text, 32)}${voice ? `-${voice}` : ''}`);
             const tags = voice ? [...row.tags.filter((t) => !t.startsWith('voice:')), `voice:${voice}`] : undefined;
-            setRowFile(engine, actor, row, i.column, file, { tags, status: i.status });
-            noteProvenance(engine, row.id, { media: { [i.column]: { source: 'generated', kind: 'speech', model: res.model, voice: voice ?? null, instructions: instructions ?? null } } });
+            await setRowFile(engine, actor, row, i.column, file, { tags, status: i.status });
+            await noteProvenance(engine, row.id, { media: { [i.column]: { source: 'generated', kind: 'speech', model: res.model, voice: voice ?? null, instructions: instructions ?? null } } });
             return 'updated';
           }),
         actor,
@@ -330,11 +330,11 @@ export const mediaOps: OpDef<any, any>[] = [
       concurrency: z.number().int().min(1).max(8).default(3),
       status: RowStatus.default('needs_review'),
     }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      column(engine, ds.id, i.audioColumn, ['audio', 'file']);
-      column(engine, ds.id, i.textColumn, ['text']);
-      const rows = selectRows(engine, ds.id, {
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      await column(engine, ds.id, i.audioColumn, ['audio', 'file']);
+      await column(engine, ds.id, i.textColumn, ['text']);
+      const rows = await selectRows(engine, ds.id, {
         rowIds: i.rowIds,
         limit: i.limit,
         filter: (r) => !isEmpty(r.data[i.audioColumn]) && (i.mode === 'overwrite' || isEmpty(r.data[i.textColumn])),
@@ -347,9 +347,9 @@ export const mediaOps: OpDef<any, any>[] = [
             const file = row.data[i.audioColumn] as any;
             if (!file?.blob) return 'skipped';
             const bytes = await engine.blobs.get(file.blob);
-            const res = await engine.llm.transcribe({ connectionId: i.connectionId, model: i.model || undefined, audio: { data: bytes, mime: file.mime || engine.blobs.info(file.blob)?.mime || 'audio/wav' }, signal: job.signal });
-            engine.repos.datasets.updateRow(row.id, { data: { [i.textColumn]: res.text.trim() }, status: i.status }, actor);
-            noteProvenance(engine, row.id, { media: { [i.textColumn]: { source: 'transcribed', model: res.model, language: res.language ?? null } } });
+            const res = await engine.llm.transcribe({ connectionId: i.connectionId, model: i.model || undefined, audio: { data: bytes, mime: file.mime || (await engine.blobs.info(file.blob))?.mime || 'audio/wav' }, signal: job.signal });
+            await engine.repos.datasets.updateRow(row.id, { data: { [i.textColumn]: res.text.trim() }, status: i.status }, actor);
+            await noteProvenance(engine, row.id, { media: { [i.textColumn]: { source: 'transcribed', model: res.model, language: res.language ?? null } } });
             engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: 1, actor });
             return 'updated';
           }),
@@ -382,10 +382,10 @@ export const mediaOps: OpDef<any, any>[] = [
       limit: z.number().int().positive().optional(),
       concurrency: z.number().int().min(1).max(8).default(4),
     }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      column(engine, ds.id, i.sourceColumn, ['audio', 'file']);
-      const rows = selectRows(engine, ds.id, {
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      await column(engine, ds.id, i.sourceColumn, ['audio', 'file']);
+      const rows = await selectRows(engine, ds.id, {
         rowIds: i.rowIds,
         limit: i.limit,
         filter: (r) =>
@@ -402,11 +402,11 @@ export const mediaOps: OpDef<any, any>[] = [
             const file = row.data[i.sourceColumn] as any;
             if (!file?.blob) return 'skipped';
             const bytes = await engine.blobs.get(file.blob);
-            const { wav } = await augmentAudio(bytes, file.mime || engine.blobs.info(file.blob)?.mime, recipe.effects as AudioEffect[], `${row.id}:${recipe.name}`);
+            const { wav } = await augmentAudio(bytes, file.mime || (await engine.blobs.info(file.blob))?.mime, recipe.effects as AudioEffect[], `${row.id}:${recipe.name}`);
             const base = (file.name ?? 'audio').replace(/\.[a-z0-9]+$/i, '');
             const out = await putFile(engine, wav, 'audio/wav', `${base}.${slug(recipe.name, 24)}`);
             const tag = `aug:${slug(recipe.name, 32)}`;
-            const res = engine.repos.datasets.addRows(
+            const res = await engine.repos.datasets.addRows(
               ds.id,
               [{ data: { ...row.data, [i.sourceColumn]: out }, tags: [...new Set([...row.tags, tag, ...i.tags])], status: row.status, split: row.split }],
               actor,

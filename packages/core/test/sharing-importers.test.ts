@@ -17,12 +17,12 @@ describe('import from other eval tools', () => {
   let dir: string;
   const upload = async (name: string, bytes: Buffer = fixture(name)) => (await engine.blobs.put(bytes, { name })).hash;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-import-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
   });
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -46,7 +46,7 @@ describe('import from other eval tools', () => {
     // 6 test entries: one is a file reference (skipped), one has only a file var (row kept without it).
     expect(r.dataset.rows).toBe(5);
     expect(r.dataset.columns).toEqual(expect.arrayContaining(['question', 'lang', 'prompt', 'test_description']));
-    const rows = engine.repos.datasets.listRows(r.dataset.id).rows;
+    const rows = (await engine.repos.datasets.listRows(r.dataset.id)).rows;
     const uni = rows.find((x) => x.data.lang === 'es')!;
     expect(uni.data.question).toBe('¿Cómo bloqueo mi tarjeta? 🙏');
     expect(uni.data.prompt).toBe('Answer the customer: ¿Cómo bloqueo mi tarjeta? 🙏');
@@ -62,17 +62,17 @@ describe('import from other eval tools', () => {
     expect(r.warnings.join(' ')).not.toMatch(/merged/);
 
     // Targets: the http provider keeps url, headers, body placeholders and the response mapping.
-    const http = engine.repos.defs.get('target', r.targets.find((t: any) => t.kind === 'http').id);
+    const http = await engine.repos.defs.get('target', r.targets.find((t: any) => t.kind === 'http').id);
     expect(http.name).toBe('Support API (staging)');
     expect(http.spec.config.url).toBe('https://api.example.com/chat');
     expect(http.spec.config.headers[0]).toMatchObject({ key: 'Authorization', value: 'Bearer {{api_token}}' });
     expect(http.spec.config.body.content).toContain('"message": "{{question}}"');
     expect(http.spec.config.outputs[0]).toMatchObject({ from: 'expression', path: 'body.answer' });
-    const model = engine.repos.defs.get('target', r.targets.find((t: any) => t.kind === 'model').id);
+    const model = await engine.repos.defs.get('target', r.targets.find((t: any) => t.kind === 'model').id);
     expect(model.spec.config).toMatchObject({ kind: 'model', model: 'gpt-6-luna', connectionId: '' });
 
     // The suite is valid and behaves sensibly on rows with and without per-row assertions.
-    const suite = SuiteSpec.parse(engine.repos.defs.get('suite', r.suite.id).spec);
+    const suite = SuiteSpec.parse((await engine.repos.defs.get('suite', r.suite.id)).spec);
     expect(suite.checks.find((c) => c.type === 'llm_judge')!.enabled).toBe(false);
     const run = (output: string, row: Record<string, unknown>) =>
       evaluateChecks(suite, { scope: { ...row, row, output, outputs: { output }, response: {}, metrics: { latency_ms: 100 }, vars: {}, error: '' }, env: {}, llm: {} as any, log: () => {}, workspaceDir: dir, signal: new AbortController().signal });
@@ -97,12 +97,12 @@ describe('import from other eval tools', () => {
     const r = await engine.call<any>('import_external', { blob: await upload('evals.jsonl'), gradersBlob: await upload('graders.json') });
     expect(r.format).toBe('openai_evals');
     expect(r.dataset.rows).toBe(3);
-    const rows = engine.repos.datasets.listRows(r.dataset.id).rows;
+    const rows = (await engine.repos.datasets.listRows(r.dataset.id)).rows;
     expect(rows.map((x) => x.data.answer)).toEqual(['Paris', '4', 'blue']);
     expect(rows[1].data.tags).toEqual(['math']);
     expect(r.mappedChecks.map((m: any) => m.to)).toEqual(['equals', 'contains', 'similarity', 'rouge_l', 'llm_judge']);
     expect(r.unsupported.map((u: any) => u.what)).toEqual(['text_similarity meteor', 'grader python']);
-    const suite = engine.repos.defs.get('suite', r.suite.id).spec;
+    const suite = (await engine.repos.defs.get('suite', r.suite.id)).spec;
     expect(suite.checks[0].config).toMatchObject({ actual: '{{output}}', expected: '{{answer}}' });
     expect(suite.checks.find((c: any) => c.type === 'llm_judge').config.criteria).toContain('{{question}}');
   });
@@ -110,21 +110,21 @@ describe('import from other eval tools', () => {
   it('imports LangSmith exports (JSON columns and flattened columns)', async () => {
     const r = await engine.call<any>('import_external', { blob: await upload('langsmith.csv') });
     expect(r.format).toBe('langsmith');
-    const rows = engine.repos.datasets.listRows(r.dataset.id).rows;
+    const rows = (await engine.repos.datasets.listRows(r.dataset.id)).rows;
     expect(rows[0].data).toMatchObject({ question: 'What is 1, 2, 3?', context: 'say "numbers"', expected: 'Three numbers' });
     expect(rows[0].split).toBe('test');
     expect(rows[0].tags).toEqual(['math']);
     expect(rows[1].data.question).toBe('Ünïcödé?');
 
     const flat = await engine.call<any>('import_external', { blob: await upload('langsmith-flat.csv'), name: 'Flat' });
-    const frows = engine.repos.datasets.listRows(flat.dataset.id).rows;
+    const frows = (await engine.repos.datasets.listRows(flat.dataset.id)).rows;
     expect(frows[0].data).toMatchObject({ question: 'Hello?', lang: 'en', expected_answer: 'Hi' });
   });
 
   it('imports Langfuse items, keeping archived ones as rejected', async () => {
     const r = await engine.call<any>('import_external', { blob: await upload('langfuse.json') });
     expect(r.format).toBe('langfuse');
-    const rows = engine.repos.datasets.listRows(r.dataset.id).rows;
+    const rows = (await engine.repos.datasets.listRows(r.dataset.id)).rows;
     expect(rows[0].data).toMatchObject({ question: 'Reset password?', user_tier: 'gold', expected: 'Use the reset link' });
     expect(rows[1].status).toBe('rejected');
     expect(rows[1].data).toMatchObject({ input: 'Plain string input', expected_answer: 'x', expected_confidence: 0.9 });

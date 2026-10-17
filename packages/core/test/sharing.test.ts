@@ -6,6 +6,7 @@ import { strToU8, zipSync } from 'fflate';
 import { Engine } from '../src/engine.js';
 import { encodeWav } from '../src/audio/wav.js';
 import { readZip } from '../src/sharing/common.js';
+import { mapSeq } from '../src/util.js';
 
 /*
  * Team sharing: bundles round-trip a workspace (datasets with media, definitions, runs) into a fresh
@@ -18,7 +19,7 @@ const freshDir = (prefix: string) => {
   tmp.push(d);
   return d;
 };
-const freshEngine = () => new Engine({ dir: freshDir('kalibra-share-') });
+const freshEngine = async () => await Engine.open({ dir: freshDir('kalibra-share-') });
 const engines: Engine[] = [];
 const track = (e: Engine) => (engines.push(e), e);
 
@@ -57,34 +58,34 @@ async function seed(engine: Engine) {
 
   // A finished run with results, inserted directly (no network).
   const rows = (await engine.call<any>('list_rows', { dataset: ds.id })).rows;
-  const version = engine.repos.datasets.createVersion(ds.id, 'v', { kind: 'user', id: 'local' });
-  const run = engine.repos.runs.create(
+  const version = await engine.repos.datasets.createVersion(ds.id, 'v', { kind: 'user', id: 'local' });
+  const run = await engine.repos.runs.create(
     { name: 'Baseline', kind: 'live', datasetId: ds.id, datasetVersionId: version.id, targetId: target.id, targetVersion: 1, suiteId: suite.id, suiteVersion: 1, settings: { concurrency: 1, retries: 0, repetitions: 1, includeStatuses: ['approved'], delayMs: 0 } as any },
     { kind: 'user', id: 'local' },
   );
-  engine.repos.runs.addPending(run.id, rows.map((r: any) => ({ rowId: r.id, rowRev: 1, rep: 0, input: r.data })));
-  for (const p of engine.repos.runs.pending(run.id)) {
-    engine.repos.runs.saveResult(run.id, p.id, { status: 'done', passed: true, score: 1, outputs: { output: 'ok' }, checks: [{ id: 'wer', status: 'pass' }], metrics: { latency_ms: 12 }, attempts: 1 });
+  await engine.repos.runs.addPending(run.id, rows.map((r: any) => ({ rowId: r.id, rowRev: 1, rep: 0, input: r.data })));
+  for (const p of await engine.repos.runs.pending(run.id)) {
+    await engine.repos.runs.saveResult(run.id, p.id, { status: 'done', passed: true, score: 1, outputs: { output: 'ok' }, checks: [{ id: 'wer', status: 'pass' }], metrics: { latency_ms: 12 }, attempts: 1 });
   }
-  engine.repos.runs.setStatus(run.id, 'completed', { summary: { passRate: 1 } });
+  await engine.repos.runs.setStatus(run.id, 'completed', { summary: { passRate: 1 } });
   return { ds, target, suite, run, audio, image };
 }
 
 const snapshot = async (engine: Engine) => {
   const datasets = await Promise.all(
-    engine.repos.datasets.list().map(async (d) => ({
+    (await engine.repos.datasets.list()).map(async (d) => ({
       name: d.name,
       description: d.description,
       schema: d.schema,
-      rows: engine.repos.datasets.listRows(d.id, { limit: 1000 }).rows.map((r) => ({ data: r.data, tags: r.tags, status: r.status })),
+      rows: (await engine.repos.datasets.listRows(d.id, { limit: 1000 })).rows.map((r) => ({ data: r.data, tags: r.tags, status: r.status })),
     })),
   );
-  const defs = (['target', 'suite', 'connection'] as const).flatMap((k) => engine.repos.defs.list(k).map((d) => ({ k, name: d.name, spec: d.spec })));
+  const defs = (await mapSeq(['target', 'suite', 'connection'] as const, async (k) => (await engine.repos.defs.list(k)).map((d) => ({ k, name: d.name, spec: d.spec })))).flat();
   return { datasets: datasets.sort((a, b) => a.name.localeCompare(b.name)), defs: defs.sort((a, b) => (a.k + a.name).localeCompare(b.k + b.name)) };
 };
 
-afterAll(() => {
-  for (const e of engines) e.close();
+afterAll(async () => {
+  for (const e of engines) await e.close();
   for (const d of tmp) rmSync(d, { recursive: true, force: true });
 });
 
@@ -94,7 +95,7 @@ describe('bundles', () => {
   let bundleHash: string;
 
   beforeAll(async () => {
-    a = track(freshEngine());
+    a = track(await freshEngine());
     seeded = await seed(a);
     const res = await a.call<any>('export_bundle', { everything: true, includeRuns: true });
     bundleHash = res.hash;
@@ -115,7 +116,7 @@ describe('bundles', () => {
   });
 
   it('round-trips everything into a fresh workspace', async () => {
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     const hash = await upload(b, await bytesFrom(a, bundleHash));
     const inspect = await b.call<any>('inspect_bundle', { blob: hash });
     expect(inspect.conflicts).toBe(0);
@@ -126,46 +127,46 @@ describe('bundles', () => {
     expect(await snapshot(b)).toEqual(await snapshot(a));
     // Media came across byte-for-byte.
     expect(Buffer.compare(await b.blobs.get(seeded.audio.hash), await a.blobs.get(seeded.audio.hash))).toBe(0);
-    expect(b.blobs.info(seeded.image.hash)?.mime).toBe('image/png');
+    expect((await b.blobs.info(seeded.image.hash))?.mime).toBe('image/png');
     // Run results point at the imported rows and keep their outputs.
     const run = (await b.call<any>('list_runs', {})).runs[0];
     expect(run.name).toBe('Baseline');
     expect(run.status).toBe('completed');
     const results = (await b.call<any>('query_results', { runId: run.id })).results;
-    const rowIds = new Set(b.repos.datasets.listRows(run.datasetId, { limit: 100 }).rows.map((r) => r.id));
+    const rowIds = new Set((await b.repos.datasets.listRows(run.datasetId, { limit: 100 })).rows.map((r) => r.id));
     expect(results).toHaveLength(3);
     expect(results.every((r: any) => rowIds.has(r.rowId) && r.outputs.output === 'ok')).toBe(true);
-    expect(run.suiteId).toBe(b.repos.defs.get('suite', 'STT checks').id);
+    expect(run.suiteId).toBe((await b.repos.defs.get('suite', 'STT checks')).id);
   });
 
   it('handles conflicts: rename, skip and new_version', async () => {
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     const bytes = await bytesFrom(a, bundleHash);
     await b.call('import_bundle', { blob: await upload(b, bytes) });
 
     const renamed = await b.call<any>('import_bundle', { blob: await upload(b, bytes), onConflict: 'rename' });
     expect(renamed.renamed.map((r: any) => r.to)).toEqual(expect.arrayContaining(['Voice & images (imported)', 'STT API (imported)']));
-    expect(b.repos.datasets.list()).toHaveLength(2);
+    expect(await b.repos.datasets.list()).toHaveLength(2);
 
     const skipped = await b.call<any>('import_bundle', { blob: await upload(b, bytes), onConflict: 'skip' });
     expect(skipped.skipped.length).toBeGreaterThanOrEqual(4);
-    expect(b.repos.datasets.list()).toHaveLength(2);
+    expect(await b.repos.datasets.list()).toHaveLength(2);
 
     // Change the target and add a row in the source, then import as new versions.
-    await a.call('update_target', { id: 'STT API', spec: { ...a.repos.defs.get('target', 'STT API').spec, variables: [{ key: 'base_url', value: 'http://staging:9', enabled: true }] } });
+    await a.call('update_target', { id: 'STT API', spec: { ...(await a.repos.defs.get('target', 'STT API')).spec, variables: [{ key: 'base_url', value: 'http://staging:9', enabled: true }] } });
     await a.call('add_dataset_rows', { dataset: 'Voice & images', rows: [{ data: { reference: 'a brand new row' } }] });
     const next = await a.call<any>('export_bundle', { datasets: ['Voice & images'], targets: ['STT API'] });
     const updated = await b.call<any>('import_bundle', { blob: await upload(b, await bytesFrom(a, next.hash)), onConflict: 'new_version' });
     expect(updated.updated.find((u: any) => u.kind === 'target')).toBeTruthy();
-    expect(b.repos.defs.get('target', 'STT API').version).toBe(2);
-    expect(b.repos.defs.get('target', 'STT API').spec.variables[0].value).toBe('http://staging:9');
+    expect((await b.repos.defs.get('target', 'STT API')).version).toBe(2);
+    expect((await b.repos.defs.get('target', 'STT API')).spec.variables[0].value).toBe('http://staging:9');
     // Only the new row was added; existing rows (same ids) were not duplicated.
     expect(updated.updated.find((u: any) => u.kind === 'dataset').rows).toBe(1);
-    expect(b.repos.datasets.listRows(b.repos.datasets.get('Voice & images').id).total).toBe(4);
+    expect((await b.repos.datasets.listRows((await b.repos.datasets.get('Voice & images')).id)).total).toBe(4);
   });
 
   it('rejects corrupt, incomplete, future and malicious bundles', async () => {
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     const imp = async (bytes: Uint8Array) => b.call('import_bundle', { blob: await upload(b, bytes) });
     await expect(imp(strToU8('definitely not a zip'))).rejects.toThrow(/not a readable zip/);
     await expect(imp(zipSync({ 'readme.txt': strToU8('hi') }))).rejects.toThrow(/missing manifest\.json/);
@@ -180,7 +181,7 @@ describe('bundles', () => {
     const bad = zipSync({ 'manifest.json': strToU8(JSON.stringify({ format: 'kalibra-bundle', formatVersion: 1 })), 'definitions/targets/x.json': strToU8(JSON.stringify({ name: 'X', spec: { config: { kind: 'nope' } } })) });
     await expect(imp(bad)).rejects.toThrow(/invalid target/);
     // Nothing was half-imported by the failures above.
-    expect(b.repos.defs.list('target')).toHaveLength(0);
+    expect(await b.repos.defs.list('target')).toHaveLength(0);
   });
 
   it('enforces size limits and verifies media content', async () => {
@@ -189,12 +190,12 @@ describe('bundles', () => {
     expect(() => readZip(zipSync({ a: new Uint8Array(600), b: new Uint8Array(600) }), { maxEntries: 10, maxEntryBytes: 1000, maxTotalBytes: 1000 })).toThrow(/too large to import/);
     expect(() => readZip(zipSync({ a: strToU8('1'), b: strToU8('2'), c: strToU8('3') }), { maxEntries: 2, maxEntryBytes: 10, maxTotalBytes: 100 })).toThrow(/too many files/);
 
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     const fake = 'a'.repeat(64);
     const zip = zipSync({ 'manifest.json': strToU8(JSON.stringify({ format: 'kalibra-bundle', formatVersion: 1, secrets: [] })), [`media/${fake}`]: strToU8('tampered') });
     const res = await b.call<any>('import_bundle', { blob: (await b.blobs.put(zip, {})).hash });
     expect(res.warnings.join(' ')).toMatch(/does not match its name/);
-    expect(b.blobs.has(fake)).toBe(false);
+    expect(await b.blobs.has(fake)).toBe(false);
   });
 
   it('exports only what was asked, plus what runs depend on', async () => {
@@ -203,7 +204,7 @@ describe('bundles', () => {
     expect(r.manifest.counts).toMatchObject({ runs: 1, datasets: 1, targets: 1, suites: 1, connections: 0 });
     expect(r.manifest.autoIncluded.length).toBe(3);
     expect(r.manifest.media.files).toBe(0);
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     const rep = await b.call<any>('import_bundle', { blob: (await b.blobs.put(await a.blobs.get(r.hash), {})).hash });
     expect(rep.warnings.join(' ')).toMatch(/files were not included/);
   });
@@ -213,7 +214,7 @@ describe('folder sync', () => {
   let a: Engine;
   let dir: string;
   beforeAll(async () => {
-    a = track(freshEngine());
+    a = track(await freshEngine());
     await seed(a);
     dir = freshDir('kalibra-folder-');
   });
@@ -244,10 +245,10 @@ describe('folder sync', () => {
   });
 
   it('imports into another workspace with identical content and ids', async () => {
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     const preview = await b.call<any>('import_from_folder', { dir, dryRun: true });
     expect(preview.summary.added).toBe(4);
-    expect(b.repos.datasets.list()).toHaveLength(0); // dry run wrote nothing
+    expect(await b.repos.datasets.list()).toHaveLength(0); // dry run wrote nothing
     await b.call('import_from_folder', { dir });
     expect(await snapshot(b)).toEqual(await snapshot(a));
     // Exporting from the importing workspace gives the same files (no id churn).
@@ -259,7 +260,7 @@ describe('folder sync', () => {
   });
 
   it('applies exactly the edited files, and prunes only when asked', async () => {
-    const b = track(freshEngine());
+    const b = track(await freshEngine());
     await b.call('import_from_folder', { dir });
     const rowsPath = join(dir, 'datasets/voice-images/rows.jsonl');
     const lines = readFileSync(rowsPath, 'utf8').trim().split('\n');
@@ -276,16 +277,16 @@ describe('folder sync', () => {
     const dsChange = preview.datasets.find((d: any) => d.name === 'Voice & images');
     expect(dsChange.rows).toMatchObject({ changed: 1, added: 0, removed: 0 });
     expect(preview.definitions.filter((d: any) => d.change === 'changed').map((d: any) => d.name)).toEqual(['STT checks']);
-    expect(b.repos.datasets.getRow(row0.id).data.reference).not.toBe('edited in git');
+    expect((await b.repos.datasets.getRow(row0.id)).data.reference).not.toBe('edited in git');
 
     await b.call('import_from_folder', { dir });
-    expect(b.repos.datasets.getRow(row0.id).data.reference).toBe('edited in git');
-    expect(b.repos.defs.get('suite', 'STT checks').version).toBe(2);
-    expect(b.repos.datasets.listRows(b.repos.datasets.get('Voice & images').id).total).toBe(3); // no prune: dropped line kept
+    expect((await b.repos.datasets.getRow(row0.id)).data.reference).toBe('edited in git');
+    expect((await b.repos.defs.get('suite', 'STT checks')).version).toBe(2);
+    expect((await b.repos.datasets.listRows((await b.repos.datasets.get('Voice & images')).id)).total).toBe(3); // no prune: dropped line kept
 
     const pruned = await b.call<any>('import_from_folder', { dir, prune: true });
     expect(pruned.datasets.find((d: any) => d.name === 'Voice & images').rows.removed).toBe(1);
-    expect(b.repos.datasets.listRows(b.repos.datasets.get('Voice & images').id).total).toBe(2);
+    expect((await b.repos.datasets.listRows((await b.repos.datasets.get('Voice & images')).id)).total).toBe(2);
   });
 
   it('refuses unsafe folders and non-Kalibra folders', async () => {
@@ -304,16 +305,16 @@ describe('folder sync with specs saved before newer fields existed', () => {
   it('reports no changes right after an export', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kalibra-legacy-'));
     const out = mkdtempSync(join(tmpdir(), 'kalibra-legacy-out-'));
-    const e = new Engine({ dir });
+    const e = await Engine.open({ dir });
     try {
       const c = await e.call<any>('create_connection', { name: 'Old', spec: { provider: 'openai', defaultModel: 'gpt-x' } });
       // Simulate a connection stored by an older version: drop fields that now have defaults.
-      e.db.run('UPDATE defs SET spec = ? WHERE id = ?', JSON.stringify({ provider: 'openai', defaultModel: 'gpt-x' }), c.id);
+      await e.db.run('UPDATE defs SET spec = ? WHERE id = ?', JSON.stringify({ provider: 'openai', defaultModel: 'gpt-x' }), c.id);
       await e.call('export_to_folder', { dir: out });
       const dry = await e.call<any>('import_from_folder', { dir: out, dryRun: true });
       expect(dry.summary).toMatchObject({ added: 0, changed: 0, removed: 0 });
     } finally {
-      e.close();
+      await e.close();
       rmSync(dir, { recursive: true, force: true });
       rmSync(out, { recursive: true, force: true });
     }

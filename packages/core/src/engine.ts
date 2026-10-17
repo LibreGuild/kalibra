@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { Db } from './db.js';
+import { openSqlite, type Db } from './db.js';
 import { EventBus } from './events.js';
 import { createLlmClient } from './providers/index.js';
 import type { LlmClient } from './providers/types.js';
@@ -46,7 +46,7 @@ export class Engine {
   readonly runner: Runner;
   readonly llm: LlmClient;
   /** Text embeddings (local model or a connection) for similarity, dedup and clustering. */
-  embeddings: Embedder = new Embeddings(() => ({ getConnection: (id) => ConnectionSpec.parse(this.repos.defs.get('connection', id).spec), secrets: this.secrets }));
+  embeddings: Embedder = new Embeddings(() => ({ getConnection: async (id) => ConnectionSpec.parse((await this.repos.defs.get('connection', id)).spec), secrets: this.secrets }));
   /** Background jobs (media generation, augmentation, …). */
   readonly jobs: Jobs;
   /** Traces the app sends (SDK, OpenTelemetry, proxy), tool recordings, and joining them to eval rows. */
@@ -54,20 +54,33 @@ export class Engine {
   /** Operations currently executing. */
   private inFlight = 0;
 
-  constructor(opts: EngineOptions) {
-    this.dir = resolve(opts.dir);
-    mkdirSync(this.dir, { recursive: true });
-    this.db = new Db(join(this.dir, 'kalibra.db'));
+  /** Opens the project in `opts.dir` (creating it when new), migrates it and resumes its state. */
+  static async open(opts: EngineOptions): Promise<Engine> {
+    const dir = resolve(opts.dir);
+    mkdirSync(dir, { recursive: true });
+    const db = await openSqlite(join(dir, 'kalibra.db'));
+    try {
+      const engine = new Engine({ ...opts, dir }, db);
+      await engine.traces.prune();
+      await engine.runner.recover();
+      return engine;
+    } catch (e) {
+      await db.close();
+      throw e;
+    }
+  }
+
+  private constructor(opts: EngineOptions, db: Db) {
+    this.dir = opts.dir;
+    this.db = db;
     this.blobs = new FsBlobStore(join(this.dir, 'blobs'), this.db);
     this.secrets = opts.secrets ?? new FileSecretStore(join(this.dir, 'secrets.json'));
     this.repos = { datasets: new DatasetRepo(this.db), defs: new DefRepo(this.db), runs: new RunRepo(this.db) };
-    this.llm = createLlmClient((id) => ConnectionSpec.parse(this.repos.defs.get('connection', id).spec), this.secrets);
+    this.llm = createLlmClient(async (id) => ConnectionSpec.parse((await this.repos.defs.get('connection', id)).spec), this.secrets);
     this.jobs = new Jobs(this.events);
     this.traces = new TraceStore(this);
-    this.traces.prune();
     this.registry.add(...ALL_OPS);
     this.runner = new Runner(this);
-    this.runner.recover();
   }
 
   /**
@@ -87,7 +100,7 @@ export class Engine {
     const def = this.registry.get(name)!;
     if (!def.readOnly && !def.quiet) {
       const summary = describeChange(def.title, input);
-      this.db.run('INSERT INTO activity (at, actor, op, summary) VALUES (?, ?, ?, ?)', nowIso(), JSON.stringify(actor), name, summary);
+      await this.db.run('INSERT INTO activity (at, actor, op, summary) VALUES (?, ?, ?, ?)', nowIso(), JSON.stringify(actor), name, summary);
       this.events.emit({ type: 'activity', op: name, summary, actor });
     }
     return result as T;
@@ -108,11 +121,11 @@ export class Engine {
     };
   }
 
-  close() {
+  async close() {
     this.jobs.cancelAll();
-    for (const r of this.db.all("SELECT id FROM runs WHERE status = 'running'")) this.runner.cancel(r.id);
-    this.traces.close();
-    this.db.close();
+    for (const r of await this.db.all("SELECT id FROM runs WHERE status = 'running'")) this.runner.cancel(r.id);
+    await this.traces.close();
+    await this.db.close();
   }
 }
 

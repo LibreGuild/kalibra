@@ -167,8 +167,8 @@ const staticUi = () => {
 
 /** Single-user Kalibra on this computer (what `npx kalibra` runs). */
 async function serveLocal(dir: string, values: Flags) {
-  const hub = openHub(dir, 'local');
-  hub.openAll();
+  const hub = await openHub(dir, 'local');
+  await hub.openAll();
   const token = values.dev || values['no-token'] ? undefined : newToken();
   const host = String(values.host ?? '127.0.0.1');
   if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
@@ -194,7 +194,7 @@ async function serveLocal(dir: string, values: Flags) {
   onStop(async () => {
     clearEngineInfo(dir);
     await srv.close();
-    hub.close();
+    await hub.close();
   });
 }
 
@@ -202,11 +202,11 @@ async function serveLocal(dir: string, values: Flags) {
 async function serveTeam(dir: string, values: Flags) {
   const folderRoot = (values['folder-root'] as string | undefined) ?? process.env.KALIBRA_FOLDER_ROOT;
   const publicUrl = (values['public-url'] as string | undefined) ?? process.env.KALIBRA_PUBLIC_URL;
-  const hub = openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv() });
-  hub.openAll();
+  const hub = await openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv() });
+  await hub.openAll();
   const adminUser = process.env.KALIBRA_ADMIN_USERNAME;
   const adminPassword = process.env.KALIBRA_ADMIN_PASSWORD;
-  if (adminUser && adminPassword && hub.needsSetup()) await hub.ensureAdmin(adminUser, adminPassword);
+  if (adminUser && adminPassword && await hub.needsSetup()) await hub.ensureAdmin(adminUser, adminPassword);
   const host = String(values.host ?? process.env.KALIBRA_HOST ?? '127.0.0.1');
   const srv = await startServer({
     hub,
@@ -222,14 +222,14 @@ async function serveTeam(dir: string, values: Flags) {
   console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
   if (!folderRoot) console.log('  Folder sync is off (set --folder-root to allow it inside one folder).');
-  const providers = hub.providers.enabled();
-  if (providers.length) console.log(`  Sign-in: password${hub.settings().passwordLogin ? '' : ' (administrators only)'}, ${providers.map((p) => p.name).join(', ')}`);
+  const providers = await hub.providers.enabled();
+  if (providers.length) console.log(`  Sign-in: password${(await hub.settings()).passwordLogin ? '' : ' (administrators only)'}, ${providers.map((p) => p.name).join(', ')}`);
   if (providers.some((p) => p.kind !== 'proxy') && !publicUrl) console.warn('  Note: set --public-url so sign-in providers send people back to the right address.');
-  const code = hub.setupCode();
+  const code = await hub.setupCode();
   if (code) console.log(`\n  No administrator yet. Open this link to create one:\n  ${base}/setup?code=${code}\n`);
   onStop(async () => {
     await srv.close();
-    hub.close();
+    await hub.close();
   });
 }
 
@@ -248,38 +248,38 @@ function onStop(fn: () => Promise<void>) {
  */
 async function users(dir: string, args: string[], password?: string) {
   const [action, username] = args;
-  const hub = openHub(dir, 'server');
+  const hub = await openHub(dir, 'server');
   try {
     const temp = () => password ?? randomBytes(12).toString('base64url');
     if (action === 'list' || !action) {
-      for (const u of hub.accounts.list()) console.log(`${u.username.padEnd(24)} ${u.role.padEnd(6)} ${u.disabled ? 'disabled' : 'active'}  ${u.name}`);
+      for (const u of await hub.accounts.list()) console.log(`${u.username.padEnd(24)} ${u.role.padEnd(6)} ${u.disabled ? 'disabled' : 'active'}  ${u.name}`);
     } else if (!username) {
       throw new Error(`Usage: kalibra users ${action} <username> [--password P]`);
     } else if (action === 'create') {
       const pw = temp();
       await hub.accounts.create({ username, password: pw, role: 'admin', mustChangePassword: !password }, 'cli');
-      hub.audit({ kind: 'cli', id: 'cli' }, 'user.created', username, { role: 'admin', from: 'cli' });
+      await hub.audit({ kind: 'cli', id: 'cli' }, 'user.created', username, { role: 'admin', from: 'cli' });
       console.log(`Created administrator ${username}${password ? '' : ` with temporary password: ${pw}\nThey choose a new one at first sign-in.`}`);
     } else if (action === 'reset-password') {
-      const user = hub.accounts.find(username);
+      const user = await hub.accounts.find(username);
       if (!user) throw new Error(`No user "${username}"`);
       const pw = temp();
       await hub.accounts.setPassword(user.id, pw, { mustChange: !password });
-      hub.accounts.revokeAllSessions(user.id);
-      hub.audit({ kind: 'cli', id: 'cli' }, 'password.reset', user.username, { from: 'cli' });
+      await hub.accounts.revokeAllSessions(user.id);
+      await hub.audit({ kind: 'cli', id: 'cli' }, 'password.reset', user.username, { from: 'cli' });
       console.log(`Password of ${user.username} reset${password ? '' : ` to: ${pw}\nThey choose a new one at next sign-in.`}`);
     } else if (action === 'make-admin') {
-      const user = hub.accounts.find(username);
+      const user = await hub.accounts.find(username);
       if (!user) throw new Error(`No user "${username}"`);
-      hub.accounts.update(user.id, { role: 'admin', disabled: false });
-      hub.db.run('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?', user.id);
-      hub.audit({ kind: 'cli', id: 'cli' }, 'user.updated', user.username, { role: 'admin', disabled: false, from: 'cli' });
+      await hub.accounts.update(user.id, { role: 'admin', disabled: false });
+      await hub.db.run('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?', user.id);
+      await hub.audit({ kind: 'cli', id: 'cli' }, 'user.updated', user.username, { role: 'admin', disabled: false, from: 'cli' });
       console.log(`${user.username} is now an active administrator`);
     } else {
       throw new Error(`Unknown action "${action}". Use list, create, reset-password or make-admin.`);
     }
   } finally {
-    hub.close();
+    await hub.close();
   }
 }
 

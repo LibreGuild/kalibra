@@ -237,7 +237,7 @@ export async function resolveEmbeddingModel(spec: ConnectionSpec, model: string,
 // ── The embedder ────────────────────────────────────────────────────────────
 
 export interface EmbeddingsDeps {
-  getConnection(id: string): ConnectionSpec;
+  getConnection(id: string): Promise<ConnectionSpec>;
   secrets: SecretStore;
 }
 
@@ -282,7 +282,7 @@ export class Embeddings implements Embedder {
     let model = LOCAL_MODEL;
     let spec: ConnectionSpec | undefined;
     if (source === 'connection') {
-      spec = this.deps().getConnection(opts.connectionId!);
+      spec = await this.deps().getConnection(opts.connectionId!);
       model = opts.model || spec.embeddingModel || DEFAULT_EMBED_MODEL[spec.provider] || '';
       if (!model) throw invalid('This connection has no embedding model set');
     }

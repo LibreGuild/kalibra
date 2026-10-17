@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Engine } from '../engine.js';
 import { defineOp } from '../registry.js';
 import { wilson } from '../runner/summary.js';
-import { invalid, percentile } from '../util.js';
+import { invalid, mapSeq, percentile } from '../util.js';
 
 /*
  * Insights: where a run fails (breakdowns by tag / column / row status) and how quality moves
@@ -14,7 +14,7 @@ const PREFERRED = ['accent', 'locale', 'lang', 'language', 'category', 'speaker'
 const SLICEABLE = new Set(['text', 'number', 'boolean', 'list']);
 const MAX_GROUPS = 50;
 
-type Lite = ReturnType<Engine['repos']['runs']['allLite']>[number];
+type Lite = Awaited<ReturnType<Engine['repos']['runs']['allLite']>>[number];
 
 interface Acc {
   key: string;
@@ -105,18 +105,18 @@ export const insightOps = [
       column: z.string().optional().describe('Row column to split by when by = "column"'),
       checkId: z.string().optional().describe('Judge pass/fail by this one check instead of the whole row'),
     }),
-    handler: ({ engine }, i) => {
+    handler: async ({ engine }, i) => {
       const { runs, datasets } = engine.repos;
-      const run = runs.get(i.runId);
+      const run = await runs.get(i.runId);
       if (i.by === 'column' && !i.column) throw invalid('Pick a column to split by');
-      const results = runs.allLite(run.id);
+      const results = await runs.allLite(run.id);
       const rowMeta = new Map<string, { tags: string[]; status: string }>();
-      if (run.datasetVersionId) for (const r of datasets.versionRowMeta(run.datasetVersionId)) rowMeta.set(r.id, { tags: r.tags, status: r.status });
+      if (run.datasetVersionId) for (const r of await datasets.versionRowMeta(run.datasetVersionId)) rowMeta.set(r.id, { tags: r.tags, status: r.status });
 
       // Columns worth slicing by: a handful of distinct values each.
       let columns: { key: string; type: string }[] = [];
       try {
-        if (run.datasetId) columns = datasets.get(run.datasetId).schema.columns.map((c) => ({ key: c.key, type: c.type }));
+        if (run.datasetId) columns = (await datasets.get(run.datasetId)).schema.columns.map((c) => ({ key: c.key, type: c.type }));
       } catch {
         /* dataset deleted: fall back to keys seen in inputs */
       }
@@ -196,12 +196,12 @@ export const insightOps = [
       targetId: z.string().optional(),
       limit: z.number().int().min(2).max(200).default(20),
     }),
-    handler: ({ engine }, i) => {
+    handler: async ({ engine }, i) => {
       const { runs, defs, datasets } = engine.repos;
-      const suiteId = i.suiteId ? defs.get('suite', i.suiteId).id : undefined;
-      const datasetId = i.datasetId ? datasets.get(i.datasetId).id : undefined;
-      const targetId = i.targetId ? defs.get('target', i.targetId).id : undefined;
-      const all = runs.list({ suiteId, datasetId, targetId, limit: 2000 }).runs.filter((r) => r.status === 'completed' && r.suiteId);
+      const suiteId = i.suiteId ? (await defs.get('suite', i.suiteId)).id : undefined;
+      const datasetId = i.datasetId ? (await datasets.get(i.datasetId)).id : undefined;
+      const targetId = i.targetId ? (await defs.get('target', i.targetId)).id : undefined;
+      const all = (await runs.list({ suiteId, datasetId, targetId, limit: 2000 })).runs.filter((r) => r.status === 'completed' && r.suiteId);
 
       const bySuite = new Map<string, typeof all>();
       for (const r of all) {
@@ -210,17 +210,17 @@ export const insightOps = [
       }
       const chosen = [...bySuite.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, suiteId ? 1 : 4);
 
-      const suiteName = (id: string) => {
+      const suiteName = async (id: string) => {
         try {
-          return defs.get('suite', id).name;
+          return (await defs.get('suite', id)).name;
         } catch {
           return id;
         }
       };
       return {
-        series: chosen.map(([id, list]) => ({
+        series: await mapSeq(chosen, async ([id, list]) => ({
           suiteId: id,
-          suiteName: suiteName(id),
+          suiteName: await suiteName(id),
           runs: list
             .slice(0, i.limit)
             .reverse()

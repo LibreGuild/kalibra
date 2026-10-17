@@ -14,13 +14,13 @@ describe('engine end to end against the demo apps', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-e2e-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     servers = await startDemoServers({ port: 0 });
     await seedWorkspace((n, i) => engine.call(n, i), { baseUrl: servers.url, wsUrl: servers.wsUrl, fixtures: servers.fixtures });
   }, 120_000);
 
   afterAll(async () => {
-    engine?.close();
+    await engine?.close();
     await servers?.close();
     rmSync(dir, { recursive: true, force: true });
   });

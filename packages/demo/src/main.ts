@@ -62,6 +62,6 @@ async function engineCall(workspace: string): Promise<{ call: Call; mode: string
     }
   }
   const { Engine } = await import('@kalibra/core');
-  const engine = new Engine({ dir: workspace });
-  return { call: (name, input) => engine.call(name, input, { kind: 'cli', id: 'demo-seed' }), mode: 'direct', close: async () => engine.close() };
+  const engine = await Engine.open({ dir: workspace });
+  return { call: (name, input) => engine.call(name, input, { kind: 'cli', id: 'demo-seed' }), mode: 'direct', close: async () => await engine.close() };
 }

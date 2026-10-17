@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineOp, type OpDef } from '../registry.js';
 import type { Trace } from '../traces/types.js';
-import { invalid } from '../util.js';
+import { invalid, mapSeq } from '../util.js';
 
 /*
  * Traces your app sent (SDK, OpenTelemetry, the OpenAI proxy) and tool recordings for replay.
@@ -50,9 +50,9 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ ...filter, limit: z.number().int().min(1).max(200).default(50), offset: z.number().int().min(0).default(0) }),
-    handler: ({ engine }, i) => {
-      engine.traces.flush();
-      const { total, traces } = engine.traces.repo.list(i);
+    handler: async ({ engine }, i) => {
+      await engine.traces.flush();
+      const { total, traces } = await engine.traces.repo.list(i);
       return {
         total,
         traces: traces.map(({ input, output, ...t }) => ({ ...t, inputPreview: preview(input), outputPreview: preview(output) })),
@@ -67,9 +67,9 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ id: z.string() }),
-    handler: ({ engine }, i) => {
-      engine.traces.flush();
-      return engine.traces.repo.get(i.id);
+    handler: async ({ engine }, i) => {
+      await engine.traces.flush();
+      return await engine.traces.repo.get(i.id);
     },
   }),
 
@@ -80,12 +80,12 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     destructive: true,
     input: z.object({ ids: z.array(z.string()).max(1000).optional(), ...filter, all: z.boolean().default(false).describe('Required to delete by filter (or everything) instead of by ids') }),
-    handler: ({ engine }, i) => {
-      engine.traces.flush();
-      if (i.ids?.length) return { deleted: engine.traces.repo.delete(i.ids) };
+    handler: async ({ engine }, i) => {
+      await engine.traces.flush();
+      if (i.ids?.length) return { deleted: await engine.traces.repo.delete(i.ids) };
       if (!i.all) throw invalid('Give ids, or all: true to delete every trace matching the filter');
       const { ids, all, ...q } = i;
-      return { deleted: engine.traces.repo.deleteWhere(q) };
+      return { deleted: await engine.traces.repo.deleteWhere(q) };
     },
   }),
 
@@ -102,16 +102,16 @@ export const traceOps: OpDef<any, any>[] = [
       status: z.enum(['approved', 'needs_review', 'draft']).default('needs_review'),
       tags: z.array(z.string()).default(['from-trace']),
     }),
-    handler: ({ engine, actor }, i) => {
-      engine.traces.flush();
-      const ds = engine.repos.datasets.get(i.dataset);
+    handler: async ({ engine, actor }, i) => {
+      await engine.traces.flush();
+      const ds = await engine.repos.datasets.get(i.dataset);
       const columns = new Map(ds.schema.columns.map((c) => [c.key, c]));
       for (const col of Object.keys(i.mapping)) if (!columns.has(col)) throw invalid(`The dataset has no column "${col}"`);
       const missing: string[] = [];
-      const rows = i.traceIds.flatMap((id) => {
+      const rows = (await mapSeq(i.traceIds, async (id) => {
         let trace: Trace;
         try {
-          trace = engine.traces.repo.get(id);
+          trace = await engine.traces.repo.get(id);
         } catch {
           missing.push(id);
           return [];
@@ -126,8 +126,8 @@ export const traceOps: OpDef<any, any>[] = [
           if (type === 'number' && typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) data[col] = Number(v);
         }
         return [{ data, status: i.status, tags: i.tags }];
-      });
-      const res = engine.repos.datasets.addRows(ds.id, rows, actor, { provenance: { source: 'trace', traceIds: i.traceIds.slice(0, 50) } });
+      })).flat();
+      const res = await engine.repos.datasets.addRows(ds.id, rows, actor, { provenance: { source: 'trace', traceIds: i.traceIds.slice(0, 50) } });
       if (res.added.length) engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: res.added.length, actor });
       return { ...res, missing };
     },
@@ -140,9 +140,9 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({}),
-    handler: ({ engine }) => {
-      engine.traces.flush();
-      return { ...engine.traces.settings(), ...engine.traces.repo.counts(), toolRecordings: engine.traces.tools.list({ limit: 1 }).total };
+    handler: async ({ engine }) => {
+      await engine.traces.flush();
+      return { ...(await engine.traces.settings()), ...(await engine.traces.repo.counts()), toolRecordings: (await engine.traces.tools.list({ limit: 1 })).total };
     },
   }),
 
@@ -153,9 +153,9 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     access: 'owner',
     input: z.object({ retentionDays: z.number().int().min(1).max(3650).optional(), proxyOpenaiUpstream: z.string().max(500).optional() }),
-    handler: ({ engine }, i) => {
-      const next = engine.traces.setSettings(i);
-      engine.traces.prune();
+    handler: async ({ engine }, i) => {
+      const next = await engine.traces.setSettings(i);
+      await engine.traces.prune();
       return next;
     },
   }),
@@ -167,7 +167,7 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ tool: z.string().optional(), limit: z.number().int().min(1).max(200).default(50), offset: z.number().int().min(0).default(0) }),
-    handler: ({ engine }, i) => engine.traces.tools.list(i),
+    handler: async ({ engine }, i) => await engine.traces.tools.list(i),
   }),
 
   defineOp({
@@ -177,9 +177,9 @@ export const traceOps: OpDef<any, any>[] = [
     category: 'runs',
     destructive: true,
     input: z.object({ tool: z.string().optional(), argsHashes: z.array(z.string()).max(1000).optional(), all: z.boolean().default(false) }),
-    handler: ({ engine }, i) => {
+    handler: async ({ engine }, i) => {
       if (!i.tool && !i.argsHashes?.length && !i.all) throw invalid('Give a tool, argsHashes, or all: true');
-      return { deleted: engine.traces.tools.delete(i) };
+      return { deleted: await engine.traces.tools.delete(i) };
     },
   }),
 ];

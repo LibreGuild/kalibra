@@ -39,14 +39,14 @@ export const codeRunOps: OpDef<any, any>[] = [
       tags: z.array(z.string()).optional().describe('Only rows with any of these tags'),
       includeStatuses: z.array(RowStatus).optional(),
     }),
-    handler: ({ engine, actor }, i) => {
+    handler: async ({ engine, actor }, i) => {
       const settings = RunSettings.parse({ concurrency: 8, ...(i.limit ? { limit: i.limit } : {}), ...(i.tags ? { tags: i.tags } : {}), ...(i.includeStatuses ? { includeStatuses: i.includeStatuses } : {}) });
       const branch = i.git?.branch ? ` (${i.git.branch})` : '';
-      const { run, rows } = prepareRun(engine, actor, { dataset: i.dataset, suite: i.suite, name: i.name || `Code run${branch}`, settings, kind: 'code' });
-      if (i.git) engine.repos.runs.setGit(run.id, i.git);
-      engine.repos.runs.addPending(run.id, rows.map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
+      const { run, rows } = await prepareRun(engine, actor, { dataset: i.dataset, suite: i.suite, name: i.name || `Code run${branch}`, settings, kind: 'code' });
+      if (i.git) await engine.repos.runs.setGit(run.id, i.git);
+      await engine.repos.runs.addPending(run.id, rows.map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
       engine.events.emit({ type: 'run.updated', runId: run.id, status: 'queued', done: 0, total: rows.length });
-      const pending = engine.repos.runs.pending(run.id);
+      const pending = await engine.repos.runs.pending(run.id);
       return {
         runId: run.id,
         number: run.number,
@@ -76,31 +76,31 @@ export const codeRunOps: OpDef<any, any>[] = [
         )
         .max(MAX_BATCH),
     }),
-    handler: ({ engine }, i) => {
+    handler: async ({ engine }, i) => {
       const { runs } = engine.repos;
-      const run = runs.get(i.runId);
+      const run = await runs.get(i.runId);
       if (run.kind !== 'code') throw invalid('This run was not started from code (start_code_run)');
       if (!OPEN.has(run.status)) throw new KalibraError('conflict', `This run is already ${run.status}; start a new one`);
       const unknown: string[] = [];
       let accepted = 0;
       // A trace the app just sent may still be queued; store it so traceId below can link it.
-      if (i.results.some((r) => r.traceId)) engine.traces.flush();
-      engine.db.tx(() => {
+      if (i.results.some((r) => r.traceId)) await engine.traces.flush();
+      await engine.db.tx(async () => {
         for (const r of i.results) {
-          if (!runs.submitCodeOutput(run.id, r.rowId, { outputs: r.outputs, metrics: r.metrics, error: r.error ?? null })) {
+          if (!(await runs.submitCodeOutput(run.id, r.rowId, { outputs: r.outputs, metrics: r.metrics, error: r.error ?? null }))) {
             unknown.push(r.rowId);
             continue;
           }
           accepted++;
           if (r.traceId) {
-            engine.db.run(
+            await engine.db.run(
               'UPDATE traces SET run_id = ?, result_id = (SELECT id FROM results WHERE run_id = ? AND row_id = ? ORDER BY rep LIMIT 1) WHERE id = ?',
               run.id, run.id, r.rowId, r.traceId,
             );
           }
         }
       });
-      return { accepted, unknown, submitted: runs.submittedCount(run.id), total: run.total };
+      return { accepted, unknown, submitted: await runs.submittedCount(run.id), total: run.total };
     },
   }),
 
@@ -117,17 +117,17 @@ export const codeRunOps: OpDef<any, any>[] = [
     }),
     handler: async ({ engine }, i) => {
       const { runs } = engine.repos;
-      let run = runs.get(i.runId);
+      let run = await runs.get(i.runId);
       if (run.kind !== 'code') throw invalid('This run was not started from code (start_code_run)');
       if (OPEN.has(run.status)) {
-        if (!runs.submittedCount(run.id)) throw invalid('Nothing was submitted for this run yet (submit_code_results)');
-        runs.markUnsubmitted(run.id, 'No output was submitted for this row');
+        if (!(await runs.submittedCount(run.id))) throw invalid('Nothing was submitted for this run yet (submit_code_results)');
+        await runs.markUnsubmitted(run.id, 'No output was submitted for this row');
         engine.runner.start(run.id);
-        if (!i.wait) return { run: runs.get(run.id) };
+        if (!i.wait) return { run: await runs.get(run.id) };
       }
       if (i.wait) run = await engine.runner.wait(run.id);
       // The report's own `run` (pass-rate digest) is left out: the full run record takes its place.
-      const { run: _digest, ...comparison } = trimReport(compareToBaseline(engine, run.id, i.baselineRunId));
+      const { run: _digest, ...comparison } = trimReport(await compareToBaseline(engine, run.id, i.baselineRunId));
       return { run, summary: run.summary, ...comparison };
     },
   }),
@@ -140,6 +140,6 @@ export const codeRunOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ runId: z.string(), baselineRunId: z.string().optional() }),
-    handler: ({ engine }, i) => trimReport(compareToBaseline(engine, i.runId, i.baselineRunId)),
+    handler: async ({ engine }, i) => trimReport(await compareToBaseline(engine, i.runId, i.baselineRunId)),
   }),
 ];

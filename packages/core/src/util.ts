@@ -78,3 +78,11 @@ export function getPath(obj: unknown, path: string): unknown {
 export function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}… (${text.length - max} more chars)` : text;
 }
+
+/** Maps in order, one item at a time: async steps (database writes) keep the order and never interleave. */
+export async function mapSeq<T, R>(items: Iterable<T>, fn: (item: T, index: number) => Promise<R> | R): Promise<R[]> {
+  const out: R[] = [];
+  let i = 0;
+  for (const item of items) out.push(await fn(item, i++));
+  return out;
+}

@@ -51,22 +51,22 @@ function failureReason(r: { error: string | null; checks: any[] }): string {
 }
 
 /** Picks the baseline run for `run` (explicit id, or the latest on the base branch). */
-export function pickBaseline(engine: Engine, run: RunRecord, baselineRunId?: string): RunRecord | undefined {
+export async function pickBaseline(engine: Engine, run: RunRecord, baselineRunId?: string): Promise<RunRecord | undefined> {
   if (baselineRunId) {
-    const b = engine.repos.runs.get(baselineRunId);
+    const b = await engine.repos.runs.get(baselineRunId);
     if (b.id === run.id) throw notFound('Baseline run (other than this one)', baselineRunId);
     return b;
   }
   const branch = run.git?.baseBranch || 'main';
   // A run on the base branch itself is compared with the previous run there.
-  return engine.repos.runs.findBaseline({ datasetId: run.datasetId, suiteId: run.suiteId, targetId: run.targetId, branch, beforeNumber: run.number });
+  return await engine.repos.runs.findBaseline({ datasetId: run.datasetId, suiteId: run.suiteId, targetId: run.targetId, branch, beforeNumber: run.number });
 }
 
-export function compareToBaseline(engine: Engine, runId: string, baselineRunId?: string): EvalReport {
+export async function compareToBaseline(engine: Engine, runId: string, baselineRunId?: string): Promise<EvalReport> {
   const { runs } = engine.repos;
-  const run = runs.get(runId);
-  const base = pickBaseline(engine, run, baselineRunId);
-  const now = runs.allLite(run.id);
+  const run = await runs.get(runId);
+  const base = await pickBaseline(engine, run, baselineRunId);
+  const now = await runs.allLite(run.id);
   const s = run.summary ?? {};
   const report: EvalReport = {
     run: {
@@ -90,7 +90,7 @@ export function compareToBaseline(engine: Engine, runId: string, baselineRunId?:
     stillFailing: 0,
   };
   const key = (r: { rowId: string; rep: number }) => `${r.rowId}#${r.rep}`;
-  const before = new Map((base ? runs.allLite(base.id) : []).map((r) => [key(r), r]));
+  const before = new Map((base ? await runs.allLite(base.id) : []).map((r) => [key(r), r]));
   const newFailures: EvalReport['newFailures'] = [];
   for (const r of now) {
     // Without a baseline there is nothing to compare: no row is "new", so a first run never fails a

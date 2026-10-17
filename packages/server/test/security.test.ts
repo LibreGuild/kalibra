@@ -13,8 +13,8 @@ const open: { srv: RunningServer; hub: Hub; dir: string }[] = [];
 
 async function team(opts: { publicUrl?: string; trustProxy?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'kalibra-srvsec-'));
-  const hub = new Hub({ dir, mode: 'server' });
-  await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
+  const hub = await Hub.open({ dir, mode: 'server' });
+  await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: PW });
   const srv = await startServer({ hub, ...opts });
   open.push({ srv, hub, dir });
   return { hub, srv };
@@ -23,7 +23,7 @@ async function team(opts: { publicUrl?: string; trustProxy?: boolean } = {}) {
 afterEach(async () => {
   for (const { srv, hub, dir } of open.splice(0)) {
     await srv.close();
-    hub.close();
+    await hub.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -52,7 +52,7 @@ describe('forwarded addresses', () => {
     const { hub, srv } = await team();
     await hub.providers.save({ name: 'Gateway', id: 'gate', kind: 'proxy', emailHeader: 'X-Forwarded-Email', trustedProxies: ['127.0.0.1', '::1', '::ffff:127.0.0.1'], autoCreate: true });
     const me = await (await post(srv, '/kalibra/api/hub/get_me', {}, { 'x-forwarded-email': 'jo@corp.example' })).json();
-    hub.accounts.update(me.data.user.id, { disabled: true });
+    await hub.accounts.update(me.data.user.id, { disabled: true });
     expect((await post(srv, '/kalibra/api/hub/get_me', {}, { 'x-forwarded-email': 'jo@corp.example' })).status).toBe(403);
   });
 });

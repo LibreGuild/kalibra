@@ -82,9 +82,9 @@ export async function readJson(req: IncomingMessage, limit = 50 * 1024 * 1024): 
 }
 
 /** Streams a stored file, with Range support (audio seeking) and a sandbox so opened files cannot script the app. */
-export function serveBlob(engine: Engine, req: IncomingMessage, res: ServerResponse, hash: string, url: URL) {
-  const info = engine.blobs.info(hash);
-  if (!info || !engine.blobs.has(hash)) return fail(res, 404, 'not_found', 'File not found');
+export async function serveBlob(engine: Engine, req: IncomingMessage, res: ServerResponse, hash: string, url: URL) {
+  const info = await engine.blobs.info(hash);
+  if (!info || !(await engine.blobs.has(hash))) return fail(res, 404, 'not_found', 'File not found');
   const headers: Record<string, string | number> = {
     ...BASE_HEADERS,
     'content-type': info.mime,

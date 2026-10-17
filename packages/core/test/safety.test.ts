@@ -42,11 +42,11 @@ describe('safety checks', () => {
   });
 });
 
-describe('create_safety_dataset', () => {
+describe('create_safety_dataset', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kalibra-safety-'));
-  const engine = new Engine({ dir });
-  afterAll(() => {
-    engine.close();
+  const engine = await Engine.open({ dir });
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

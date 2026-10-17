@@ -46,8 +46,8 @@ const traces = async (query: Record<string, unknown> = {}) => (await admin.call(
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kalibra-ingest-'));
-  hub = new Hub({ dir, mode: 'server' });
-  await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
+  hub = await Hub.open({ dir, mode: 'server' });
+  await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: PW });
   srv = await startServer({ hub });
   admin = browser();
   await admin.call('/kalibra/api/auth/login', { username: 'admin', password: PW });
@@ -60,7 +60,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await srv?.close();
-  hub?.close();
+  await hub?.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -233,7 +233,7 @@ describe('the OpenAI proxy', () => {
     expect(t.spans[0].attributes).toMatchObject({ model: 'gpt-test', tokens_in: 7, tokens_out: 3, streamed: false });
     expect(JSON.stringify(t)).not.toContain('SECRET');
     // Nor anywhere in the project's database files.
-    const pdir = hub.engine(project.id).dir;
+    const pdir = (await hub.engine(project.id)).dir;
     const files = readdirSync(pdir).filter((n) => /\.db(-wal)?$/.test(n));
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) expect(readFileSync(join(pdir, f)).includes('sk-live-SECRET')).toBe(false);

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import Papa from 'papaparse';
 import { defineOp } from '../registry.js';
 import { ColumnSpec, DatasetSchema, RowStatus, type ColumnType } from '../specs.js';
-import { invalid } from '../util.js';
+import { invalid, mapSeq } from '../util.js';
 
 const datasetRef = z.string().describe('Dataset id or name');
 const rowInput = z.object({
@@ -20,7 +20,7 @@ export const datasetOps = [
     category: 'datasets',
     readOnly: true,
     input: z.object({}),
-    handler: ({ engine }) => engine.repos.datasets.list(),
+    handler: async ({ engine }) => await engine.repos.datasets.list(),
   }),
 
   defineOp({
@@ -31,10 +31,10 @@ export const datasetOps = [
     category: 'datasets',
     readOnly: true,
     input: z.object({ dataset: datasetRef, sampleRows: z.number().int().min(0).max(20).default(3) }),
-    handler: ({ engine }, { dataset, sampleRows }) => {
-      const ds = engine.repos.datasets.get(dataset);
-      const stats = engine.repos.datasets.stats(ds.id);
-      const samples = sampleRows ? engine.repos.datasets.listRows(ds.id, { limit: sampleRows, status: ['approved'] }).rows : [];
+    handler: async ({ engine }, { dataset, sampleRows }) => {
+      const ds = await engine.repos.datasets.get(dataset);
+      const stats = await engine.repos.datasets.stats(ds.id);
+      const samples = sampleRows ? (await engine.repos.datasets.listRows(ds.id, { limit: sampleRows, status: ['approved'] })).rows : [];
       return {
         id: ds.id,
         name: ds.name,
@@ -59,8 +59,8 @@ export const datasetOps = [
       columns: z.array(ColumnSpec).default([]),
       instructions: z.string().default(''),
     }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.create({ name: i.name, description: i.description, schema: { columns: i.columns, instructions: i.instructions } }, actor);
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.create({ name: i.name, description: i.description, schema: { columns: i.columns, instructions: i.instructions } }, actor);
       engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
       return ds;
     },
@@ -79,10 +79,10 @@ export const datasetOps = [
       instructions: z.string().optional(),
       baseRevision: z.number().int().optional(),
     }),
-    handler: ({ engine, actor }, i) => {
-      const cur = engine.repos.datasets.get(i.dataset);
+    handler: async ({ engine, actor }, i) => {
+      const cur = await engine.repos.datasets.get(i.dataset);
       const schema = i.columns || i.instructions !== undefined ? { columns: i.columns ?? cur.schema.columns, instructions: i.instructions ?? cur.schema.instructions } : undefined;
-      const ds = engine.repos.datasets.update(cur.id, { name: i.name, description: i.description, schema }, i.baseRevision);
+      const ds = await engine.repos.datasets.update(cur.id, { name: i.name, description: i.description, schema }, i.baseRevision);
       engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
       return ds;
     },
@@ -95,9 +95,9 @@ export const datasetOps = [
     category: 'datasets',
     destructive: true,
     input: z.object({ dataset: datasetRef }),
-    handler: ({ engine, actor }, { dataset }) => {
-      const ds = engine.repos.datasets.get(dataset);
-      engine.repos.datasets.delete(ds.id);
+    handler: async ({ engine, actor }, { dataset }) => {
+      const ds = await engine.repos.datasets.get(dataset);
+      await engine.repos.datasets.delete(ds.id);
       engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
       return { deleted: ds.id };
     },
@@ -118,9 +118,9 @@ export const datasetOps = [
       offset: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(500).default(50),
     }),
-    handler: ({ engine }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      return engine.repos.datasets.listRows(ds.id, i);
+    handler: async ({ engine }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      return await engine.repos.datasets.listRows(ds.id, i);
     },
   }),
 
@@ -131,9 +131,9 @@ export const datasetOps = [
       'Adds rows to a dataset (up to 200 per call). Each row is validated against the columns; invalid or duplicate rows are rejected individually with reasons, the rest are added. Rows added by agents start as "needs_review" unless a status is given.',
     category: 'datasets',
     input: z.object({ dataset: datasetRef, rows: z.array(rowInput).min(1).max(200) }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      const res = engine.repos.datasets.addRows(ds.id, i.rows, actor, {
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      const res = await engine.repos.datasets.addRows(ds.id, i.rows, actor, {
         defaultStatus: actor.kind === 'agent' ? 'needs_review' : 'approved',
         provenance: { source: actor.kind === 'agent' ? 'agent' : 'manual', client: actor.client, model: actor.model },
       });
@@ -155,8 +155,8 @@ export const datasetOps = [
       split: z.string().nullable().optional(),
       baseRev: z.number().int().optional(),
     }),
-    handler: ({ engine, actor }, i) => {
-      const row = engine.repos.datasets.updateRow(i.rowId, i, actor, i.baseRev);
+    handler: async ({ engine, actor }, i) => {
+      const row = await engine.repos.datasets.updateRow(i.rowId, i, actor, i.baseRev);
       engine.events.emit({ type: 'rows.changed', datasetId: row.datasetId, count: 1, actor });
       return row;
     },
@@ -168,9 +168,9 @@ export const datasetOps = [
     description: 'Approves, rejects or re-queues rows for review in bulk.',
     category: 'datasets',
     input: z.object({ dataset: datasetRef, rowIds: z.array(z.string()).min(1), status: RowStatus }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      const updated = engine.repos.datasets.setStatus(ds.id, i.rowIds, i.status);
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      const updated = await engine.repos.datasets.setStatus(ds.id, i.rowIds, i.status);
       engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: updated, actor });
       return { updated };
     },
@@ -183,9 +183,9 @@ export const datasetOps = [
     category: 'datasets',
     destructive: true,
     input: z.object({ dataset: datasetRef, rowIds: z.array(z.string()).min(1) }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      const deleted = engine.repos.datasets.deleteRows(ds.id, i.rowIds);
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      const deleted = await engine.repos.datasets.deleteRows(ds.id, i.rowIds);
       engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: deleted, actor });
       return { deleted };
     },
@@ -197,9 +197,9 @@ export const datasetOps = [
     description: 'Freezes the current rows as an immutable, numbered version. Runs always record the version they used.',
     category: 'datasets',
     input: z.object({ dataset: datasetRef, note: z.string().default('') }),
-    handler: ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      const v = engine.repos.datasets.createVersion(ds.id, i.note, actor);
+    handler: async ({ engine, actor }, i) => {
+      const ds = await engine.repos.datasets.get(i.dataset);
+      const v = await engine.repos.datasets.createVersion(ds.id, i.note, actor);
       engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
       return v;
     },
@@ -212,7 +212,7 @@ export const datasetOps = [
     category: 'datasets',
     readOnly: true,
     input: z.object({ dataset: datasetRef }),
-    handler: ({ engine }, i) => engine.repos.datasets.listVersions(i.dataset),
+    handler: async ({ engine }, i) => await engine.repos.datasets.listVersions(i.dataset),
   }),
 
   defineOp({
@@ -232,8 +232,8 @@ export const datasetOps = [
       tags: z.array(z.string()).default([]),
     }),
     handler: async ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      const info = engine.blobs.info(i.blob);
+      const ds = await engine.repos.datasets.get(i.dataset);
+      const info = await engine.blobs.info(i.blob);
       const text = (await engine.blobs.get(i.blob)).toString('utf8');
       const records = parseRecords(text, i.format === 'auto' ? guessFormat(info?.name, text) : i.format);
       if (!records.length) throw invalid('The file contains no rows');
@@ -250,11 +250,11 @@ export const datasetOps = [
         if (!i.createColumns) throw invalid(`Unknown columns: ${[...missing.values()].join(', ')}`);
         const added = [...missing].map(([key, dst]) => ColumnSpec.parse({ key, type: inferType(records.map((r) => r[sourceKey(mapping, dst)])) }));
         columns = [...columns, ...added];
-        engine.repos.datasets.update(ds.id, { schema: { ...ds.schema, columns } });
+        await engine.repos.datasets.update(ds.id, { schema: { ...ds.schema, columns } });
       }
       const fileCols = new Set(columns.filter((c) => ['audio', 'image', 'file'].includes(c.type)).map((c) => c.key));
       const unmatched = new Set<string>();
-      const rows = records.map((rec) => {
+      const rows = await mapSeq(records, async (rec) => {
         const data: Record<string, unknown> = {};
         for (const [src, dst] of Object.entries(mapping)) {
           if (!dst) continue;
@@ -263,14 +263,14 @@ export const datasetOps = [
           if (fileCols.has(key) && typeof v === 'string' && v) {
             const name = v.split(/[\\/]/).pop()!;
             const hash = i.files[name] ?? i.files[v];
-            if (hash) v = { blob: hash, name, mime: engine.blobs.info(hash)?.mime };
+            if (hash) v = { blob: hash, name, mime: (await engine.blobs.info(hash))?.mime };
             else unmatched.add(name);
           }
           data[key] = v;
         }
         return { data, tags: i.tags, status: i.status };
       });
-      const res = engine.repos.datasets.addRows(ds.id, rows, actor, { provenance: { source: 'import', file: info?.name } });
+      const res = await engine.repos.datasets.addRows(ds.id, rows, actor, { provenance: { source: 'import', file: info?.name } });
       engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: res.added.length, actor });
       return { ...res, unmatchedFiles: [...unmatched] };
     },
@@ -284,8 +284,8 @@ export const datasetOps = [
     readOnly: true,
     input: z.object({ dataset: datasetRef, format: z.enum(['csv', 'jsonl']).default('jsonl'), status: z.array(RowStatus).optional() }),
     handler: async ({ engine }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
-      const { rows } = engine.repos.datasets.listRows(ds.id, { status: i.status, limit: 1_000_000 });
+      const ds = await engine.repos.datasets.get(i.dataset);
+      const { rows } = await engine.repos.datasets.listRows(ds.id, { status: i.status, limit: 1_000_000 });
       const flat = rows.map((r) => ({ row_id: r.id, ...r.data, tags: r.tags.join(','), status: r.status }));
       const text =
         i.format === 'csv'
@@ -312,7 +312,7 @@ export const datasetOps = [
       temperature: z.number().min(0).max(2).default(1),
     }),
     handler: async ({ engine, actor }, i) => {
-      const ds = engine.repos.datasets.get(i.dataset);
+      const ds = await engine.repos.datasets.get(i.dataset);
       const cols = ds.schema.columns.filter((c) => !['audio', 'image', 'file'].includes(c.type));
       if (!cols.length) throw invalid('This dataset has no text-like columns to generate');
       const properties = Object.fromEntries(cols.map((c) => [c.key, jsonTypeFor(c.type, c.enum, c.description)]));
@@ -328,7 +328,7 @@ export const datasetOps = [
       while (added < i.count && calls < Math.ceil(i.count / i.batchSize) + 3) {
         calls++;
         const want = Math.min(i.batchSize, i.count - added);
-        const examples = engine.repos.datasets.listRows(ds.id, { limit: 5 }).rows.map((r) => r.data);
+        const examples = (await engine.repos.datasets.listRows(ds.id, { limit: 5 })).rows.map((r) => r.data);
         const prompt = [
           `Write ${want} new, diverse test rows for the dataset "${ds.name}".`,
           ds.description && `Dataset description: ${ds.description}`,
@@ -345,7 +345,7 @@ export const datasetOps = [
           temperature: i.temperature,
           schema,
         });
-        const out = engine.repos.datasets.addRows(ds.id, (res.value?.rows ?? []).slice(0, want).map((data) => ({ data })), actor, {
+        const out = await engine.repos.datasets.addRows(ds.id, (res.value?.rows ?? []).slice(0, want).map((data) => ({ data })), actor, {
           defaultStatus: 'needs_review',
           provenance: { source: 'generated', connectionId: i.connectionId, model: res.model },
         });

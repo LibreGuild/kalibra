@@ -68,8 +68,8 @@ export function secretsFor(projectDir: string): SecretStore {
 }
 
 /** The hub for a folder, opened in this process. */
-export function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders'> = {}) {
-  return new Hub({ dir, mode, secretsFor, ...opts });
+export async function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders'> = {}) {
+  return await Hub.open({ dir, mode, secretsFor, ...opts });
 }
 
 /** Uniform way to call operations, whether Kalibra runs in another process or in this one. */
@@ -147,14 +147,14 @@ async function remote(origin: string, token: string | undefined, actor: Actor, w
 }
 
 async function inProcess(dir: string, actor: Actor, wanted?: string): Promise<OpsClient> {
-  const hub = openHub(dir);
+  const hub = await openHub(dir);
   const principal = hub.localPrincipal(actor.kind === 'agent' || actor.kind === 'cli' ? actor.kind : 'user', actor.client, actor.model);
   let project = await pickProject((name, input) => hub.call(principal, name, input), wanted);
   return {
     mode: 'local',
     call: (name, input) => hub.callProject(principal, project, name, input),
     hub: (name, input) => hub.call(principal, name, input),
-    describe: async () => [...hub.engine(project).registry.describe(), ...hub.registry.describe().map((o) => ({ ...o, hub: true }))],
+    describe: async () => [...(await hub.engine(project)).registry.describe(), ...hub.registry.describe().map((o) => ({ ...o, hub: true }))],
     project: () => project,
     async useProject(idOrName) {
       const p = await hub.call<any>(principal, 'get_project', { project: idOrName });
@@ -162,7 +162,7 @@ async function inProcess(dir: string, actor: Actor, wanted?: string): Promise<Op
       return p;
     },
     async close() {
-      hub.close();
+      await hub.close();
     },
     // exposed for `kalibra run` to wait on local runs
     ...({ hub } as any),

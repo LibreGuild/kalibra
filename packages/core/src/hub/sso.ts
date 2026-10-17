@@ -3,7 +3,7 @@ import { BlockList, isIP } from 'node:net';
 import * as oidc from 'openid-client';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import { BASE_PATH } from '../base-path.js';
-import { KalibraError } from '../util.js';
+import { KalibraError, mapSeq } from '../util.js';
 import type { Hub } from './hub.js';
 import { randomSecret } from './passwords.js';
 import type { AuthProvider } from './providers.js';
@@ -67,7 +67,7 @@ export class SsoService {
    * finish() requires so that a sign-in started in one browser cannot be completed in another.
    */
   async start(providerId: string, opts: { redirectUri: string; next?: string }): Promise<{ url: string; binding: string }> {
-    const p = this.provider(providerId);
+    const p = await this.provider(providerId);
     if (p.kind === 'proxy') throw new KalibraError('invalid', `${p.name} signs you in automatically through the gateway`);
     this.prune();
     const state = oidc.randomState();
@@ -90,7 +90,7 @@ export class SsoService {
 
   /** Completes a sign-in from the provider's redirect. Returns the account and where to go next. */
   async finish(providerId: string, opts: { callbackUrl: string; binding?: string; ip?: string }): Promise<{ user: User; next: string }> {
-    const p = this.provider(providerId);
+    const p = await this.provider(providerId);
     const url = new URL(opts.callbackUrl);
     const providerError = url.searchParams.get('error_description') ?? url.searchParams.get('error');
     const state = url.searchParams.get('state') ?? '';
@@ -179,7 +179,7 @@ export class SsoService {
   async fromProxy(headers: Record<string, string | string[] | undefined>, conn: { peer: string; ip?: string }): Promise<User | undefined> {
     const ip = conn.ip ?? conn.peer;
     this.pruneProxyCache();
-    for (const p of this.hub.providers.enabled().filter((x) => x.kind === 'proxy')) {
+    for (const p of (await this.hub.providers.enabled()).filter((x) => x.kind === 'proxy')) {
       const header = (name: string) => {
         const v = headers[name.toLowerCase()];
         return (Array.isArray(v) ? v[0] : v) ?? '';
@@ -189,7 +189,7 @@ export class SsoService {
         const token = header(p.jwtHeader);
         if (!token) continue;
         const key = `${p.id}:${hash(token)}`;
-        const cached = this.cachedProxyUser(key);
+        const cached = await this.cachedProxyUser(key);
         if (cached) return cached;
         const { payload } = await jwtVerify(token, this.jwksFor(p.jwksUrl), { audience: p.jwtAudience, ...(p.jwtIssuer ? { issuer: p.jwtIssuer } : {}) }).catch((e) => {
           throw new KalibraError('forbidden', `The login gateway's token was refused: ${e?.code ?? e?.message ?? e}`);
@@ -204,7 +204,7 @@ export class SsoService {
       if (!email) continue;
       if (!inList(conn.peer, p.trustedProxies)) throw new KalibraError('forbidden', `Sign-in headers from ${conn.peer || 'an unknown address'} are not trusted`);
       const key = `${p.id}:${hash([email, header(p.nameHeader), header(p.groupsHeader)].join('\n'))}`;
-      const cached = this.cachedProxyUser(key);
+      const cached = await this.cachedProxyUser(key);
       if (cached) return cached;
       profile = { subject: email.toLowerCase(), email, emailVerified: true, name: header(p.nameHeader) || email, username: email.split('@')[0], groups: toList(header(p.groupsHeader)) };
       const user = await this.admit(p, profile, ip);
@@ -215,10 +215,10 @@ export class SsoService {
   }
 
   /** A recently admitted gateway user, re-read so a disabled account or a role change applies at once. */
-  private cachedProxyUser(key: string): User | undefined {
+  private async cachedProxyUser(key: string): Promise<User | undefined> {
     const cached = this.proxyCache.get(key);
     if (!cached || cached.until <= Date.now()) return undefined;
-    const user = this.hub.accounts.get(cached.user.id);
+    const user = await this.hub.accounts.get(cached.user.id);
     if (user.disabled) {
       this.proxyCache.delete(key);
       throw new KalibraError('forbidden', 'This account is disabled. Ask an administrator.');
@@ -247,58 +247,58 @@ export class SsoService {
   async admit(p: AuthProvider, profile: ExternalProfile, ip: string): Promise<User> {
     const { hub } = this;
     const who = profile.email || profile.username || profile.subject;
-    const refuse = (message: string, reason: string) => {
-      hub.audit({ kind: 'anonymous', id: who }, 'login.refused', who, { provider: p.id, reason }, ip);
+    const refuse = async (message: string, reason: string) => {
+      await hub.audit({ kind: 'anonymous', id: who }, 'login.refused', who, { provider: p.id, reason }, ip);
       return new KalibraError('forbidden', message);
     };
     const domain = profile.email.split('@')[1]?.toLowerCase() ?? '';
     if (p.allowedDomains.length && !(profile.emailVerified && p.allowedDomains.some((d) => d.toLowerCase() === domain))) {
-      throw refuse(`Sign-in with ${p.name} is limited to ${p.allowedDomains.join(', ')} addresses${profile.emailVerified ? '' : ' (and a verified email)'}.`, 'domain');
+      throw await refuse(`Sign-in with ${p.name} is limited to ${p.allowedDomains.join(', ')} addresses${profile.emailVerified ? '' : ' (and a verified email)'}.`, 'domain');
     }
     const groupsLower = profile.groups.map((g) => g.toLowerCase());
     const inAny = (names: string[]) => names.some((n) => groupsLower.includes(n.toLowerCase()));
-    if (p.kind === 'github' && p.allowedOrgs.length && !inAny(p.allowedOrgs)) throw refuse(`Sign-in with ${p.name} is limited to members of ${p.allowedOrgs.join(', ')}.`, 'org');
-    if (p.allowedGroups.length && !inAny(p.allowedGroups)) throw refuse(`Your ${p.name} account is not in a group that may use Kalibra. Ask an administrator.`, 'group');
+    if (p.kind === 'github' && p.allowedOrgs.length && !inAny(p.allowedOrgs)) throw await refuse(`Sign-in with ${p.name} is limited to members of ${p.allowedOrgs.join(', ')}.`, 'org');
+    if (p.allowedGroups.length && !inAny(p.allowedGroups)) throw await refuse(`Your ${p.name} account is not in a group that may use Kalibra. Ask an administrator.`, 'group');
 
     const subject = identityKey(p, profile.subject);
-    let user = hub.accounts.byIdentity(p.id, subject);
-    if (user?.disabled) throw refuse('This account is disabled. Ask an administrator.', 'disabled');
+    let user = await hub.accounts.byIdentity(p.id, subject);
+    if (user?.disabled) throw await refuse('This account is disabled. Ask an administrator.', 'disabled');
     if (!user && profile.emailVerified && profile.email) {
-      const matches = hub.accounts.findAllByEmail(profile.email).filter((u) => !u.disabled);
+      const matches = (await hub.accounts.findAllByEmail(profile.email)).filter((u) => !u.disabled);
       // Several accounts share the email: linking would pick one at random.
-      if (matches.length > 1) throw refuse(`More than one Kalibra account uses ${profile.email}. Ask an administrator to sort it out.`, 'ambiguous email');
+      if (matches.length > 1) throw await refuse(`More than one Kalibra account uses ${profile.email}. Ask an administrator to sort it out.`, 'ambiguous email');
       const invited = matches[0];
       // The account already belongs to another identity at this same provider (e.g. an email
       // address given to a new person): don't hand it over.
       const sameIssuer = identityKey(p, '');
-      if (invited && hub.accounts.identities(invited.id, true).some((i) => i.provider === p.id && i.subject.startsWith(sameIssuer) && i.subject !== subject)) {
-        throw refuse(`${profile.email} is linked to another ${p.name} account. Ask an administrator.`, 'email taken');
+      if (invited && (await hub.accounts.identities(invited.id, true)).some((i) => i.provider === p.id && i.subject.startsWith(sameIssuer) && i.subject !== subject)) {
+        throw await refuse(`${profile.email} is linked to another ${p.name} account. Ask an administrator.`, 'email taken');
       }
       if (invited) user = invited;
     }
     if (!user) {
-      if (!p.autoCreate) throw refuse(`There is no Kalibra account for ${who}. Ask an administrator to add you (with this email).`, 'not invited');
-      user = await hub.accounts.create({ username: hub.accounts.freeUsername(profile.username || who), name: profile.name || who, email: profile.emailVerified ? profile.email : '', role: 'user' }, `provider:${p.id}`);
-      hub.audit({ kind: 'system', id: p.id }, 'user.created', user.username, { provider: p.id, from: 'sign-in' }, ip);
+      if (!p.autoCreate) throw await refuse(`There is no Kalibra account for ${who}. Ask an administrator to add you (with this email).`, 'not invited');
+      user = await hub.accounts.create({ username: await hub.accounts.freeUsername(profile.username || who), name: profile.name || who, email: profile.emailVerified ? profile.email : '', role: 'user' }, `provider:${p.id}`);
+      await hub.audit({ kind: 'system', id: p.id }, 'user.created', user.username, { provider: p.id, from: 'sign-in' }, ip);
     }
-    hub.accounts.linkIdentity(p.id, subject, user.id, profile.email, { name: profile.name, username: profile.username, groups: profile.groups });
+    await hub.accounts.linkIdentity(p.id, subject, user.id, profile.email, { name: profile.name, username: profile.username, groups: profile.groups });
     if (p.adminGroups.length && inAny(p.adminGroups) && user.role !== 'admin') {
-      user = hub.accounts.update(user.id, { role: 'admin' });
-      hub.audit({ kind: 'system', id: p.id }, 'user.updated', user.username, { role: 'admin', from: `${p.name} admin group` }, ip);
+      user = await hub.accounts.update(user.id, { role: 'admin' });
+      await hub.audit({ kind: 'system', id: p.id }, 'user.updated', user.username, { role: 'admin', from: `${p.name} admin group` }, ip);
     }
     if (p.syncGroups) {
-      const ids = profile.groups.map((g) => hub.projects.ensureExternalGroup(p.id, g).id);
-      hub.projects.syncUserGroups(user.id, p.id, ids);
+      const ids = await mapSeq(profile.groups, async (g) => (await hub.projects.ensureExternalGroup(p.id, g)).id);
+      await hub.projects.syncUserGroups(user.id, p.id, ids);
     }
-    hub.accounts.markLogin(user.id);
-    hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, { provider: p.id }, ip);
-    return hub.accounts.get(user.id);
+    await hub.accounts.markLogin(user.id);
+    await hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, { provider: p.id }, ip);
+    return await hub.accounts.get(user.id);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  private provider(id: string): AuthProvider {
-    const p = this.hub.providers.get(id);
+  private async provider(id: string): Promise<AuthProvider> {
+    const p = await this.hub.providers.get(id);
     if (!p.enabled) throw new KalibraError('forbidden', `${p.name} sign-in is turned off`);
     return p;
   }

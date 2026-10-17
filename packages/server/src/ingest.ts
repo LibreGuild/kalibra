@@ -56,17 +56,17 @@ export function ingestRoutes(hub: Hub, cfg: AuthConfig) {
     const header = req.headers['x-kalibra-key'];
     const key = (typeof header === 'string' && header.trim()) || (!keyOnly && bearer?.startsWith(INGEST_KEY_PREFIX) ? bearer : undefined);
     if (key) {
-      const found = hub.ingestKeys.resolve(key);
+      const found = await hub.ingestKeys.resolve(key);
       if (!found) return void fail(res, 401, 'unauthorized', 'Invalid or revoked ingest key');
       let projectId: string | undefined;
       try {
-        projectId = hub.projects.get(projectRef).id;
+        projectId = (await hub.projects.get(projectRef)).id;
       } catch {
         /* reported as not found below */
       }
       // A key for another project: answer as if this project did not exist.
       if (projectId !== found.projectId) return void fail(res, 404, 'not_found', `Project not found: ${projectRef}`);
-      return hub.engine(projectId);
+      return await hub.engine(projectId);
     }
     if (keyOnly) return void fail(res, 401, 'unauthorized', 'Send your Kalibra ingest key in the x-kalibra-key header (Authorization carries your OpenAI key)');
     const auth = await authenticate(req, cfg);
@@ -75,9 +75,9 @@ export function ingestRoutes(hub: Hub, cfg: AuthConfig) {
       return void fail(res, 403, 'forbidden', 'Missing Origin header');
     }
     if (auth.principal.user.mustChangePassword && auth.via === 'session') return void fail(res, 403, 'password_change_required', 'Choose a new password to continue');
-    const { project, role } = hub.projectFor(auth.principal, projectRef);
+    const { project, role } = await hub.projectFor(auth.principal, projectRef);
     if (!roleAtLeast(role, 'editor')) throw new KalibraError('forbidden', 'Sending traces needs the editor role in this project (or an ingest key)');
-    return hub.engine(project.id);
+    return await hub.engine(project.id);
   }
 
   /** The request body within `limit`, answering 413 when it is bigger. */
@@ -144,7 +144,7 @@ export function ingestRoutes(hub: Hub, cfg: AuthConfig) {
       const args = url.searchParams.get('args');
       if (!hash && args !== null) hash = argsHash(json(Buffer.from(args)));
       if (!/^[a-f0-9]{64}$/.test(hash)) return fail(res, 400, 'invalid', 'argsHash must be the SHA-256 (hex) of the canonical JSON arguments');
-      const rec = engine.traces.tools.get(tool, hash);
+      const rec = await engine.traces.tools.get(tool, hash);
       return send(res, 200, rec ? { found: true, output: rec.output ?? null, ...(rec.error ? { error: rec.error } : {}) } : { found: false });
     }
     if (req.method !== 'POST') return fail(res, 405, 'invalid', 'Use GET to look up or POST to record');
@@ -156,7 +156,7 @@ export function ingestRoutes(hub: Hub, cfg: AuthConfig) {
     if (!tool || tool.length > 200) return fail(res, 400, 'invalid', 'tool (1–200 characters) is required');
     // The server's hash is the one stored; a client that canonicalizes differently is told so.
     const hash = argsHash(b.args ?? null);
-    engine.traces.tools.upsert({
+    await engine.traces.tools.upsert({
       tool,
       argsHash: hash,
       args: b.args ?? null,
@@ -170,7 +170,7 @@ export function ingestRoutes(hub: Hub, cfg: AuthConfig) {
   async function proxy(req: IncomingMessage, res: ServerResponse, url: URL, suffix: string, engine: Engine) {
     const buf = req.method === 'GET' || req.method === 'HEAD' ? Buffer.alloc(0) : await body(req, res, PROXY_BODY);
     if (!buf) return;
-    const upstream = `${engine.traces.settings().proxyOpenaiUpstream}${suffix || '/'}${url.search}`;
+    const upstream = `${(await engine.traces.settings()).proxyOpenaiUpstream}${suffix || '/'}${url.search}`;
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) if (!DROP_REQUEST.has(k) && typeof v === 'string') headers[k] = v;
     const runId = typeof req.headers['x-kalibra-run'] === 'string' ? req.headers['x-kalibra-run'].slice(0, 64) : undefined;

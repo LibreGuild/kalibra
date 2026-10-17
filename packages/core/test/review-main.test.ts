@@ -13,25 +13,25 @@ describe('run status', () => {
   let dir: string;
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-main-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     await engine.call('create_dataset', { name: 'Q', columns: [{ key: 'question', type: 'text' }] });
     await engine.call('add_dataset_rows', { dataset: 'Q', rows: [{ data: { question: 'hi' } }] });
   });
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('clears the old error when a failed run is resumed', () => {
-    const ds = engine.repos.datasets.get('Q');
-    const v = engine.repos.datasets.createVersion(ds.id, '', user);
-    const run = engine.repos.runs.create({ kind: 'imported', datasetId: ds.id, datasetVersionId: v.id, suiteId: 'ste_x', suiteVersion: 1, settings: RunSettings.parse({}) }, user);
-    engine.repos.runs.setStatus(run.id, 'failed', { error: 'disk full' });
-    expect(engine.repos.runs.get(run.id).error).toBe('disk full');
-    engine.repos.runs.setStatus(run.id, 'running');
-    expect(engine.repos.runs.get(run.id).error).toBeNull();
-    engine.repos.runs.setStatus(run.id, 'completed');
-    expect(engine.repos.runs.get(run.id).error).toBeNull();
+  it('clears the old error when a failed run is resumed', async () => {
+    const ds = await engine.repos.datasets.get('Q');
+    const v = await engine.repos.datasets.createVersion(ds.id, '', user);
+    const run = await engine.repos.runs.create({ kind: 'imported', datasetId: ds.id, datasetVersionId: v.id, suiteId: 'ste_x', suiteVersion: 1, settings: RunSettings.parse({}) }, user);
+    await engine.repos.runs.setStatus(run.id, 'failed', { error: 'disk full' });
+    expect((await engine.repos.runs.get(run.id)).error).toBe('disk full');
+    await engine.repos.runs.setStatus(run.id, 'running');
+    expect((await engine.repos.runs.get(run.id)).error).toBeNull();
+    await engine.repos.runs.setStatus(run.id, 'completed');
+    expect((await engine.repos.runs.get(run.id)).error).toBeNull();
   });
 });
 

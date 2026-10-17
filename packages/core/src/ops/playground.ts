@@ -7,7 +7,7 @@ import type { MediaFile } from '../providers/types.js';
 import type { LogEntry } from '../script.js';
 import { SuiteSpec } from '../specs.js';
 import { placeholders, render } from '../template.js';
-import { invalid } from '../util.js';
+import { invalid, mapSeq } from '../util.js';
 
 /*
  * Prompt playground: one prompt template, a few rows (from a dataset or typed in), up to four
@@ -53,14 +53,14 @@ interface Cell {
 const isFile = (v: unknown): v is { blob: string; name?: string; mime?: string } =>
   !!v && typeof v === 'object' && typeof (v as any).blob === 'string' && /^[a-f0-9]{64}$/.test((v as any).blob);
 
-function collectRows(engine: Engine, i: RunInput) {
+async function collectRows(engine: Engine, i: RunInput) {
   if (i.values?.length && i.dataset) throw invalid('Use either a dataset or typed-in values, not both');
   if (i.values?.length) return i.values.map((v) => ({ rowId: undefined as string | undefined, data: v }));
   if (!i.dataset) throw invalid('Pick a dataset or type in at least one row of values');
-  const ds = engine.repos.datasets.get(i.dataset);
+  const ds = await engine.repos.datasets.get(i.dataset);
   const rows = i.rowIds?.length
-    ? engine.repos.datasets.listRows(ds.id, { ids: i.rowIds, limit: MAX_ROWS }).rows
-    : engine.repos.datasets.listRows(ds.id, { limit: i.limit, status: ['approved', 'needs_review', 'draft'] }).rows;
+    ? (await engine.repos.datasets.listRows(ds.id, { ids: i.rowIds, limit: MAX_ROWS })).rows
+    : (await engine.repos.datasets.listRows(ds.id, { limit: i.limit, status: ['approved', 'needs_review', 'draft'] })).rows;
   if (!rows.length) throw invalid('No rows to try: the dataset is empty or the ids did not match');
   return rows.slice(0, MAX_ROWS).map((r) => ({ rowId: r.id as string | undefined, data: r.data }));
 }
@@ -75,15 +75,15 @@ async function prepare(engine: Engine, i: RunInput, data: Record<string, unknown
     const v = data[key];
     if (!isFile(v)) continue;
     const bytes = await engine.blobs.get(v.blob);
-    files.push({ data: new Uint8Array(bytes), mime: v.mime || engine.blobs.info(v.blob)?.mime || 'application/octet-stream' });
+    files.push({ data: new Uint8Array(bytes), mime: v.mime || (await engine.blobs.info(v.blob))?.mime || 'application/octet-stream' });
     scope[key] = `[attached file: ${v.name ?? key}]`;
   }
   return { system: await render(i.system, scope, env), prompt: await render(i.prompt, scope, env), files };
 }
 
 async function playground(engine: Engine, i: RunInput, onProgress?: (done: number, total: number) => void, signal?: AbortSignal) {
-  const rows = collectRows(engine, i);
-  const suite = i.suite ? SuiteSpec.parse(engine.repos.defs.get('suite', i.suite).spec) : null;
+  const rows = await collectRows(engine, i);
+  const suite = i.suite ? SuiteSpec.parse((await engine.repos.defs.get('suite', i.suite)).spec) : null;
   const grid = rows.map((r, index) => ({ index, rowId: r.rowId, values: r.data, cells: [] as Cell[] }));
   const work = grid.flatMap((row) => i.variants.map((_, v) => ({ row, v })));
   let done = 0;
@@ -137,14 +137,14 @@ async function playground(engine: Engine, i: RunInput, onProgress?: (done: numbe
   });
 
   for (const row of grid) row.cells.sort((a, b) => a.variant - b.variant);
-  const variants = i.variants.map((variant, v) => {
+  const variants = await mapSeq(i.variants, async (variant, v) => {
     const cells = grid.map((r) => r.cells.find((c) => c.variant === v)).filter((c): c is Cell => !!c);
     const ok = cells.filter((c) => !c.error);
     const lat = ok.map((c) => c.latencyMs).filter((x): x is number => typeof x === 'number');
     const scored = ok.filter((c) => typeof c.passed === 'boolean');
     return {
       index: v,
-      label: variant.label || `${engine.repos.defs.get('connection', variant.connectionId).name}${variant.model ? ` · ${variant.model}` : ''}`,
+      label: variant.label || `${(await engine.repos.defs.get('connection', variant.connectionId)).name}${variant.model ? ` · ${variant.model}` : ''}`,
       connectionId: variant.connectionId,
       model: variant.model,
       temperature: variant.temperature,
@@ -166,9 +166,9 @@ export const playgroundOps: OpDef<any, any>[] = [
     category: 'targets',
     input: RunInput,
     handler: async ({ engine, actor }, i) => {
-      for (const v of i.variants) engine.repos.defs.get('connection', v.connectionId);
-      if (i.suite) engine.repos.defs.get('suite', i.suite);
-      const rows = collectRows(engine, i);
+      for (const v of i.variants) await engine.repos.defs.get('connection', v.connectionId);
+      if (i.suite) await engine.repos.defs.get('suite', i.suite);
+      const rows = await collectRows(engine, i);
       const calls = rows.length * i.variants.length;
       if (calls === 1) return { result: await playground(engine, i) };
       const job = engine.jobs.start('playground', `Playground: ${calls} calls`, (job) => playground(engine, i, (d, t) => job.progress(d, t), job.signal), actor);
@@ -191,9 +191,9 @@ export const playgroundOps: OpDef<any, any>[] = [
       temperature: z.number().min(0).max(2).optional(),
       maxOutputTokens: z.number().int().min(1).max(32000).optional(),
     }),
-    handler: ({ engine, actor }, i) => {
-      engine.repos.defs.get('connection', i.connectionId);
-      const target = engine.repos.defs.create(
+    handler: async ({ engine, actor }, i) => {
+      await engine.repos.defs.get('connection', i.connectionId);
+      const target = await engine.repos.defs.create(
         'target',
         {
           name: i.name,

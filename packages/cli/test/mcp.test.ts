@@ -14,9 +14,9 @@ describe('MCP bridge', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-mcp-'));
-    const hub = openHub(dir);
+    const hub = await openHub(dir);
     await hub.call(hub.localPrincipal(), 'create_project', { name: 'Voice' });
-    hub.close();
+    await hub.close();
     const root = resolve(__dirname, '../../..');
     client = new Client({ name: 'test-agent', version: '1.0.0' });
     await client.connect(new StdioClientTransport({ command: join(root, 'node_modules/.bin/tsx'), args: [join(root, 'packages/cli/src/main.ts'), 'mcp', '--dir', dir], stderr: 'ignore' }));

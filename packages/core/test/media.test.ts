@@ -9,6 +9,7 @@ import { getCheckType } from '../src/checks/index.js';
 import { executeTarget } from '../src/targets/index.js';
 import { TargetSpec } from '../src/specs.js';
 import type { LlmClient } from '../src/providers/types.js';
+import { mapSeq } from '../src/util.js';
 
 const RATE = 16000;
 const sine = (hz: number, seconds = 1, amp = 0.3) => Float32Array.from({ length: RATE * seconds }, (_, i) => amp * Math.sin((2 * Math.PI * hz * i) / RATE));
@@ -68,9 +69,9 @@ describe('jobs and media ops', () => {
   let dir: string;
   const calls: { kind: string; req: any }[] = [];
 
-  beforeAll(() => {
+  beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-media-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     const stub: LlmClient = {
       text: async () => ({ text: 'ok', latencyMs: 1, model: 'stub-text' }),
       json: async (req) => {
@@ -93,8 +94,8 @@ describe('jobs and media ops', () => {
     (engine as any).llm = stub;
   });
 
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -131,7 +132,7 @@ describe('jobs and media ops', () => {
     expect(calls.filter((c) => c.kind === 'image').map((c) => c.req.prompt)).toEqual(expect.arrayContaining(['A photo of red mug', 'A photo of blue chair']));
     expect(calls.find((c) => c.kind === 'image')!.req.options).toEqual({ quality: 'medium' });
     const rows = (await engine.call('list_rows', { dataset: 'Photos' })).rows;
-    expect(rows.every((r: any) => r.data.image?.blob && engine.blobs.has(r.data.image.blob))).toBe(true);
+    expect((await mapSeq(rows, async (r: any) => !!r.data.image?.blob && (await engine.blobs.has(r.data.image.blob)))).every(Boolean)).toBe(true);
     expect(rows[0].provenance.media.image.kind).toBe('image');
 
     const again = await engine.jobs.wait((await engine.call('generate_images', { dataset: 'Photos', column: 'image', promptTemplate: 'A photo of {{item}}', connectionId: 'Stub' })).jobId);

@@ -36,34 +36,38 @@ const toLabel = (r: any): LabelRecord => ({
 export class LabelRepo {
   constructor(private db: Db) {}
 
-  set(input: { runId: string; resultId: string; checkId: string; label: Label; note?: string }, actor: Actor): LabelRecord {
-    const now = nowIso();
-    this.db.run(
-      `INSERT INTO labels (id, run_id, result_id, check_id, label, note, actor, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(result_id, check_id) DO UPDATE SET label = excluded.label, note = excluded.note, actor = excluded.actor, updated_at = excluded.updated_at`,
-      newId('lbl'), input.runId, input.resultId, input.checkId, input.label, input.note ?? '', JSON.stringify(actor), now, now,
-    );
-    return this.get(input.resultId, input.checkId)!;
+  async set(input: { runId: string; resultId: string; checkId: string; label: Label; note?: string }, actor: Actor): Promise<LabelRecord> {
+    return this.db.tx(async () => {
+      const now = nowIso();
+      await this.db.run(
+        `INSERT INTO labels (id, run_id, result_id, check_id, label, note, actor, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(result_id, check_id) DO UPDATE SET label = excluded.label, note = excluded.note, actor = excluded.actor, updated_at = excluded.updated_at`,
+        newId('lbl'), input.runId, input.resultId, input.checkId, input.label, input.note ?? '', JSON.stringify(actor), now, now,
+      );
+      return (await this.get(input.resultId, input.checkId))!;
+    });
   }
 
-  clear(resultId: string, checkId: string) {
-    return Number(this.db.run('DELETE FROM labels WHERE result_id = ? AND check_id = ?', resultId, checkId).changes);
+  async clear(resultId: string, checkId: string) {
+    return this.db.tx(async () => {
+      return Number((await this.db.run('DELETE FROM labels WHERE result_id = ? AND check_id = ?', resultId, checkId)).changes);
+    });
   }
 
-  get(resultId: string, checkId: string): LabelRecord | undefined {
-    const r = this.db.get('SELECT * FROM labels WHERE result_id = ? AND check_id = ?', resultId, checkId);
+  async get(resultId: string, checkId: string): Promise<LabelRecord | undefined> {
+    const r = await this.db.get('SELECT * FROM labels WHERE result_id = ? AND check_id = ?', resultId, checkId);
     return r ? toLabel(r) : undefined;
   }
 
   /** Labels for one or more runs, optionally for one check. */
-  list(runIds: string[], checkId?: string): LabelRecord[] {
+  async list(runIds: string[], checkId?: string): Promise<LabelRecord[]> {
     if (!runIds.length) return [];
     const marks = runIds.map(() => '?').join(',');
     const rows =
       checkId === undefined
-        ? this.db.all(`SELECT * FROM labels WHERE run_id IN (${marks}) ORDER BY updated_at`, ...runIds)
-        : this.db.all(`SELECT * FROM labels WHERE run_id IN (${marks}) AND check_id = ? ORDER BY updated_at`, ...runIds, checkId);
+        ? await this.db.all(`SELECT * FROM labels WHERE run_id IN (${marks}) ORDER BY updated_at`, ...runIds)
+        : await this.db.all(`SELECT * FROM labels WHERE run_id IN (${marks}) AND check_id = ? ORDER BY updated_at`, ...runIds, checkId);
     return rows.map(toLabel);
   }
 }

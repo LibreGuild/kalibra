@@ -27,13 +27,13 @@ export const conversationsOps: OpDef<any, any>[] = [
     }),
     handler: async ({ engine }, i) => {
       if (i.conversation.mode === 'off') throw invalid('Choose "scripted" or "simulated" conversation mode');
-      const saved = i.target ? engine.repos.defs.get('target', i.target).spec : undefined;
+      const saved = i.target ? (await engine.repos.defs.get('target', i.target)).spec : undefined;
       const spec = TargetSpec.parse(i.spec ?? saved);
       if (i.spec) assertCodeChange(saved ?? {}, spec, 'This target');
       let row: Record<string, unknown> = i.values ?? {};
       let rowId = 'manual';
       if (!i.values && (i.rowId || i.dataset)) {
-        const r = i.rowId ? engine.repos.datasets.getRow(i.rowId) : engine.repos.datasets.listRows(engine.repos.datasets.get(i.dataset!).id, { limit: 1 }).rows[0];
+        const r = i.rowId ? await engine.repos.datasets.getRow(i.rowId) : (await engine.repos.datasets.listRows((await engine.repos.datasets.get(i.dataset!)).id, { limit: 1 })).rows[0];
         if (!r) throw invalid('The dataset has no rows yet');
         row = r.data;
         rowId = r.id;

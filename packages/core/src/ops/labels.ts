@@ -27,20 +27,19 @@ function verdictOf(row: { passed: number | null; checks: string | null }, checkI
   return c.status === 'pass' ? 'pass' : 'fail';
 }
 
-function scopeRuns(engine: Engine, i: { runId?: string; suiteId?: string }): string[] {
+async function scopeRuns(engine: Engine, i: { runId?: string; suiteId?: string }): Promise<string[]> {
   if (i.suiteId) {
-    const suite = engine.repos.defs.get('suite', i.suiteId);
-    return engine.db.all('SELECT id FROM runs WHERE suite_id = ? AND deleted_at IS NULL', suite.id).map((r) => r.id as string);
+    const suite = await engine.repos.defs.get('suite', i.suiteId);
+    return (await engine.db.all('SELECT id FROM runs WHERE suite_id = ? AND deleted_at IS NULL', suite.id)).map((r) => r.id as string);
   }
-  if (i.runId) return [engine.repos.runs.get(i.runId).id];
+  if (i.runId) return [(await engine.repos.runs.get(i.runId)).id];
   throw invalid('Pass runId or suiteId');
 }
 
-function scopedResults(engine: Engine, runIds: string[], checkId: string): ScopedResult[] {
+async function scopedResults(engine: Engine, runIds: string[], checkId: string): Promise<ScopedResult[]> {
   if (!runIds.length) return [];
   const marks = runIds.map(() => '?').join(',');
-  return engine.db
-    .all(`SELECT id, run_id, seq, passed, checks FROM results WHERE run_id IN (${marks}) AND status IN ('done','error') ORDER BY run_id, seq`, ...runIds)
+  return (await engine.db.all(`SELECT id, run_id, seq, passed, checks FROM results WHERE run_id IN (${marks}) AND status IN ('done','error') ORDER BY run_id, seq`, ...runIds))
     .map((r) => ({ id: r.id, runId: r.run_id, seq: r.seq, verdict: verdictOf(r, checkId) }));
 }
 
@@ -157,9 +156,9 @@ export function agreementStats(pairs: { judge: Verdict; human: Verdict; resultId
 }
 
 /** Pairs of (check verdict, human label) for labeled rows in scope. */
-function labeledPairs(engine: Engine, runIds: string[], checkId: string, includeAgents: boolean) {
-  const results = new Map(scopedResults(engine, runIds, checkId).map((r) => [r.id, r]));
-  const labels = new LabelRepo(engine.db).list(runIds, checkId).filter((l) => isHuman(l, includeAgents));
+async function labeledPairs(engine: Engine, runIds: string[], checkId: string, includeAgents: boolean) {
+  const results = new Map((await scopedResults(engine, runIds, checkId)).map((r) => [r.id, r]));
+  const labels = (await new LabelRepo(engine.db).list(runIds, checkId)).filter((l) => isHuman(l, includeAgents));
   const pairs: { judge: Verdict; human: Verdict; resultId: string; runId: string; note: string }[] = [];
   for (const l of labels) {
     const r = results.get(l.resultId);
@@ -191,11 +190,11 @@ export const labelOps: OpDef<any, any>[] = [
       label: z.enum(['pass', 'fail']).nullable(),
       note: z.string().default('').describe('Optional reason, useful when you disagree with the check'),
     }),
-    handler: ({ engine, actor }, i) => {
-      const result = engine.repos.runs.getResult(i.resultId);
+    handler: async ({ engine, actor }, i) => {
+      const result = await engine.repos.runs.getResult(i.resultId);
       if (i.checkId && !result.checks.some((c: any) => c.id === i.checkId)) throw invalid(`Check "${i.checkId}" did not run on this result`);
       const repo = new LabelRepo(engine.db);
-      const out = i.label === null ? (repo.clear(result.id, i.checkId), null) : repo.set({ runId: result.runId, resultId: result.id, checkId: i.checkId, label: i.label as Label, note: i.note }, actor);
+      const out = i.label === null ? (await repo.clear(result.id, i.checkId), null) : await repo.set({ runId: result.runId, resultId: result.id, checkId: i.checkId, label: i.label as Label, note: i.note }, actor);
       engine.events.emit({ type: 'result.updated', runId: result.runId, resultId: result.id });
       return { label: out };
     },
@@ -208,7 +207,7 @@ export const labelOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ runId: z.string(), checkId: z.string().optional() }),
-    handler: ({ engine }, i) => new LabelRepo(engine.db).list([engine.repos.runs.get(i.runId).id], i.checkId),
+    handler: async ({ engine }, i) => await new LabelRepo(engine.db).list([(await engine.repos.runs.get(i.runId)).id], i.checkId),
   }),
 
   defineOp({
@@ -224,10 +223,10 @@ export const labelOps: OpDef<any, any>[] = [
       strategy: z.enum(['balanced', 'random', 'disagreements', 'unlabeled_failures']).default('balanced'),
       limit: z.number().int().min(1).max(500).default(50),
     }),
-    handler: ({ engine }, i) => {
-      const runIds = scopeRuns(engine, { runId: i.runId });
-      const results = scopedResults(engine, runIds, i.checkId).filter((r) => r.verdict);
-      const labels = new LabelRepo(engine.db).list(runIds, i.checkId).filter((l) => isHuman(l, false));
+    handler: async ({ engine }, i) => {
+      const runIds = await scopeRuns(engine, { runId: i.runId });
+      const results = (await scopedResults(engine, runIds, i.checkId)).filter((r) => r.verdict);
+      const labels = (await new LabelRepo(engine.db).list(runIds, i.checkId)).filter((l) => isHuman(l, false));
       const labeled = new Map(labels.map((l) => [l.resultId, l]));
       const shape = (r: ScopedResult) => ({ resultId: r.id, seq: r.seq, verdict: r.verdict, label: labeled.get(r.id)?.label ?? null });
 
@@ -266,9 +265,9 @@ export const labelOps: OpDef<any, any>[] = [
       checkId: z.string().default(''),
       includeAgentLabels: z.boolean().default(false).describe('Also count labels made by coding agents or the CLI'),
     }),
-    handler: ({ engine }, i) => {
-      const runIds = scopeRuns(engine, i);
-      const { results, pairs } = labeledPairs(engine, runIds, i.checkId, i.includeAgentLabels);
+    handler: async ({ engine }, i) => {
+      const runIds = await scopeRuns(engine, i);
+      const { results, pairs } = await labeledPairs(engine, runIds, i.checkId, i.includeAgentLabels);
       const judged = results.filter((r) => r.verdict);
       const observed = judged.length ? judged.filter((r) => r.verdict === 'pass').length / judged.length : null;
       const stats = agreementStats(pairs, observed);

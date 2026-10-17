@@ -14,7 +14,7 @@ describe('playground', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-playground-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     conA = (await engine.call<any>('create_connection', { name: 'A', spec: { provider: 'openai_compatible', baseUrl: 'http://127.0.0.1:1/v1', defaultModel: 'a-model' } })).id;
     conB = (await engine.call<any>('create_connection', { name: 'B', spec: { provider: 'openai_compatible', baseUrl: 'http://127.0.0.1:1/v1', defaultModel: 'b-model' } })).id;
     await engine.call('create_dataset', { name: 'Docs', columns: [{ key: 'text', type: 'text' }, { key: 'expected', type: 'text' }, { key: 'image', type: 'image' }] });
@@ -39,8 +39,8 @@ describe('playground', () => {
     };
   });
 
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -69,7 +69,7 @@ describe('playground', () => {
 
   it('attaches image columns used by the prompt instead of inlining them', async () => {
     seen.length = 0;
-    const row = engine.repos.datasets.listRows(engine.repos.datasets.get('Docs').id, { limit: 1 }).rows[0];
+    const row = (await engine.repos.datasets.listRows((await engine.repos.datasets.get('Docs')).id, { limit: 1 })).rows[0];
     await engine.call<any>('playground_run', { prompt: 'Upper: {{text}} — describe {{image}}', variants: [{ connectionId: conA }], dataset: 'Docs', rowIds: [row.id] });
     const req = seen.at(-1);
     expect(req.files).toHaveLength(1);

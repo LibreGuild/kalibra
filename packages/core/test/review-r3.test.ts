@@ -25,13 +25,13 @@ const fresh = (prefix: string) => {
   dirs.push(d);
   return d;
 };
-const engine = () => {
-  const e = new Engine({ dir: fresh('kalibra-r3-') });
+const engine = async () => {
+  const e = await Engine.open({ dir: fresh('kalibra-r3-') });
   engines.push(e);
   return e;
 };
-afterAll(() => {
-  for (const e of engines) e.close();
+afterAll(async () => {
+  for (const e of engines) await e.close();
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
 
@@ -91,7 +91,7 @@ describe('providers', () => {
     mkdirSync(onnx, { recursive: true });
     writeFileSync(join(pkg, 'package.json'), '{}');
     writeFileSync(join(onnx, 'model_quantized.onnx'), 'partial');
-    const emb = new Embeddings(() => ({ getConnection: () => { throw new Error('none'); }, secrets: {} as any }), { dir });
+    const emb = new Embeddings(() => ({ getConnection: async () => { throw new Error('none'); }, secrets: {} as any }), { dir });
     expect((await emb.status()).local).toBe('not_downloaded');
     await expect(emb.embed(['hi'])).rejects.toThrow(/not downloaded/);
   });
@@ -159,10 +159,10 @@ describe('sharing', () => {
   };
 
   it('bundles report the code they bring in, before and after import', async () => {
-    const a = engine();
+    const a = await engine();
     await seedWithCode(a);
     const { bytes } = await exportBundle(a, { everything: true });
-    const b = engine();
+    const b = await engine();
     const info = await inspectBundle(b, bytes);
     expect(info.code).toEqual([
       { kind: 'suite', name: 'Custom', places: ['code'] },
@@ -178,7 +178,7 @@ describe('sharing', () => {
   });
 
   it('imports run results whose fields have unexpected types', async () => {
-    const e = engine();
+    const e = await engine();
     const manifest = { format: 'kalibra-bundle', formatVersion: 1, name: 'x', secrets: [] };
     const results = [
       { row_id: 'r1', seq: 0, status: 'done', passed: true, score: 1, input: { q: 'hi' }, outputs: { output: 'yo' }, checks: [], attempts: 1 },
@@ -192,7 +192,7 @@ describe('sharing', () => {
     });
     const report = await importBundle(e, zip, 'rename', actor);
     const run = report.created.find((c) => c.kind === 'run')!;
-    const rows = e.db.all('SELECT passed, score, input FROM results WHERE run_id = ? ORDER BY seq', run.id);
+    const rows = await e.db.all('SELECT passed, score, input FROM results WHERE run_id = ? ORDER BY seq', run.id);
     expect(rows).toEqual([
       { passed: 1, score: 1, input: '{"q":"hi"}' },
       { passed: 0, score: null, input: 'not json' },
@@ -200,7 +200,7 @@ describe('sharing', () => {
   });
 
   it('folder export never deletes files it did not write', async () => {
-    const e = engine();
+    const e = await engine();
     await e.call('create_target', { name: 'API one', spec: { config: { kind: 'http', url: 'http://localhost:9/x' } } });
     const dir = fresh('kalibra-shared-');
     mkdirSync(join(dir, 'datasets'), { recursive: true });
@@ -211,8 +211,8 @@ describe('sharing', () => {
     expect(readFileSync(join(dir, 'datasets', 'train.jsonl'), 'utf8')).toContain('mine');
     expect(readFileSync(join(dir, 'targets', 'notes.json'), 'utf8')).toContain('mine');
     // A renamed item's old file, written by Kalibra, is still cleaned up.
-    const t = e.repos.defs.get('target', 'API one');
-    e.repos.defs.update('target', t.id, { name: 'API two' }, actor);
+    const t = await e.repos.defs.get('target', 'API one');
+    await e.repos.defs.update('target', t.id, { name: 'API two' }, actor);
     const res = await exportToFolder(e, dir);
     expect(res.removed).toBe(1);
     expect(() => readFileSync(join(dir, 'targets', 'api-one.json'))).toThrow();
@@ -220,7 +220,7 @@ describe('sharing', () => {
   });
 
   it('folder sync never follows symbolic links out of the folder', async () => {
-    const e = engine();
+    const e = await engine();
     await e.call('create_target', { name: 'API one', spec: { config: { kind: 'http', url: 'http://localhost:9/x' } } });
     const dir = fresh('kalibra-shared-');
     await exportToFolder(e, dir);
@@ -236,15 +236,15 @@ describe('sharing', () => {
     mkdirSync(join(outside, 'targets'));
     writeFileSync(join(outside, 'targets', 'evil.json'), JSON.stringify({ name: 'Evil', spec: { config: { kind: 'http', url: 'http://x' } } }));
     symlinkSync(join(outside, 'targets'), join(dir, 'targets'));
-    await expect(importFromFolder(engine(), dir, { dryRun: true }, actor)).rejects.toThrow(/symbolic link/);
+    await expect(importFromFolder(await engine(), dir, { dryRun: true }, actor)).rejects.toThrow(/symbolic link/);
   });
 
   it('folder import previews the code that added or changed definitions bring in', async () => {
-    const a = engine();
+    const a = await engine();
     await seedWithCode(a);
     const dir = fresh('kalibra-shared-');
     await exportToFolder(a, dir);
-    const b = engine();
+    const b = await engine();
     const dry = await importFromFolder(b, dir, { dryRun: true }, actor);
     expect(dry.code.map((c) => `${c.kind}:${c.name}`)).toEqual(['target:Hooked API', 'target:Scripted', 'suite:Custom']);
     expect(dry.warnings[0]).toMatch(/This folder has code that runs on your computer/);
@@ -252,10 +252,10 @@ describe('sharing', () => {
     expect((await importFromFolder(b, dir, { dryRun: true }, actor)).code).toEqual([]); // unchanged: nothing new to review
   });
 
-  it('importers keep a "__proto__" column as data', () => {
-    const e = engine();
+  it('importers keep a "__proto__" column as data', async () => {
+    const e = await engine();
     const jsonl = '{"inputs":{"__proto__":{"polluted":true},"question":"q"},"outputs":{"answer":"a"}}';
-    const report = importExternal(e, strToU8(jsonl), { format: 'langsmith' }, actor);
+    const report = await importExternal(e, strToU8(jsonl), { format: 'langsmith' }, actor);
     expect(report.dataset!.columns).toEqual(expect.arrayContaining(['proto', 'question']));
   });
 });

@@ -13,12 +13,12 @@ describe('file uploads', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-up-'));
-    hub = new Hub({ dir, mode: 'local' });
+    hub = await Hub.open({ dir, mode: 'local' });
     srv = await startServer({ hub });
   });
   afterAll(async () => {
     await srv?.close();
-    hub?.close();
+    await hub?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

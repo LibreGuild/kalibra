@@ -21,14 +21,14 @@ describe('HTTP server hardening', () => {
     mkdirSync(join(dir, 'web', 'dist-private'), { recursive: true });
     writeFileSync(join(dir, 'web', 'dist', 'index.html'), '<!doctype html><title>ui</title>');
     writeFileSync(join(dir, 'web', 'dist-private', 'secret.txt'), 'do not serve');
-    hub = new Hub({ dir: join(dir, 'ws'), mode: 'local' });
-    engine = hub.engine('default');
+    hub = await Hub.open({ dir: join(dir, 'ws'), mode: 'local' });
+    engine = await hub.engine('default');
     srv = await startServer({ hub, token: TOKEN, staticDir: join(dir, 'web', 'dist') });
   });
 
   afterAll(async () => {
     await srv?.close();
-    hub?.close();
+    await hub?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

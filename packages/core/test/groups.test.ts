@@ -40,7 +40,7 @@ async function waitComparison(id: string) {
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kalibra-groups-'));
-  engine = new Engine({ dir });
+  engine = await Engine.open({ dir });
   (engine as any).llm = stub;
   await engine.call('create_dataset', { name: 'Q', columns: [{ key: 'input', type: 'text' }, { key: 'expected', type: 'text' }] });
   await engine.call('add_dataset_rows', { dataset: 'Q', rows: Array.from({ length: 10 }, (_, n) => ({ data: { input: `question ${n}`, expected: `answer ${n}` } })) });
@@ -49,8 +49,8 @@ beforeAll(async () => {
   await engine.call('create_suite', { name: 'Exact', spec: { checks: [{ id: 'eq', type: 'equals', name: 'Matches', config: { actual: '{{output}}', expected: '{{expected}}' } }] } });
 });
 
-afterAll(() => {
-  engine?.close();
+afterAll(async () => {
+  await engine?.close();
   rmSync(dir, { recursive: true, force: true });
 });
 

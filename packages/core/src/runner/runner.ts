@@ -25,11 +25,11 @@ export class Runner {
   constructor(private engine: Engine) {}
 
   /** Runs left running by a crash or app quit become "interrupted" and can be resumed. */
-  recover() {
+  async recover() {
     const { db } = this.engine;
-    for (const r of db.all("SELECT id FROM runs WHERE status IN ('running','queued') AND deleted_at IS NULL")) {
-      this.engine.repos.runs.resetRunning(r.id);
-      this.engine.repos.runs.setStatus(r.id, 'interrupted');
+    for (const r of await db.all("SELECT id FROM runs WHERE status IN ('running','queued') AND deleted_at IS NULL")) {
+      await this.engine.repos.runs.resetRunning(r.id);
+      await this.engine.repos.runs.setStatus(r.id, 'interrupted');
     }
   }
 
@@ -61,24 +61,24 @@ export class Runner {
   /** Waits until a run is no longer executing (used by the CLI and tests). */
   async wait(runId: string, pollMs = 200) {
     while (this.active.has(runId)) await sleep(pollMs);
-    return this.engine.repos.runs.get(runId);
+    return await this.engine.repos.runs.get(runId);
   }
 
-  private emitProgress(runId: string) {
-    const p = this.engine.repos.runs.progress(runId);
+  private async emitProgress(runId: string) {
+    const p = await this.engine.repos.runs.progress(runId);
     this.engine.events.emit({ type: 'run.updated', runId, status: p.status, done: p.done, total: p.total });
   }
 
   private async execute(runId: string, signal: AbortSignal) {
     const { runs, defs } = this.engine.repos;
-    const run = runs.get(runId);
-    runs.setStatus(run.id, 'running');
-    this.emitProgress(run.id);
+    const run = await runs.get(runId);
+    await runs.setStatus(run.id, 'running');
+    await this.emitProgress(run.id);
     try {
-      const suite = SuiteSpec.parse(defs.getVersion('suite', run.suiteId!, run.suiteVersion!).spec);
-      const target = run.kind === 'live' ? applyOverrides(TargetSpec.parse(defs.getVersion('target', run.targetId!, run.targetVersion!).spec), run.settings.overrides) : null;
+      const suite = SuiteSpec.parse((await defs.getVersion('suite', run.suiteId!, run.suiteVersion!)).spec);
+      const target = run.kind === 'live' ? applyOverrides(TargetSpec.parse((await defs.getVersion('target', run.targetId!, run.targetVersion!)).spec), run.settings.overrides) : null;
       const vars = target ? Object.fromEntries(target.variables.filter((v) => v.enabled && v.key).map((v) => [v.key, v.value])) : {};
-      const queue = runs.pending(run.id);
+      const queue = await runs.pending(run.id);
       let next = 0;
       let lastEmit = 0;
       let lastSummary = Date.now();
@@ -95,16 +95,16 @@ export class Runner {
           } catch (e: any) {
             // One bad row (an unexpected throw, an unstorable output) must not fail the run while
             // the other workers keep going.
-            if (!signal.aborted) this.saveCrash(run.id, item.id, e);
+            if (!signal.aborted) await this.saveCrash(run.id, item.id, e);
           }
           if (Date.now() - lastEmit > 200) {
             lastEmit = Date.now();
-            this.emitProgress(run.id);
+            await this.emitProgress(run.id);
           }
           // Live summary so pass rates and latency fill in while the run is still going.
           if (Date.now() - lastSummary > summaryEvery) {
             const started = Date.now();
-            runs.setSummary(run.id, summarize(runs.summaryRows(run.id), run.total || queue.length));
+            await runs.setSummary(run.id, summarize(await runs.summaryRows(run.id), run.total || queue.length));
             lastSummary = Date.now();
             summaryEvery = Math.max(2000, (lastSummary - started) * 10);
           }
@@ -114,20 +114,20 @@ export class Runner {
       const workers = Math.max(1, Math.min(run.settings.concurrency, queue.length));
       await Promise.all(Array.from({ length: workers }, worker));
 
-      if (signal.aborted) runs.resetRunning(run.id);
-      const summary = summarize(runs.summaryRows(run.id), runs.get(run.id).total);
-      runs.setStatus(run.id, signal.aborted ? 'cancelled' : 'completed', { summary });
+      if (signal.aborted) await runs.resetRunning(run.id);
+      const summary = summarize(await runs.summaryRows(run.id), (await runs.get(run.id)).total);
+      await runs.setStatus(run.id, signal.aborted ? 'cancelled' : 'completed', { summary });
     } catch (e: any) {
-      runs.resetRunning(run.id);
-      const summary = summarize(runs.summaryRows(run.id), runs.get(run.id).total);
-      runs.setStatus(run.id, 'failed', { error: e?.message ?? String(e), summary });
+      await runs.resetRunning(run.id);
+      const summary = summarize(await runs.summaryRows(run.id), (await runs.get(run.id)).total);
+      await runs.setStatus(run.id, 'failed', { error: e?.message ?? String(e), summary });
     }
-    this.emitProgress(run.id);
+    await this.emitProgress(run.id);
   }
 
   private async processItem(run: RunRecord, item: ResultRecord, target: TargetSpec | null, suite: SuiteSpec, vars: Record<string, string>, signal: AbortSignal) {
     const { runs } = this.engine.repos;
-    runs.markRunning(item.id);
+    await runs.markRunning(item.id);
     const logs: LogEntry[] = [];
     const log = (level: LogEntry['level'], message: string) => logs.push({ at: Date.now(), level, message });
     const env = this.engine.templateEnv();
@@ -174,7 +174,7 @@ export class Runner {
     };
     const evaluated = await evaluateChecks(suite, { scope, env, llm: this.engine.llm, embed: this.engine.embeddings, log, workspaceDir: this.engine.dir, signal });
 
-    runs.saveResult(run.id, item.id, {
+    await runs.saveResult(run.id, item.id, {
       status: call.ok ? 'done' : 'error',
       // A call that got no response can't pass, even when every check happens to accept empty output.
       passed: call.ok && evaluated.passed,
@@ -204,10 +204,10 @@ export class Runner {
     };
   }
 
-  private saveCrash(runId: string, resultId: string, e: any) {
+  private async saveCrash(runId: string, resultId: string, e: any) {
     const message = `Unexpected error: ${e?.message ?? String(e)}`;
     try {
-      this.engine.repos.runs.saveResult(runId, resultId, {
+      await this.engine.repos.runs.saveResult(runId, resultId, {
         status: 'error',
         passed: false,
         score: null,

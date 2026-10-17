@@ -94,6 +94,7 @@ A **hub** sits above projects (`src/hub/`): `hub.db` holds accounts, sessions, t
 - Every record carries an **actor** (user / agent / CLI).
 - Files always go through the blob store (never local paths).
 - Storage, blobs, secrets and jobs sit behind interfaces (SQLite → Postgres, folder → S3/GCS, secret file → Vault/KMS, in-process jobs → workers).
+- The data layer is asynchronous (`Db` in `packages/core/src/db.ts`): stores only use `run`/`get`/`all`/`exec`/`tx`, so a networked database can replace SQLite without touching them. Transactions follow the async flow (`AsyncLocalStorage`): calls inside `db.tx()` join it; anything else waits for it (writes) or reads the last committed state. Repository methods that read and then write run in one `tx()`, as they did when the layer was synchronous.
 - Saves carry the version they edited (optimistic concurrency).
 - Teams can also share without a server: `.kalibra` bundles and a Git-synced folder (`src/sharing/`).
 

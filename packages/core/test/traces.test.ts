@@ -12,15 +12,15 @@ import { traceFromProxy } from '../src/traces/proxy.js';
 
 const dirs: string[] = [];
 const engines: Engine[] = [];
-function engine() {
+async function engine() {
   const dir = mkdtempSync(join(tmpdir(), 'kalibra-traces-'));
   dirs.push(dir);
-  const e = new Engine({ dir });
+  const e = await Engine.open({ dir });
   engines.push(e);
   return e;
 }
-afterEach(() => {
-  engines.splice(0).forEach((e) => e.close());
+afterEach(async () => {
+  for (const e of engines.splice(0)) await e.close();
   dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
 });
 
@@ -75,7 +75,7 @@ describe('ingest validation', () => {
 
 describe('trace store', () => {
   it('writes in batches, lists with filters and returns spans in order', async () => {
-    const e = engine();
+    const e = await engine();
     const r = e.traces.ingestBody({ traces: [sample(), sample({ id: 'trace-2', name: 'other', status: 'error', error: 'boom', metadata: { environment: 'prod' } })] });
     expect(r).toEqual({ accepted: 2, rejected: [] });
     // Queued, then written by the timer (or on read).
@@ -97,7 +97,7 @@ describe('trace store', () => {
   });
 
   it('turns traces into dataset rows', async () => {
-    const e = engine();
+    const e = await engine();
     await e.call('create_dataset', { name: 'Real questions', columns: [{ key: 'question' }, { key: 'answer' }, { key: 'meta', type: 'json' }] });
     e.traces.ingestBody({ traces: [sample(), sample({ id: 'trace-2', input: { question: 'Can I pay by card?' } })] });
     const res = await e.call('traces_to_dataset', { traceIds: ['trace-1', 'trace-2', 'gone'], dataset: 'Real questions', mapping: { question: 'input.question', answer: 'output', meta: 'metadata' } });
@@ -111,11 +111,11 @@ describe('trace store', () => {
   });
 
   it('prunes old traces but keeps the ones that belong to runs', async () => {
-    const e = engine();
+    const e = await engine();
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
     e.traces.ingestBody({ traces: [sample({ id: 'old', startedAt: old }), sample({ id: 'old-run', startedAt: old, runId: 'run_1', resultId: 'res_1' }), sample({ id: 'new', startedAt: new Date().toISOString() })] });
-    e.traces.flush();
-    expect(e.traces.prune()).toBe(1);
+    await e.traces.flush();
+    expect(await e.traces.prune()).toBe(1);
     expect((await e.call('list_traces', {})).traces.map((t: any) => t.id).sort()).toEqual(['new', 'old-run']);
     await expect(e.call('set_trace_settings', { retentionDays: 0 })).rejects.toThrow();
     await expect(e.call('set_trace_settings', { proxyOpenaiUpstream: 'http://example.com' })).rejects.toThrow(/https/);
@@ -124,29 +124,29 @@ describe('trace store', () => {
     expect(await e.call('get_trace_settings', {})).toMatchObject({ retentionDays: 7, traces: 2, spans: 6 });
   });
 
-  it('stores the rest of a batch when one trace cannot be written', () => {
-    const e = engine();
+  it('stores the rest of a batch when one trace cannot be written', async () => {
+    const e = await engine();
     const [good] = normalizeBatch({ traces: [sample()] }).traces;
     const bad = { ...good, id: 'bad', name: { not: 'text' } as any, spans: [] };
     const err = console.error;
     console.error = () => {};
     try {
       e.traces.enqueue([bad, good]);
-      e.traces.flush();
+      await e.traces.flush();
     } finally {
       console.error = err;
     }
-    expect(e.traces.repo.get('trace-1').name).toBe('answer_question');
-    expect(() => e.traces.repo.get('bad')).toThrow();
+    expect((await e.traces.repo.get('trace-1')).name).toBe('answer_question');
+    await expect(e.traces.repo.get('bad')).rejects.toThrow();
   });
 
-  it('refuses new writes when the queue is full instead of growing without bound', () => {
-    const e = engine();
+  it('refuses new writes when the queue is full instead of growing without bound', async () => {
+    const e = await engine();
     const batch = { traces: Array.from({ length: 1000 }, (_, i) => ({ name: `t${i}` })) };
     // Hold the timer back: enqueue 20 batches synchronously (the limit is 20 000 queued traces).
     for (let i = 0; i < 20; i++) e.traces.ingestBody(batch);
     expect(() => e.traces.ingestBody(batch)).toThrow(/busy/);
-    e.traces.flush();
+    await e.traces.flush();
     expect(e.traces.pending()).toBe(0);
   });
 });
@@ -200,7 +200,7 @@ describe('OpenTelemetry mapping', () => {
   });
 
   it('accepts base64 ids, merges a trace sent in pieces, and joins to eval rows', async () => {
-    const e = engine();
+    const e = await engine();
     const { traceparent } = e.traces.joinIds('run_9', 'res_9');
     const runTrace = traceparent.split('-')[1];
     const piece = (spanId: string, parent?: string, name = 'step') => ({ resourceSpans: [{ scopeSpans: [{ spans: [{ traceId: Buffer.from(runTrace, 'hex').toString('base64'), spanId, ...(parent ? { parentSpanId: parent } : {}), name, startTimeUnixNano: ns(0), endTimeUnixNano: ns(parent ? 50 : 100) }] }] }] });
@@ -240,11 +240,11 @@ describe('tool recordings', () => {
     expect(canonicalJson({ b: 1, a: [true, null, { d: 'x', c: undefined }], n: 1.0 })).toBe('{"a":[true,null,{"d":"x"}],"b":1,"n":1}');
     expect(argsHash({ a: 1, b: 2 })).toBe(argsHash({ b: 2, a: 1 }));
     expect(argsHash({ a: 1 })).toMatch(/^[0-9a-f]{64}$/);
-    const e = engine();
-    e.traces.tools.upsert({ tool: 'search_orders', argsHash: argsHash({ user: 'u1' }), args: { user: 'u1' }, output: [{ id: 'A12' }], runId: 'run_1' });
-    e.traces.tools.upsert({ tool: 'search_orders', argsHash: argsHash({ user: 'u1' }), args: { user: 'u1' }, output: [{ id: 'A13' }] });
-    e.traces.tools.upsert({ tool: 'send_email', argsHash: argsHash({}), args: {}, error: 'smtp down' });
-    expect(e.traces.tools.get('search_orders', argsHash({ user: 'u1' }))!.output).toEqual([{ id: 'A13' }]);
+    const e = await engine();
+    await e.traces.tools.upsert({ tool: 'search_orders', argsHash: argsHash({ user: 'u1' }), args: { user: 'u1' }, output: [{ id: 'A12' }], runId: 'run_1' });
+    await e.traces.tools.upsert({ tool: 'search_orders', argsHash: argsHash({ user: 'u1' }), args: { user: 'u1' }, output: [{ id: 'A13' }] });
+    await e.traces.tools.upsert({ tool: 'send_email', argsHash: argsHash({}), args: {}, error: 'smtp down' });
+    expect((await e.traces.tools.get('search_orders', argsHash({ user: 'u1' })))!.output).toEqual([{ id: 'A13' }]);
     const list = await e.call('list_tool_recordings', {});
     expect(list.total).toBe(2);
     expect(list.tools).toEqual([{ tool: 'search_orders', count: 1 }, { tool: 'send_email', count: 1 }]);
@@ -287,7 +287,7 @@ describe('joining an app’s trace to eval rows', () => {
   afterEach(() => new Promise<void>((r) => (app ? app.close(() => r()) : r())));
 
   it('sends trace headers, waits for the app’s trace and gives checks its steps, sources and tool calls', async () => {
-    const e = engine();
+    const e = await engine();
     const seen: Record<string, string | undefined>[] = [];
     // A tiny "app": answers, then reports what it did (like the SDK would) a little later.
     app = createServer((req, res) => {
@@ -335,7 +335,7 @@ describe('joining an app’s trace to eval rows', () => {
   });
 
   it('skips agent and RAG checks when the app reported no trace, instead of passing them', async () => {
-    const e = engine();
+    const e = await engine();
     app = createServer((_req, res) => res.end(JSON.stringify({ answer: 'Done [kb-1]' })));
     await new Promise<void>((r) => app.listen(0, '127.0.0.1', () => r()));
     await e.call('create_dataset', { name: 'D', columns: [{ key: 'q' }] });
@@ -355,7 +355,7 @@ describe('joining an app’s trace to eval rows', () => {
   });
 
   it('sends no headers when the target turns trace headers off, and does not wait', async () => {
-    const e = engine();
+    const e = await engine();
     let headers: Record<string, unknown> = {};
     app = createServer((req, res) => {
       headers = req.headers;

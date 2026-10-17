@@ -22,11 +22,11 @@ const tmp = () => {
   return d;
 };
 const engineWith = async (rows: number) => {
-  const engine = new Engine({ dir: tmp() });
-  closers.push(() => engine.close());
+  const engine = await Engine.open({ dir: tmp() });
+  closers.push(async () => await engine.close());
   await engine.call('create_dataset', { name: 'D', columns: [{ key: 'q' }] });
-  const ds = engine.repos.datasets.get('D');
-  if (rows) engine.repos.datasets.addRows(ds.id, Array.from({ length: rows }, (_, i) => ({ data: { q: `question ${i}` } })), user);
+  const ds = await engine.repos.datasets.get('D');
+  if (rows) await engine.repos.datasets.addRows(ds.id, Array.from({ length: rows }, (_, i) => ({ data: { q: `question ${i}` } })), user);
   return { engine, ds };
 };
 afterEach(() => {
@@ -37,14 +37,14 @@ afterEach(() => {
 
 async function runWith(rows: number) {
   const { engine, ds } = await engineWith(rows);
-  const v = engine.repos.datasets.createVersion(ds.id, '', user);
-  const run = engine.repos.runs.create({ kind: 'imported', datasetId: ds.id, datasetVersionId: v.id, suiteId: 'ste_x', suiteVersion: 1, settings: RunSettings.parse({}) }, user);
-  engine.repos.runs.addPending(run.id, engine.repos.datasets.versionRows(v.id).map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
-  return { engine, run, pending: engine.repos.runs.pending(run.id) };
+  const v = await engine.repos.datasets.createVersion(ds.id, '', user);
+  const run = await engine.repos.runs.create({ kind: 'imported', datasetId: ds.id, datasetVersionId: v.id, suiteId: 'ste_x', suiteVersion: 1, settings: RunSettings.parse({}) }, user);
+  await engine.repos.runs.addPending(run.id, (await engine.repos.datasets.versionRows(v.id)).map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
+  return { engine, run, pending: await engine.repos.runs.pending(run.id) };
 }
 
-const save = (engine: Engine, runId: string, id: string, status: 'done' | 'error' = 'done') =>
-  engine.repos.runs.saveResult(runId, id, {
+const save = async (engine: Engine, runId: string, id: string, status: 'done' | 'error' = 'done') =>
+  await engine.repos.runs.saveResult(runId, id, {
     status,
     passed: status === 'done',
     score: 1,
@@ -62,7 +62,7 @@ describe('saving results', () => {
     const times: number[] = [];
     for (let c = 0; c < pending.length / chunk; c++) {
       const start = performance.now();
-      for (const p of pending.slice(c * chunk, (c + 1) * chunk)) save(engine, run.id, p.id);
+      for (const p of pending.slice(c * chunk, (c + 1) * chunk)) await save(engine, run.id, p.id);
       times.push(performance.now() - start);
     }
     // Recounting finished results on every save made the last chunks ~3× slower than the first at 20k rows.
@@ -70,30 +70,30 @@ describe('saving results', () => {
     // during one chunk doesn't decide the result.
     const best = (xs: number[]) => Math.min(...xs);
     expect(best(times.slice(-5)) / best(times.slice(0, 5))).toBeLessThan(1.8);
-    expect(engine.repos.runs.get(run.id).done).toBe(20_000);
+    expect((await engine.repos.runs.get(run.id)).done).toBe(20_000);
   }, 60_000);
 
   it('keeps the finished count right when results are saved again, fail, or are retried', async () => {
     const { engine, run, pending } = await runWith(3);
     const [a, b, c] = pending;
-    save(engine, run.id, a.id);
-    save(engine, run.id, a.id); // saved twice: still one finished row
-    save(engine, run.id, b.id, 'error');
-    expect(engine.repos.runs.get(run.id).done).toBe(2);
-    engine.repos.runs.markRunning(c.id);
-    engine.repos.runs.resetRunning(run.id);
-    expect(engine.repos.runs.get(run.id).done).toBe(2);
-    save(engine, run.id, c.id);
-    expect(engine.repos.runs.get(run.id).done).toBe(3);
+    await save(engine, run.id, a.id);
+    await save(engine, run.id, a.id); // saved twice: still one finished row
+    await save(engine, run.id, b.id, 'error');
+    expect((await engine.repos.runs.get(run.id)).done).toBe(2);
+    await engine.repos.runs.markRunning(c.id);
+    await engine.repos.runs.resetRunning(run.id);
+    expect((await engine.repos.runs.get(run.id)).done).toBe(2);
+    await save(engine, run.id, c.id);
+    expect((await engine.repos.runs.get(run.id)).done).toBe(3);
   });
 });
 
 describe('run summaries', () => {
   it('read only what the summary needs and give the same answer', async () => {
     const { engine, run, pending } = await runWith(50);
-    pending.forEach((p, i) => save(engine, run.id, p.id, i % 5 ? 'done' : 'error'));
-    const fromLite = summarize(engine.repos.runs.allLite(run.id), 50);
-    expect(summarize(engine.repos.runs.summaryRows(run.id), 50)).toEqual(fromLite);
+    for (const [i, p] of pending.entries()) await save(engine, run.id, p.id, i % 5 ? 'done' : 'error');
+    const fromLite = summarize(await engine.repos.runs.allLite(run.id), 50);
+    expect(summarize(await engine.repos.runs.summaryRows(run.id), 50)).toEqual(fromLite);
     expect(fromLite.checks[0].corpus).toMatchObject({ errors: 50, refUnits: 200 });
   });
 });
@@ -101,7 +101,7 @@ describe('run summaries', () => {
 describe('traces', () => {
   it('filters by run with an index instead of reading every trace', async () => {
     const { engine } = await engineWith(1);
-    const plan = engine.db.all("EXPLAIN QUERY PLAN SELECT * FROM traces WHERE run_id = ? ORDER BY started_at DESC LIMIT 50", 'run_x').map((r: any) => r.detail).join(' ');
+    const plan = (await engine.db.all("EXPLAIN QUERY PLAN SELECT * FROM traces WHERE run_id = ? ORDER BY started_at DESC LIMIT 50", 'run_x')).map((r: any) => r.detail).join(' ');
     expect(plan).toMatch(/USING INDEX traces_run/);
   });
 });
@@ -109,33 +109,33 @@ describe('traces', () => {
 describe('adding rows to a big dataset', () => {
   it('finds duplicates with an index instead of reading every row', async () => {
     const { engine, ds } = await engineWith(5);
-    const plan = engine.db.all("EXPLAIN QUERY PLAN SELECT id FROM rows WHERE dataset_id = ? AND fp = ? AND deleted_at IS NULL LIMIT 1", ds.id, 'x').map((r: any) => r.detail).join(' ');
+    const plan = (await engine.db.all("EXPLAIN QUERY PLAN SELECT id FROM rows WHERE dataset_id = ? AND fp = ? AND deleted_at IS NULL LIMIT 1", ds.id, 'x')).map((r: any) => r.detail).join(' ');
     expect(plan).toMatch(/USING INDEX rows_fp/);
   });
 
   it('still rejects copies of stored rows, of rows in the same batch, and of rows from before fingerprints', async () => {
     const { engine, ds } = await engineWith(3);
     // Rows written by an older version have no fingerprint yet.
-    engine.db.run('UPDATE rows SET fp = NULL WHERE dataset_id = ?', ds.id);
-    const res = engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 1' } }, { data: { q: 'brand new' } }, { data: { q: 'brand new' } }], user);
+    await engine.db.run('UPDATE rows SET fp = NULL WHERE dataset_id = ?', ds.id);
+    const res = await engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 1' } }, { data: { q: 'brand new' } }, { data: { q: 'brand new' } }], user);
     expect(res.added).toHaveLength(1);
     expect(res.rejected.map((r) => r.index)).toEqual([0, 2]);
-    expect(engine.db.get('SELECT COUNT(*) AS n FROM rows WHERE dataset_id = ? AND fp IS NULL', ds.id).n).toBe(0);
+    expect((await engine.db.get('SELECT COUNT(*) AS n FROM rows WHERE dataset_id = ? AND fp IS NULL', ds.id)).n).toBe(0);
     // With dedupe off, stored copies are allowed but copies inside the batch still are not.
-    const loose = engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 1' } }, { data: { q: 'twin' } }, { data: { q: 'twin' } }], user, { dedupe: false });
+    const loose = await engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 1' } }, { data: { q: 'twin' } }, { data: { q: 'twin' } }], user, { dedupe: false });
     expect(loose.added).toHaveLength(2);
   });
 
   it('follows edits, deletes and imported rows', async () => {
     const { engine, ds } = await engineWith(2);
-    const [r0, r1] = engine.repos.datasets.listRows(ds.id).rows;
-    engine.repos.datasets.updateRow(r0.id, { data: { q: 'edited' } }, user);
-    expect(engine.repos.datasets.addRows(ds.id, [{ data: { q: 'edited' } }], user).rejected).toHaveLength(1);
-    expect(engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 0' } }], user).added).toHaveLength(1);
-    engine.repos.datasets.deleteRows(ds.id, [r1.id]);
-    expect(engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 1' } }], user).added).toHaveLength(1);
-    insertRows(engine, ds.id, ds.schema.columns, [{ data: { q: 'from a bundle' } }], user);
-    expect(engine.repos.datasets.addRows(ds.id, [{ data: { q: 'from a bundle' } }], user).rejected).toHaveLength(1);
+    const [r0, r1] = (await engine.repos.datasets.listRows(ds.id)).rows;
+    await engine.repos.datasets.updateRow(r0.id, { data: { q: 'edited' } }, user);
+    expect((await engine.repos.datasets.addRows(ds.id, [{ data: { q: 'edited' } }], user)).rejected).toHaveLength(1);
+    expect((await engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 0' } }], user)).added).toHaveLength(1);
+    await engine.repos.datasets.deleteRows(ds.id, [r1.id]);
+    expect((await engine.repos.datasets.addRows(ds.id, [{ data: { q: 'question 1' } }], user)).added).toHaveLength(1);
+    await insertRows(engine, ds.id, ds.schema.columns, [{ data: { q: 'from a bundle' } }], user);
+    expect((await engine.repos.datasets.addRows(ds.id, [{ data: { q: 'from a bundle' } }], user)).rejected).toHaveLength(1);
   });
 });
 
@@ -188,20 +188,20 @@ describe('streamed file storage', () => {
 describe('open projects', () => {
   it('closes idle projects beyond the limit, keeps busy ones, and reopens on use', async () => {
     const dir = tmp();
-    const hub = new Hub({ dir, mode: 'local', maxOpenProjects: 2 });
-    closers.push(() => hub.close());
+    const hub = await Hub.open({ dir, mode: 'local', maxOpenProjects: 2 });
+    closers.push(async () => await hub.close());
     const me = hub.localPrincipal();
     const ids: string[] = [];
     for (const name of ['A', 'B', 'C']) ids.push((await hub.call<any>(me, 'create_project', { name })).id);
     await hub.callProject(me, ids[0], 'create_dataset', { name: 'Kept', columns: [{ key: 'q' }] });
     // A open with a live listener (an open browser tab), B idle.
-    const unsubscribe = hub.engine(ids[0]).events.subscribe(() => {});
-    hub.engine(ids[1]);
+    const unsubscribe = (await hub.engine(ids[0])).events.subscribe(() => {});
+    await hub.engine(ids[1]);
     // Recently used projects stay open even over the limit.
     expect(hub.openEngineCount()).toBeGreaterThan(2);
     const later = Date.now() + 11 * 60_000;
     vi.spyOn(Date, 'now').mockReturnValue(later);
-    hub.engine(ids[2]);
+    await hub.engine(ids[2]);
     // B (idle, unused for 11 minutes) was closed; A has a listener and C is in use.
     expect(hub.openEngineCount()).toBe(2);
     // The busy project is still open; its data is there whatever happened to the others.
@@ -212,14 +212,14 @@ describe('open projects', () => {
 
   it('opens every project once at start but keeps only the limit open', async () => {
     const dir = tmp();
-    const hub = new Hub({ dir, mode: 'local', maxOpenProjects: 3 });
-    closers.push(() => hub.close());
+    const hub = await Hub.open({ dir, mode: 'local', maxOpenProjects: 3 });
+    closers.push(async () => await hub.close());
     for (let i = 0; i < 6; i++) await hub.call(hub.localPrincipal(), 'create_project', { name: `P${i}` });
-    hub.close();
+    await hub.close();
     closers.pop();
-    const again = new Hub({ dir, mode: 'local', maxOpenProjects: 3 });
-    closers.push(() => again.close());
-    again.openAll();
+    const again = await Hub.open({ dir, mode: 'local', maxOpenProjects: 3 });
+    closers.push(async () => await again.close());
+    await again.openAll();
     expect(again.openEngineCount()).toBeLessThanOrEqual(3);
     expect((await again.call<any[]>(again.localPrincipal(), 'list_projects', {})).length).toBe(7);
   });
