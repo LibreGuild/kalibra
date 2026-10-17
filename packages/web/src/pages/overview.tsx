@@ -5,7 +5,8 @@ import { Page } from '../components/layout/shell';
 import { buttonClass } from '../components/ui/button';
 import { Badge, Card, CodeBlock, Loading, SectionTitle, StatusBadge } from '../components/ui/display';
 import { TrendsCard } from '../components/trends';
-import { useOp } from '../lib/api';
+import { useMeta, useOp } from '../lib/api';
+import { useSession } from '../lib/session';
 import { actorLabel, pct, timeAgo } from '../lib/format';
 
 const STEPS = [
@@ -24,10 +25,12 @@ export function OverviewPage() {
 
   if (ws.isLoading) return <Loading />;
   const counts = ws.data ?? {};
+  const { isServer } = useSession();
+  const meta = useMeta();
   const done = STEPS.filter((s) => counts[s.key] > 0).length;
 
   return (
-    <Page title="Overview" description="Evaluate your AI applications locally: your data, your app, your checks.">
+    <Page title="Overview" description={isServer ? 'Evaluate your AI applications together: your data, your app, your checks.' : 'Evaluate your AI applications locally: your data, your app, your checks.'}>
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
         <div className="flex min-w-0 flex-col gap-6">
           {done < STEPS.length && (
@@ -50,7 +53,8 @@ export function OverviewPage() {
                   );
                 })}
               </ol>
-              {counts.datasets === 0 && (
+              {/* The demo apps ship with the source code, so the hint only makes sense in development. */}
+              {counts.datasets === 0 && meta.data?.mode === 'dev' && (
                 <div className="mt-4 rounded-lg bg-raised p-3.5 text-[0.8125rem] text-ink-muted">
                   <div className="mb-2 font-medium text-ink">Want to look around first?</div>
                   Start the demo apps (a support chatbot and a speech-to-text service, batch and streaming) and fill this workspace with sample data:

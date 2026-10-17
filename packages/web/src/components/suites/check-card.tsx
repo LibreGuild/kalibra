@@ -1,3 +1,4 @@
+import { CODE_LOCKED_HINT, useCanWriteCode } from '../../lib/session';
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { ArrowDown, ArrowUp, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
@@ -286,6 +287,7 @@ const COMMON_CHECKS = ['status', 'latency', 'json_schema', 'contains', 'equals',
 export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boolean; onOpenChange: (o: boolean) => void; types: CheckTypeMeta[]; onAdd: (t: CheckTypeMeta) => void }) {
   const [q, setQ] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const canWriteCode = useCanWriteCode();
   const groups = useMemo(() => {
     const filtered = types.filter((t) => !q || `${t.label} ${t.type} ${t.description}`.toLowerCase().includes(q.toLowerCase()));
     // Most people need a handful of checks; show those first and keep the full catalogue one click away.
@@ -315,12 +317,14 @@ export function AddCheckDialog({ open, onOpenChange, types, onAdd }: { open: boo
                 <button
                   key={t.type}
                   type="button"
+                  disabled={t.type === 'script' && !canWriteCode}
+                  title={t.type === 'script' && !canWriteCode ? CODE_LOCKED_HINT : undefined}
                   onClick={() => {
                     onAdd(t);
                     onOpenChange(false);
                     setQ('');
                   }}
-                  className="flex items-start gap-2.5 rounded-lg border border-line px-3 py-2.5 text-left transition-colors hover:border-accent hover:bg-accent-soft/40"
+                  className="flex items-start gap-2.5 rounded-lg border border-line px-3 py-2.5 text-left transition-colors hover:border-accent hover:bg-accent-soft/40 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-line disabled:hover:bg-transparent"
                 >
                   <Plus className="mt-0.5 size-3.5 shrink-0 text-accent" />
                   <div className="min-w-0">

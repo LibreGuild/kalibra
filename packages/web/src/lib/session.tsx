@@ -130,6 +130,19 @@ export function useCanEdit(): boolean {
   return !p || p.canEdit;
 }
 
+/**
+ * Whether you may add or change JavaScript (script targets, hooks, script checks). Team servers
+ * keep that with administrators unless they open it up; the desktop always allows it.
+ */
+export function useCanWriteCode(): boolean {
+  const { isServer } = useSession();
+  const me = useHubOp<{ canWriteCode: boolean }>('get_me', {}, { enabled: isServer, staleTime: 60_000 });
+  return !isServer || me.data?.canWriteCode !== false;
+}
+
+/** Explains why code options are off, for tooltips. */
+export const CODE_LOCKED_HINT = 'On this server only administrators can add or change JavaScript.';
+
 export const atLeast = (role: ProjectRole | undefined, needed: ProjectRole) => !!role && RANK[role] >= RANK[needed];
 
 /** Shows children only to editors and owners of the current project. */

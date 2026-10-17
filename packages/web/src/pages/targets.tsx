@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBeforeUnload, useBlocker, useParams } from 'react-router';
 import { useNavigate } from '../lib/nav';
-import { useCanEdit } from '../lib/session';
+import { CODE_LOCKED_HINT, useCanEdit, useCanWriteCode } from '../lib/session';
 import clsx from 'clsx';
 import { Bot, Code2, Crosshair, Globe, History, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { ApiError, op, useOp, useOpMutation } from '../lib/api';
@@ -126,6 +126,7 @@ const KINDS: { kind: TargetKind; icon: typeof Globe; title: string; text: string
 function NewTargetDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: (t: TargetRecord) => void }) {
   const [name, setName] = useState('');
   const [kind, setKind] = useState<TargetKind>('http');
+  const canWriteCode = useCanWriteCode();
   const create = useOpMutation<any, TargetRecord>('create_target', {
     invalidate: ['list_targets'],
     onSuccess: (t) => {
@@ -166,8 +167,10 @@ function NewTargetDialog({ open, onOpenChange, onCreated }: { open: boolean; onO
               type="button"
               onClick={() => setKind(k)}
               aria-pressed={kind === k}
+              disabled={k === 'script' && !canWriteCode}
+              title={k === 'script' && !canWriteCode ? CODE_LOCKED_HINT : undefined}
               className={clsx(
-                'flex items-start gap-3 rounded-xl border p-4 text-left transition-colors',
+                'flex items-start gap-3 rounded-xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                 kind === k ? 'border-accent bg-accent-soft/50 ring-2 ring-accent/20' : 'border-line hover:border-line-strong hover:bg-hover',
               )}
             >
