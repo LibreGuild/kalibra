@@ -60,6 +60,18 @@ def warn_once(key: str, message: str) -> None:
     log.warning("kalibra: %s", message)
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """urllib would resend the Authorization header (the key or token) to whatever host a redirect
+    names, e.g. a login gateway's identity provider. Kalibra never redirects its API, so a redirect
+    is reported as an error instead of followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirects)
+
+
 class HttpError(Exception):
     def __init__(self, status: int, body: str) -> None:
         super().__init__(f"HTTP {status}: {body[:200]}")
@@ -77,9 +89,12 @@ def request_json(method: str, url: str, key: Optional[str], body: Any = None, ti
         headers["authorization"] = f"Bearer {key}"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as res:  # noqa: S310 - the URL is configured by the app
+        with _opener.open(req, timeout=timeout) as res:  # noqa: S310 - the URL is configured by the app
             raw = res.read()
     except urllib.error.HTTPError as e:
+        if 300 <= e.code < 400:
+            where = (e.headers.get("Location") or "").split("?")[0]
+            raise HttpError(e.code, f"Kalibra's address redirects to {where or 'another address'}: set the URL to the final address (https?)") from None
         try:
             text = e.read().decode("utf-8", "replace")
         except Exception:

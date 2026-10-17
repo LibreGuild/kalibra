@@ -25,7 +25,7 @@ Every address Kalibra serves starts with `/kalibra`:
 
 Anything else is `404`. `KALIBRA_PUBLIC_URL`, `KALIBRA_URL` and `--server` take the origin (`https://kalibra.example.com`); Kalibra adds `/kalibra` itself, and an address that already ends in `/kalibra` works too.
 
-**Behind a load balancer** (AWS ALB, Google Cloud Load Balancing, nginx, Traefik…): route the path prefix `/kalibra/*` (and `/kalibra`) to Kalibra's port 4317, and use `/kalibra/api/health` as the health check. Other apps can share the same host name on other paths. Live updates are a long-lived event stream (`/kalibra/api/projects/<p>/events`): give that route an idle timeout of a minute or more (Kalibra sends a keep-alive every 30 s) and turn off response buffering.
+**Behind a load balancer** (AWS ALB, Google Cloud Load Balancing, nginx, Traefik…): route the path prefix `/kalibra/*` (and `/kalibra`) to Kalibra's port 4317, and use `/kalibra/api/health` as the health check. Other apps can share the same host name on other paths. Live updates are a long-lived event stream (`/kalibra/api/projects/<p>/events`): give that route an idle timeout of a minute or more (Kalibra sends a keep-alive every 30 s) and turn off response buffering. Start Kalibra with `--trust-proxy` (`KALIBRA_TRUST_PROXY=1`) so sign-in limits and audit logs see each user's address (`X-Forwarded-For`) instead of the load balancer's; without it, a few wrong passwords from anyone would lock everyone out for 10 minutes.
 
 ## Docker
 
