@@ -53,3 +53,29 @@ The browser assistant cannot click on Google's or GitHub's sign-in and consent p
 - **GitHub:** Settings → Developer settings → OAuth Apps → Kalibra (local test) → Advanced → **Delete application**.
 - **Google:** Google Auth Platform → Clients → delete **Kalibra (local test)**; Audience → remove the test user if you don't need it.
 - **Local:** delete `.env.local` and the scratch data folder used by the test server.
+
+# Setup log: distribution (GitHub, npm, Docker)
+
+## GitHub
+
+- **Repository:** `LibreGuild/kalibra`, **private**, created with `gh repo create`; default branch `main`.
+- **CI** (`.github/workflows/ci.yml`) runs on every push and pull request. The first run passed.
+- **Releases** (`.github/workflows/release.yml`) run on a `v*` tag.
+- **`v0.1.0-beta.1`:** a pre-release with the macOS (arm64 and x64) dmg/zip, the Windows setup.exe, the Linux AppImage and `SHA256SUMS.txt`. It took three tries: fixes for the Linux executable name and for which artifacts to download. The tag was moved before anything was public.
+- **`v0.1.0-beta.2`:** the end-to-end test of staged npm publishing.
+- **Docker image:** `ghcr.io/libreguild/kalibra:<version>` and `:next` (amd64 and arm64), **private** like the repo. To make it public: GitHub → LibreGuild → Packages → kalibra → Package settings → Change visibility.
+
+## npm (account `sujithappikatla`)
+
+- 2FA was turned on (security key), which npm requires for publishing.
+- **`kalibra@0.1.0-beta.1`** was published by hand, from the tagged commit, with `npm publish -w kalibra --tag next --access public --otp=…`. npm requires the first version of a new package to be published by hand. Because it is the first version, npm also tagged it `latest`.
+- **Trusted publisher:** npmjs.com → kalibra → Settings → Trusted Publisher → GitHub Actions.
+  - Organization `LibreGuild`, repository `kalibra`, workflow `release.yml`.
+  - Permission **`npm stage publish` only**; "Allow npm publish" was left unticked, as npm recommends.
+  - Status: **Valid** after the beta.2 run.
+- **Each release now:** CI stages the version, then you approve it in npmjs.com → avatar → **Staged Packages** with 2FA, or reject it.
+
+## Undo
+
+- **Repository:** `gh repo delete LibreGuild/kalibra`. This removes the code, releases and Actions history; the GHCR package is separate (Packages → kalibra → Delete).
+- **npm:** versions can be deprecated (`npm deprecate kalibra@0.1.0-beta.1 "…"`). Unpublishing is limited by npm's policy, and a version number can never be reused.
