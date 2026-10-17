@@ -83,7 +83,7 @@ export class IngestKeys {
     if (!r.last_used_at || Date.now() - Date.parse(r.last_used_at) > TOUCH_MS) {
       const now = nowIso();
       await this.db.run('UPDATE ingest_keys SET last_used_at = ? WHERE id = ?', now, r.id);
-      await this.cache.refresh(cacheKey, { ...r, last_used_at: now });
+      await this.cache.refresh(cacheKey, { ...r, last_used_at: now }, r);
     }
     return { keyId: r.id, projectId: r.project_id };
   }

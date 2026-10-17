@@ -130,9 +130,7 @@ export class DatasetRepo {
   }
 
   async touch(id: string) {
-    return this.db.tx(async () => {
-      await this.db.run('UPDATE datasets SET updated_at = ? WHERE id = ?', nowIso(), id);
-    });
+    await this.db.run('UPDATE datasets SET updated_at = ? WHERE id = ?', nowIso(), id);
   }
 
   async listRows(datasetId: string, q: { status?: RowStatus[]; tag?: string; search?: string; offset?: number; limit?: number; ids?: string[] } = {}) {

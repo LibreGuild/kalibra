@@ -281,14 +281,12 @@ export class ToolRecordingRepo {
   constructor(private db: Db) {}
 
   async upsert(r: { tool: string; argsHash: string; args: unknown; output?: unknown; error?: string; runId?: string }) {
-    return this.db.tx(async () => {
-      await this.db.run(
-        `INSERT INTO tool_recordings (tool, args_hash, args, output, error, recorded_at, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (tool, args_hash) DO UPDATE SET args = excluded.args, output = excluded.output, error = excluded.error,
-           recorded_at = excluded.recorded_at, run_id = excluded.run_id`,
-        r.tool, r.argsHash, JSON.stringify(r.args ?? null), json(r.output), r.error ?? null, nowIso(), r.runId ?? null,
-      );
-    });
+    await this.db.run(
+      `INSERT INTO tool_recordings (tool, args_hash, args, output, error, recorded_at, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (tool, args_hash) DO UPDATE SET args = excluded.args, output = excluded.output, error = excluded.error,
+         recorded_at = excluded.recorded_at, run_id = excluded.run_id`,
+      r.tool, r.argsHash, JSON.stringify(r.args ?? null), json(r.output), r.error ?? null, nowIso(), r.runId ?? null,
+    );
   }
 
   async get(tool: string, argsHash: string): Promise<ToolRecording | undefined> {

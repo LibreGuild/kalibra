@@ -133,9 +133,9 @@ describe('files in a bucket', () => {
 // ── SQLite synced to a bucket ────────────────────────────────────────────────
 
 describe('SQLite synced to a bucket', () => {
-  it('encodes page sets losslessly', () => {
+  it('encodes page sets losslessly', async () => {
     const pages = new Map([[3, Buffer.alloc(512, 3)], [1, Buffer.alloc(512, 1)]]);
-    const d = decodeDelta(encodeDelta(512, 9, pages));
+    const d = decodeDelta(await encodeDelta(512, 9, pages));
     expect(d).toMatchObject({ pageSize: 512, dbSize: 9 });
     expect(d.pages.map(([n, b]) => [n, b[0]])).toEqual([[1, 1], [3, 3]]);
   });

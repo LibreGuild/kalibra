@@ -222,8 +222,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'user',
     readOnly: true,
     input: z.object({}),
-    handler: async ({ hub, principal }) =>
-      mapSeq(await hub.visibleProjects(principal), async (p) => ({ id: p.id, name: p.name, description: p.description, role: p.role, createdAt: p.createdAt, members: hub.mode === 'server' ? await hub.projects.memberCount(p.id) : undefined })),
+    handler: async ({ hub, principal }) => {
+      const counts = hub.mode === 'server' ? await hub.projects.memberCounts() : undefined;
+      return (await hub.visibleProjects(principal)).map((p) => ({ id: p.id, name: p.name, description: p.description, role: p.role, createdAt: p.createdAt, members: counts ? (counts.get(p.id) ?? 0) : undefined }));
+    },
   }),
 
   defineHubOp({

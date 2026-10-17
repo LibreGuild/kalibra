@@ -4,9 +4,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { handOverOnRequest, newToken, startServer } from '@kalibra/server';
-import { BASE_PATH, deployConfigFrom, postgresDatabases, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
+import { BASE_PATH, deployConfigFrom, openObjectStore, postgresDatabases, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
-import { clearEngineInfo, clearServerMarker, connect, defaultDir, openHub, runningOn, writeEngineInfo, writeServerMarker } from './engine-client.js';
+import { clearEngineInfo, clearServerMarker, connect, defaultDir, openHub, runningOn, usesLocalFilesOfRunningServer, writeEngineInfo, writeServerMarker } from './engine-client.js';
 import { runMigrate } from './migrate.js';
 import { openDeployment } from './deploy.js';
 import { runMcp } from './mcp.js';
@@ -128,9 +128,14 @@ async function main() {
   if (cmd === 'backup') {
     if (!rest[0]) throw new Error('Usage: kalibra backup <folder>');
     // With Postgres, the copy is exported table by table into SQLite files (opens with --dir anywhere).
-    const cfg = deployConfigFrom(process.env, typeof values['database-url'] === 'string' ? { 'database-url': values['database-url'] } : {});
+    const cfg = deployConfigFrom(process.env, {
+      ...(typeof values['database-url'] === 'string' ? { 'database-url': values['database-url'] } : {}),
+      ...(typeof values.storage === 'string' ? { storage: values.storage } : {}),
+    });
     const databases = cfg.databaseUrl ? await postgresDatabases({ url: cfg.databaseUrl, max: 2, schema: cfg.databaseSchema }) : undefined;
-    const r = await backup(dir, rest[0], databases ? { databases } : {}).finally(() => databases?.close());
+    // Files in a bucket are read directly (no lease: a backup only reads, also while a server runs).
+    const objects = cfg.storageUrl ? await openObjectStore(cfg) : undefined;
+    const r = await backup(dir, rest[0], { ...(databases ? { databases } : {}), ...(objects ? { objects } : {}) }).finally(() => databases?.close());
     return void console.log(`Backed up ${r.databases} database${r.databases === 1 ? '' : 's'} and ${r.files} files to ${r.out}`);
   }
 
@@ -290,8 +295,10 @@ function onStop(fn: () => Promise<void>) {
  */
 async function users(dir: string, args: string[], password?: string) {
   const [action, username] = args;
-  const deployment = await openDeployment(dir);
-  const hub = await openHub(dir, 'server', deployment.hub);
+  // Setup B with the server running on this machine: it holds the bucket lease and syncs these
+  // database files, so change them in place (the server ships the change). Taking the lease would fail.
+  const deployment = usesLocalFilesOfRunningServer(dir) ? undefined : await openDeployment(dir);
+  const hub = await openHub(dir, 'server', deployment?.hub ?? {});
   try {
     const temp = () => password ?? randomBytes(12).toString('base64url');
     if (action === 'list' || !action) {
@@ -323,7 +330,7 @@ async function users(dir: string, args: string[], password?: string) {
     }
   } finally {
     await hub.close();
-    await deployment.close();
+    await deployment?.close();
   }
 }
 

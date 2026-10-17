@@ -80,9 +80,12 @@ export const datasetOps = [
       baseRevision: z.number().int().optional(),
     }),
     handler: async ({ engine, actor }, i) => {
-      const cur = await engine.repos.datasets.get(i.dataset);
-      const schema = i.columns || i.instructions !== undefined ? { columns: i.columns ?? cur.schema.columns, instructions: i.instructions ?? cur.schema.instructions } : undefined;
-      const ds = await engine.repos.datasets.update(cur.id, { name: i.name, description: i.description, schema }, i.baseRevision);
+      // Read and merge in one transaction, so a concurrent change to the other half of the schema isn't lost.
+      const ds = await engine.db.tx(async () => {
+        const cur = await engine.repos.datasets.get(i.dataset);
+        const schema = i.columns || i.instructions !== undefined ? { columns: i.columns ?? cur.schema.columns, instructions: i.instructions ?? cur.schema.instructions } : undefined;
+        return await engine.repos.datasets.update(cur.id, { name: i.name, description: i.description, schema }, i.baseRevision);
+      });
       engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
       return ds;
     },
@@ -249,8 +252,13 @@ export const datasetOps = [
       if (missing.size) {
         if (!i.createColumns) throw invalid(`Unknown columns: ${[...missing.values()].join(', ')}`);
         const added = [...missing].map(([key, dst]) => ColumnSpec.parse({ key, type: inferType(records.map((r) => r[sourceKey(mapping, dst)])) }));
-        columns = [...columns, ...added];
-        await engine.repos.datasets.update(ds.id, { schema: { ...ds.schema, columns } });
+        // Added to the schema as it is now (the file was read meanwhile), not to the copy read before.
+        columns = await engine.db.tx(async () => {
+          const cur = await engine.repos.datasets.get(ds.id);
+          const next = [...cur.schema.columns, ...added.filter((a) => !cur.schema.columns.some((c) => c.key === a.key))];
+          await engine.repos.datasets.update(ds.id, { schema: { ...cur.schema, columns: next } });
+          return next;
+        });
       }
       const fileCols = new Set(columns.filter((c) => ['audio', 'image', 'file'].includes(c.type)).map((c) => c.key));
       const unmatched = new Set<string>();

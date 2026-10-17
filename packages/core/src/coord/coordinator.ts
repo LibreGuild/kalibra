@@ -102,12 +102,19 @@ export class LocalCoordinator implements Coordinator {
   }
 
   async set(key: string, value: string, ttlMs: number) {
+    this.counters.delete(key); // like Redis: SET replaces whatever the key held
     this.values.set(key, { value, until: Date.now() + ttlMs });
     if (this.values.size > 50_000) this.prune();
   }
 
   async del(...keys: string[]) {
-    for (const k of keys) this.values.delete(k);
+    // Like Redis DEL: removes the key whatever it holds (value, counter, list, window).
+    for (const k of keys) {
+      this.values.delete(k);
+      this.counters.delete(k);
+      this.lists.delete(k);
+      this.windows.delete(k);
+    }
   }
 
   async incr(key: string) {

@@ -167,11 +167,11 @@ describe('sign-in providers', () => {
     const cookies = back.headers.getSetCookie?.() ?? [];
     const session = cookies.find((c) => c.startsWith('kalibra_session='))?.split(';')[0];
     const flash = cookies.find((c) => c.startsWith('kalibra_login_error='))?.split(';')[0];
-    const error = flash ? ((await fetch(`${srv.url}/kalibra/api/auth/status`, { headers: { cookie: flash } }).then((r) => r.json())).data.error as string) : undefined;
+    const error = flash ? ((await fetch(`${srv.url}/kalibra/api/auth/status`, { headers: { cookie: flash } }).then((r) => r.json() as Promise<any>)).data.error as string) : undefined;
     return { location: back.headers.get('location') ?? '', session, callback, binding, error };
   }
 
-  const me = async (cookie?: string) => (await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, cookie: cookie ?? '' } }).then((r) => r.json())).data;
+  const me = async (cookie?: string) => (await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, cookie: cookie ?? '' } }).then((r) => r.json() as Promise<any>)).data;
 
   it('signs in with OIDC, invite-only by default, linking the invited account by verified email', async () => {
     await hub.providers.save({ name: 'Company SSO', kind: 'oidc', issuer: idp.state.issuer, clientId: 'kalibra', clientSecret: idp.state.clientSecret });
@@ -262,7 +262,7 @@ describe('sign-in providers', () => {
 
   it('trusts gateway headers only from listed proxy addresses', async () => {
     await hub.providers.save({ name: 'Gateway', id: 'gate', kind: 'proxy', emailHeader: 'X-Forwarded-Email', nameHeader: 'X-Forwarded-User', trustedProxies: ['127.0.0.1', '::1'], autoCreate: true });
-    const r = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-forwarded-email': 'ivy@corp.example', 'x-forwarded-user': 'Ivy' } }).then((x) => x.json());
+    const r = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-forwarded-email': 'ivy@corp.example', 'x-forwarded-user': 'Ivy' } }).then((x) => x.json() as Promise<any>);
     expect(r.data.user).toMatchObject({ email: 'ivy@corp.example', name: 'Ivy' });
     expect(inList('10.1.2.3', ['10.0.0.0/8'])).toBe(true);
     expect(inList('::ffff:10.1.2.3', ['10.0.0.0/8'])).toBe(true);
@@ -277,7 +277,7 @@ describe('sign-in providers', () => {
     await hub.providers.save({ name: 'IAP', id: 'iap', kind: 'proxy', jwtHeader: 'X-Goog-IAP-JWT-Assertion', jwksUrl, jwtAudience: 'kalibra-app', autoCreate: true });
     const jwt = (aud: string) =>
       new SignJWT({ email: 'jo@corp.example' }).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setAudience(aud).setSubject('jo').setIssuedAt().setExpirationTime('5m').sign(idp.privateKey);
-    const good = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('kalibra-app') } }).then((r) => r.json());
+    const good = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('kalibra-app') } }).then((r) => r.json() as Promise<any>);
     expect(good.data.user.email).toBe('jo@corp.example');
     const bad = await fetch(`${srv.url}/kalibra/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, 'x-goog-iap-jwt-assertion': await jwt('another-app') } });
     expect(bad.status).toBe(403);
@@ -290,9 +290,9 @@ describe('sign-in providers', () => {
     const login = (username: string) => fetch(`${srv.url}/kalibra/api/auth/login`, { method: 'POST', headers: { origin: srv.url, 'content-type': 'application/json' }, body: JSON.stringify({ username, password: PW }) });
     const kim = await login('kim');
     expect(kim.status).toBe(403);
-    expect((await kim.json()).error.message).toMatch(/Password sign-in is turned off.*Company SSO/);
+    expect(((await kim.json()) as any).error.message).toMatch(/Password sign-in is turned off.*Company SSO/);
     expect((await login('admin')).status).toBe(200);
-    const status = await fetch(`${srv.url}/kalibra/api/auth/status`).then((r) => r.json());
+    const status = await fetch(`${srv.url}/kalibra/api/auth/status`).then((r) => r.json() as Promise<any>);
     expect(status.data.passwordLogin).toBe(false);
     expect(status.data.providers.map((p: any) => p.id)).toEqual(expect.arrayContaining(['company-sso', 'ghe']));
     await hub.updateSettings({ passwordLogin: true });

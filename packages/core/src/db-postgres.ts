@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Pool, PoolClient, QueryResult } from 'pg';
-import type { Db, TableInfo } from './db.js';
+import type { Db, TableInfo, TxOptions } from './db.js';
 
 /*
  * Postgres behind the same Db interface as SQLite (see docs/design/storage-and-scaling.md).
@@ -332,17 +332,17 @@ class PostgresDb implements Db {
    * Runs `fn` in a SERIALIZABLE transaction (nested calls join the outer one). When Postgres reports
    * a conflict with another transaction, the whole function runs again on fresh data.
    */
-  async tx<T>(fn: () => Promise<T>): Promise<T> {
+  async tx<T>(fn: () => Promise<T>, opts: TxOptions = {}): Promise<T> {
     if (this.current.getStore()?.open) return fn();
-    return this.track(() => this.attempt(fn));
+    return this.track(() => this.attempt(fn, opts.isolation === 'read committed' ? 'READ COMMITTED' : 'SERIALIZABLE'));
   }
 
-  private async attempt<T>(fn: () => Promise<T>): Promise<T> {
+  private async attempt<T>(fn: () => Promise<T>, isolation: 'SERIALIZABLE' | 'READ COMMITTED'): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       const client = await this.pg.checkout(this.schema);
       const state = { client, open: true };
       try {
-        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        await client.query(`BEGIN ISOLATION LEVEL ${isolation}`);
         const out = await this.current.run(state, fn);
         state.open = false;
         await client.query('COMMIT');

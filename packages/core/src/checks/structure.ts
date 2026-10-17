@@ -69,8 +69,21 @@ export const jsonSchemaCheck = defineCheck({
     }
     const parsed = asJson(await value(cfg.actual, ctx));
     if (!parsed.ok) return fail({ reason: parsed.error });
-    if (validate(parsed.value)) return pass({ reason: 'Matches schema' });
-    const errors = (validate.errors ?? []).map((e) => `${e.instancePath || '/'} ${e.message ?? ''}`.trim());
+    // A schema with "$async": true compiles to a validator that returns a promise and rejects with
+    // the errors instead of returning false; a promise must never count as a pass.
+    let ok: boolean;
+    let errs: typeof validate.errors;
+    try {
+      const result: unknown = validate(parsed.value);
+      ok = result instanceof Promise ? (await result, true) : result === true;
+      errs = validate.errors;
+    } catch (e: any) {
+      if (!Array.isArray(e?.errors)) throw e;
+      ok = false;
+      errs = e.errors;
+    }
+    if (ok) return pass({ reason: 'Matches schema' });
+    const errors = (errs ?? []).map((e) => `${e.instancePath || '/'} ${e.message ?? ''}`.trim());
     return fail({ reason: errors.slice(0, 3).join('; '), details: { errors } });
   },
 });

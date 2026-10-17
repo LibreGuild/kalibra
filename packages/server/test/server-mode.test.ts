@@ -106,7 +106,7 @@ describe('server mode over HTTP', () => {
     const up = await fetch(`${srv.url}/kalibra/api/projects/${p.id}/files`, { method: 'POST', headers: { origin, cookie: erin.cookie(), 'x-file-name': 'a.txt' }, body: 'hello' });
     expect(up.status).toBe(403);
     // Each op lists the role it needs.
-    const ops = await fetch(`${srv.url}/kalibra/api/projects/${p.id}/ops`, { headers: { cookie: erin.cookie() } }).then((r) => r.json());
+    const ops = await fetch(`${srv.url}/kalibra/api/projects/${p.id}/ops`, { headers: { cookie: erin.cookie() } }).then((r) => r.json() as Promise<any>);
     expect(ops.find((o: any) => o.name === 'set_secret').access).toBe('owner');
   });
 

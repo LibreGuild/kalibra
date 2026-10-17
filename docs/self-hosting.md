@@ -22,8 +22,8 @@ Kalibra checks the combination at start and stops with a clear message if someth
 **npm** (Node.js 22.13 or newer):
 
 ```sh
-npx kalibra@next                     # one person, opens the browser, no sign-in
-npm i -g kalibra@next && kalibra     # the same, installed
+npx kalibra                     # one person, opens the browser, no sign-in
+npm i -g kalibra && kalibra     # the same, installed
 kalibra server --host 0.0.0.0        # a team server with sign-in (port 4317)
 ```
 
@@ -32,7 +32,7 @@ kalibra server --host 0.0.0.0        # a team server with sign-in (port 4317)
 ```sh
 docker run -d --name kalibra -p 4317:4317 -v kalibra-data:/data \
   -e KALIBRA_PUBLIC_URL=https://kalibra.example.com \
-  ghcr.io/libreguild/kalibra:next
+  ghcr.io/libreguild/kalibra:latest
 docker logs kalibra                  # one-time link to create the administrator
 ```
 
@@ -118,9 +118,10 @@ GRANT CONNECT, CREATE ON DATABASE kalibra TO kalibra;
 |---|---|
 | Cloud SQL from Cloud Run (socket) | `postgres://kalibra:PASSWORD@/kalibra?host=/cloudsql/PROJECT:REGION:INSTANCE` (and `--add-cloudsql-instances` on the service) |
 | Cloud SQL from a VM (private IP or the Auth Proxy) | `postgres://kalibra:PASSWORD@10.0.0.5:5432/kalibra` |
-| RDS, Azure, Neon, Supabase | `postgres://kalibra:PASSWORD@HOST:5432/kalibra?sslmode=require` |
+| Azure, Neon, Supabase (public certificates) | `postgres://kalibra:PASSWORD@HOST:5432/kalibra?sslmode=require` |
+| Amazon RDS / Aurora (Amazon's own certificate authority) | `postgres://kalibra:PASSWORD@HOST:5432/kalibra?sslmode=verify-full&sslrootcert=/path/to/global-bundle.pem` ([AWS bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem)) |
 
-URL-encode special characters in the password. Tables are created and upgraded at start (several instances can start together). Back up with your provider's automated backups; `kalibra backup <folder>` also writes a portable SQLite copy of everything.
+URL-encode special characters in the password. `sslmode=require` checks the server's certificate against the usual public authorities; a provider with its own authority needs `sslrootcert` pointing at its certificate bundle (in Docker, mount the file). Tables are created and upgraded at start (several instances can start together). Back up with your provider's automated backups; `kalibra backup <folder>` also writes a portable SQLite copy of everything.
 
 ## Several instances
 
@@ -168,9 +169,17 @@ It copies users, projects (including those in the trash), every project's data, 
 | B | the bucket is the backup (keep versioning or a copy job on it); `kalibra backup` too | start on any machine with the same `KALIBRA_STORAGE_URL` and `KALIBRA_SECRET_KEY` |
 | C, D | your Postgres backups plus the bucket; `kalibra backup` writes a portable SQLite copy | restore Postgres and point Kalibra at it |
 
-In Docker: `docker exec kalibra /nodejs/bin/node /app/kalibra.mjs backup /backups/$(date +%F)`.
+`kalibra backup <folder>` always writes a plain data folder (setup A) that `--dir` opens anywhere: SQLite databases are snapshotted, Postgres is exported into SQLite files, and with a bucket every file a project uses is downloaded into the copy (it reads the bucket directly, also while a server runs). Provider keys stay encrypted: open the copy with the same `KALIBRA_SECRET_KEY`. Run it with the same settings as the server. In Docker: `docker exec kalibra /nodejs/bin/node /app/kalibra.mjs backup /backups/$(date +%F)`.
 
-**Upgrade:** install the new version or pull the new image and restart. Databases upgrade themselves at start; back up first, since an older version refuses data written by a newer one. **Locked out:** on the server's machine, `kalibra users reset-password <name>` (Docker: `docker exec -it kalibra /nodejs/bin/node /app/kalibra.mjs users reset-password admin`).
+**Upgrade:** install the new version or pull the new image and restart. Databases upgrade themselves at start; back up first, since an older version refuses data written by a newer one. **Locked out:** on the server's machine, `kalibra users reset-password <name>` (Docker: `docker exec -it kalibra /nodejs/bin/node /app/kalibra.mjs users reset-password admin`). In setup B it changes the running server's files in place and the server syncs the change; with no server running it takes the bucket lease, restores, changes and syncs. With Postgres, run it anywhere with the same `KALIBRA_DATABASE_URL`.
+
+## Keep these private
+
+The database, the bucket and Redis hold Kalibra's state, so whoever can write to them controls Kalibra:
+- **Bucket:** private, in your project, read and write only for Kalibra's service account. Someone who can write to it can replace the databases (setup B) or make the running instance hand it over and stop.
+- **Postgres:** a database user of its own; don't share it with other apps.
+- **Redis:** reachable only from Kalibra's network (Memorystore and ElastiCache are; turn on AUTH and TLS where offered). Cached sign-ins in Redis are signed with a key derived from `KALIBRA_SECRET_KEY`, so writing to Redis can't create a session, but it can still disrupt live updates, cancel runs or fill memory.
+- **`KALIBRA_SECRET_KEY`:** in your platform's secret store (Secret Manager, AWS Secrets Manager, Key Vault), not in an image or a repository.
 
 ## Limits
 

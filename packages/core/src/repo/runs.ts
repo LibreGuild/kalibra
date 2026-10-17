@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Db } from '../db.js';
+import { forUpdate, type Db } from '../db.js';
 import type { Actor } from '../registry.js';
 import { RunSettings } from '../specs.js';
 import { newId, notFound, nowIso, parseJson } from '../util.js';
@@ -260,9 +260,7 @@ export class RunRepo {
   }
 
   async setSummary(id: string, summary: unknown) {
-    return this.db.tx(async () => {
-      await this.db.run('UPDATE runs SET summary = ? WHERE id = ?', JSON.stringify(summary), id);
-    });
+    await this.db.run('UPDATE runs SET summary = ? WHERE id = ?', JSON.stringify(summary), id);
   }
 
   async delete(id: string) {
@@ -294,9 +292,7 @@ export class RunRepo {
   }
 
   async markRunning(resultId: string) {
-    return this.db.tx(async () => {
-      await this.db.run("UPDATE results SET status = 'running', started_at = ? WHERE id = ?", nowIso(), resultId);
-    });
+    await this.db.run("UPDATE results SET status = 'running', started_at = ? WHERE id = ?", nowIso(), resultId);
   }
 
   async saveResult(runId: string, resultId: string, r: {
@@ -313,10 +309,14 @@ export class RunRepo {
     attempts: number;
     steps?: unknown[] | null;
   }) {
-    return this.db.tx(async () => {
-      const final = (s: unknown) => s === 'done' || s === 'error';
-      await this.db.tx(async () => {
-        const before = (await this.db.get('SELECT status FROM results WHERE id = ?', resultId))?.status;
+    const final = (s: unknown) => s === 'done' || s === 'error';
+    // Every worker of a run bumps the same `done` counter: on Postgres, SERIALIZABLE made most of
+    // those saves conflict and retry. Row locks are all this needs: the result row is locked before
+    // its status is read (a second save of the same row waits and sees the first), and the
+    // increment is atomic.
+    await this.db.tx(
+      async () => {
+        const before = (await this.db.get(`SELECT status FROM results WHERE id = ?${forUpdate(this.db)}`, resultId))?.status;
         await this.db.run(
           `UPDATE results SET status = ?, passed = ?, score = ?, request = ?, response = ?, outputs = ?, checks = ?, metrics = ?, error = ?, logs = ?, attempts = ?, steps = ?, finished_at = ? WHERE id = ?`,
           r.status, r.passed === null ? null : r.passed ? 1 : 0, r.score, JSON.stringify(r.request ?? null), JSON.stringify(r.response ?? null),
@@ -327,8 +327,9 @@ export class RunRepo {
         // quadratic (seconds per thousand rows at 50k).
         const delta = Number(final(r.status)) - Number(final(before));
         if (delta) await this.db.run('UPDATE runs SET done = done + ? WHERE id = ?', delta, runId);
-      });
-    });
+      },
+      { isolation: 'read committed' },
+    );
   }
 
   async progress(runId: string) {
@@ -336,9 +337,7 @@ export class RunRepo {
   }
 
   async resetRunning(runId: string) {
-    return this.db.tx(async () => {
-      await this.db.run("UPDATE results SET status = 'pending' WHERE run_id = ? AND status = 'running'", runId);
-    });
+    await this.db.run("UPDATE results SET status = 'pending' WHERE run_id = ? AND status = 'running'", runId);
   }
 
   // ── Leases: which instance executes a run (several instances share runs) ───
@@ -442,9 +441,7 @@ export class RunRepo {
   // ── Code runs and git metadata (ops/coderuns.ts) ───────────────────────────
 
   async setGit(runId: string, git: GitInfo | null) {
-    return this.db.tx(async () => {
-      await this.db.run('UPDATE runs SET git = ? WHERE id = ?', git && Object.keys(git).length ? JSON.stringify(git) : null, runId);
-    });
+    await this.db.run('UPDATE runs SET git = ? WHERE id = ?', git && Object.keys(git).length ? JSON.stringify(git) : null, runId);
   }
 
   /**

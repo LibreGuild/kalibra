@@ -78,6 +78,19 @@ describe.each(pairs)('coordinator: %s', (_name, make) => {
     expect(await b.windowCount('w', 60)).toBe(0);
   });
 
+  it('DEL and SET replace a key whatever it holds, as Redis does', async () => {
+    const [a, b] = both();
+    await a.incr('c');
+    await b.del('c');
+    expect(await a.get('c')).toBeUndefined();
+    expect(await a.incr('c')).toBe(1);
+    await a.set('c', 'text', 60_000);
+    expect(await b.get('c')).toBe('text');
+    await a.listPush('l2', 'x', 3, 60_000);
+    await b.del('l2');
+    expect(await a.listRange('l2', 10)).toEqual([]);
+  });
+
   it('gives a lock to one holder at a time; only the holder renews or releases it', async () => {
     const [a, b] = both();
     const l1 = await a.tryLock('job', 200);
@@ -142,6 +155,50 @@ describe('hub cache', () => {
       rmSync(dir, { recursive: true, force: true });
       await new RedisMock().flushall();
     }
+  });
+});
+
+describe('hub cache security', () => {
+  it('ignores entries planted in Redis without a valid signature', async () => {
+    const redis = new RedisCoordinator(new RedisMock() as any, new RedisMock() as any, 'a');
+    try {
+      const cache = new HubCache(redis, true, 60_000, Buffer.alloc(32, 7));
+      let loads = 0;
+      const load = async () => (loads++, { user: { id: 'u1', role: 'member' } });
+      expect(await cache.lookup('ses:abc', load)).toEqual({ user: { id: 'u1', role: 'member' } });
+      expect(loads).toBe(1);
+      // Someone with access to Redis (no password by default on Memorystore) writes an admin session.
+      const forged = JSON.stringify({ user: { id: 'evil', role: 'admin' } });
+      await redis.set('hub:c:ses:abc', JSON.stringify({ e: '0', v: forged }), 60_000);
+      expect(await cache.lookup('ses:abc', load)).toEqual({ user: { id: 'u1', role: 'member' } });
+      await redis.set('hub:c:ses:abc', JSON.stringify({ e: '0', v: forged, s: 'not-the-signature' }), 60_000);
+      expect(await cache.lookup('ses:abc', load)).toEqual({ user: { id: 'u1', role: 'member' } });
+      // A valid entry signed for another key can't be moved onto this one.
+      await cache.lookup('ses:other', async () => ({ user: { id: 'evil', role: 'admin' } }));
+      await redis.set('hub:c:ses:abc', (await redis.get('hub:c:ses:other'))!, 60_000);
+      expect(await cache.lookup('ses:abc', load)).toEqual({ user: { id: 'u1', role: 'member' } });
+      expect(loads).toBe(4);
+      // Its own entries are still served from the cache.
+      expect(await cache.lookup('ses:abc', load)).toEqual({ user: { id: 'u1', role: 'member' } });
+      expect(loads).toBe(4);
+    } finally {
+      await redis.close();
+      await new RedisMock().flushall();
+    }
+  });
+
+  it("doesn't let a refresh bring back a value a hub write has since invalidated", async () => {
+    const local = new LocalCoordinator('a');
+    const cache = new HubCache(local, true);
+    let valid = true;
+    const load = async () => (valid ? { id: 'ses1', touchedAt: 't0' } : undefined);
+    const s = (await cache.lookup('ses:x', load))!;
+    // A sign-out commits on another instance between this request's lookup and its "last seen" refresh.
+    valid = false;
+    await cache.invalidate();
+    await cache.refresh('ses:x', { ...s, touchedAt: 't1' }, s);
+    expect(await cache.lookup('ses:x', load)).toBeUndefined();
+    await local.close();
   });
 });
 

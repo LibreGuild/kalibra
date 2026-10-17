@@ -201,13 +201,17 @@ export class Projects {
 
   /** Drops a user's or group's memberships everywhere (when a group is deleted). */
   async removePrincipal(type: 'user' | 'group', id: string) {
-    return this.db.tx(async () => {
-      await this.db.run('DELETE FROM members WHERE principal_type = ? AND principal_id = ?', type, id);
-    });
+    await this.db.run('DELETE FROM members WHERE principal_type = ? AND principal_id = ?', type, id);
   }
 
   async memberCount(projectId: string): Promise<number> {
     return (await this.db.get('SELECT COUNT(*) AS n FROM members WHERE project_id = ?', projectId)).n;
+  }
+
+  /** Members of every project in one query (the project list asks for all of them). */
+  async memberCounts(): Promise<Map<string, number>> {
+    const rows = await this.db.all<{ project_id: string; n: number }>('SELECT project_id, COUNT(*) AS n FROM members GROUP BY project_id');
+    return new Map(rows.map((r) => [r.project_id, Number(r.n)]));
   }
 
   // ── Groups ────────────────────────────────────────────────────────────────

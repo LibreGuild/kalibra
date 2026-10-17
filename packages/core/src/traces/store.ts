@@ -199,7 +199,9 @@ export class TraceStore {
   async waitForResult(resultId: string, ms: number, signal?: AbortSignal): Promise<{ steps: Step[]; traceIds: string[] }> {
     await this.flush();
     const found = async () => await this.repo.byResult(resultId);
-    if (!(await found()).length && ms > 0) {
+    // One lookup when the trace is already there or there is nothing to wait for (every row of a run asks).
+    let traces = await found();
+    if (!traces.length && ms > 0) {
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer);
@@ -223,8 +225,8 @@ export class TraceStore {
       // Let the rest of a multi-trace row land (bounded; most apps send one trace per call).
       if ((await found()).length && !signal?.aborted) await new Promise((r) => setTimeout(r, Math.min(150, ms)));
       await this.flush();
+      traces = await found();
     }
-    const traces = await found();
     return { steps: stepsFromSpans(traces.flatMap((t) => t.spans)), traceIds: traces.map((t) => t.id) };
   }
 

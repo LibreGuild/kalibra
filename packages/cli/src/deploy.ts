@@ -1,4 +1,4 @@
-import { createCoordinator, deployConfigFrom, describeDeploy, openStorage, postgresDatabases, validateDeployConfig, type Databases, type DeployConfig, type HubOptions, type StorageRuntime } from '@kalibra/core';
+import { cacheSigningKey, createCoordinator, deployConfigFrom, describeDeploy, openStorage, postgresDatabases, validateDeployConfig, type Databases, type DeployConfig, type HubOptions, type StorageRuntime } from '@kalibra/core';
 
 /*
  * Turns the deployment settings (database, files, Redis; see docs/self-hosting.md) into what the hub
@@ -9,7 +9,7 @@ export interface Deployment {
   cfg: DeployConfig;
   storage: StorageRuntime;
   /** Options for Hub.open. */
-  hub: Pick<HubOptions, 'databases' | 'storage' | 'coordinator'>;
+  hub: Pick<HubOptions, 'databases' | 'storage' | 'coordinator' | 'cacheKey'>;
   /** One line for the startup log (no credentials). */
   describe: string;
   /** After the hub closed: releases the bucket lease. */
@@ -47,7 +47,8 @@ export async function openDeployment(dir: string, flags: Record<string, unknown>
   return {
     cfg,
     storage,
-    hub: { ...(databases ? { databases } : {}), storage: storage.hooks, coordinator },
+    // Cache entries in Redis are signed, so access to Redis alone can't forge a sign-in.
+    hub: { ...(databases ? { databases } : {}), storage: storage.hooks, coordinator, ...(cfg.secretKey ? { cacheKey: cacheSigningKey(cfg.secretKey) } : {}) },
     describe: describeDeploy(cfg),
     close: async () => {
       await storage.close();

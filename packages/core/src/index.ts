@@ -22,7 +22,8 @@ export { argsHash, canonicalJson } from './traces/hash.js';
 export type { Trace, Span, Step, Source, ToolCall } from './traces/types.js';
 export { deployConfigFrom, validateDeployConfig, describeDeploy, deployMode, storageKind, redactUrl, type DeployConfig, type DeployMode, type StorageKind } from './deploy/config.js';
 export { openStorage, type StorageRuntime, type StorageHooks, type StorageStatus } from './deploy/storage.js';
-export { MemoryObjects, type ObjectStore } from './deploy/objects.js';
+export { MemoryObjects, openObjectStore, type ObjectStore } from './deploy/objects.js';
+export { fileKey } from './deploy/bucket-blobs.js';
 export { sqliteDatabases, postgresDatabases, postgresSchemas, defaultDatabases, setDefaultDatabases, type Databases } from './deploy/databases.js';
 export { PostgresPool, toPostgres, toPostgresDdl, hubSchema, projectSchema } from './db-postgres.js';
 export { copyDatabase } from './deploy/copy.js';
@@ -30,3 +31,4 @@ export { migrate, type MigrateOptions, type MigrateReport, type MigratedDatabase
 export type { Db, TableInfo } from './db.js';
 export { createCoordinator, LocalCoordinator, HubCache, type Coordinator, type Lock } from './coord/index.js';
 export { RedisCoordinator } from './coord/redis.js';
+export { cacheSigningKey } from './deploy/secrets.js';

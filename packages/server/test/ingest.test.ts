@@ -127,7 +127,7 @@ describe('limits and validation', () => {
     expect((await send(path, '{not json')).status).toBe(400);
     const none = await send(path, { traces: [{ name: '' }, { spans: 3 }] });
     expect(none.status).toBe(400);
-    expect((await none.json()).error.details).toHaveLength(2);
+    expect(((await none.json()) as any).error.details).toHaveLength(2);
     const some = await (await send(path, { traces: [{ name: 'good' }, { name: '' }] })).json();
     expect(some).toMatchObject({ accepted: 1, rejected: [{ index: 1 }] });
     expect((await send(path, { traces: Array.from({ length: 1001 }, () => ({ name: 'x' })) })).status).toBe(400);
@@ -152,7 +152,7 @@ describe('OpenTelemetry', () => {
     expect((await send(path, gzipSync(JSON.stringify(span('zipped'))), { 'content-encoding': 'gzip' })).status).toBe(200);
     const proto = await send(path, Buffer.from([1, 2, 3]), { 'content-type': 'application/x-protobuf' });
     expect(proto.status).toBe(415);
-    expect((await proto.json()).error.message).toMatch(/http\/json/);
+    expect(((await proto.json()) as any).error.message).toMatch(/http\/json/);
     expect((await send(path, { nope: 1 })).status).toBe(400);
   });
 });
@@ -222,7 +222,7 @@ describe('the OpenAI proxy', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('x-request-id')).toBe('req_1');
     expect(res.headers.get('set-cookie')).toBeNull();
-    expect((await res.json()).choices[0].message.content).toBe('Hi there');
+    expect(((await res.json()) as any).choices[0].message.content).toBe('Hi there');
     expect(seen[0].path).toBe('/v1/chat/completions?api-version=1');
     expect(seen[0].headers.authorization).toBe('Bearer sk-live-SECRET-123');
     for (const h of ['x-kalibra-key', 'x-kalibra-result', 'cookie', 'origin']) expect(seen[0].headers[h]).toBeUndefined();
@@ -265,10 +265,10 @@ describe('the OpenAI proxy', () => {
   it('needs the key in x-kalibra-key, and says when the upstream is down', async () => {
     const res = await fetch(`${srv.url}/kalibra/api/projects/${project.id}/proxy/openai/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: '{}' });
     expect(res.status).toBe(401);
-    expect((await res.json()).error.message).toMatch(/x-kalibra-key/);
+    expect(((await res.json()) as any).error.message).toMatch(/x-kalibra-key/);
     await admin.call(`/kalibra/api/projects/${project.id}/ops/set_trace_settings`, { proxyOpenaiUpstream: 'http://127.0.0.1:9' });
     const down = await proxied('/v1/chat/completions', { model: 'x' });
     expect(down.status).toBe(502);
-    expect((await down.json()).error.type).toBe('kalibra_proxy_error');
+    expect(((await down.json()) as any).error.type).toBe('kalibra_proxy_error');
   });
 });

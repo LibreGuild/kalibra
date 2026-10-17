@@ -54,6 +54,13 @@ describe('structure checks', () => {
     expect(bad.reason).toContain('/answer');
     expect((await run('json_schema', { schema }, { output: 'not json' })).status).toBe('fail');
   });
+  it('json_schema with "$async": true fails invalid output instead of passing on a promise', async () => {
+    const schema = '{"$async":true,"type":"object","required":["answer"],"properties":{"answer":{"type":"string"}}}';
+    expect((await run('json_schema', { schema }, { output: '{"answer":"hi"}' })).status).toBe('pass');
+    const bad = await run('json_schema', { schema }, { output: { answer: 3 } });
+    expect(bad.status).toBe('fail');
+    expect(bad.reason).toContain('/answer');
+  });
   it('jsonpath compares numbers and lengths', async () => {
     const output = { confidence: 0.9, sources: [{ id: 'a' }, { id: 'b' }] };
     expect((await run('jsonpath', { path: '$.confidence', operator: 'gt', value: '0.5' }, { output })).status).toBe('pass');

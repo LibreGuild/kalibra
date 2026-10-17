@@ -101,9 +101,7 @@ export class Providers {
   }
 
   private async saveStored(all: AuthProviderConfig[]) {
-    return this.db.tx(async () => {
-      await this.db.run("INSERT INTO settings (key, value) VALUES ('auth_providers', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(all));
-    });
+    await this.db.run("INSERT INTO settings (key, value) VALUES ('auth_providers', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(all));
   }
 
   /** Every provider; configuration wins over the app for the same id. */
@@ -136,6 +134,11 @@ export class Providers {
 
   /** Creates or updates a provider made in the app. `clientSecret` replaces the stored one when given. */
   async save(input: Partial<AuthProviderConfig> & { id?: string; clientSecret?: string }): Promise<AuthProvider> {
+    // One transaction: providers are one settings value, so two admins saving different providers must not drop each other's.
+    return this.db.tx(() => this.saveNow(input));
+  }
+
+  private async saveNow(input: Partial<AuthProviderConfig> & { id?: string; clientSecret?: string }): Promise<AuthProvider> {
     const { clientSecret, ...rest } = input;
     const all = await this.stored();
     const id = rest.id || slug(rest.name ?? '');
@@ -154,9 +157,11 @@ export class Providers {
 
   async delete(id: string) {
     if (this.fromConfig.has(id)) throw new KalibraError('conflict', `"${id}" is set in the server configuration; remove it there`);
-    const all = await this.stored();
-    if (!all.some((p) => p.id === id)) throw notFound('Sign-in provider', id);
-    await this.saveStored(all.filter((p) => p.id !== id));
+    await this.db.tx(async () => {
+      const all = await this.stored();
+      if (!all.some((p) => p.id === id)) throw notFound('Sign-in provider', id);
+      await this.saveStored(all.filter((p) => p.id !== id));
+    });
     await this.secrets.delete(secretKey(id));
   }
 }

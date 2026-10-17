@@ -53,7 +53,7 @@ describe('HTTP server hardening', () => {
     for (const path of ['/api/health', '/api/ops/list_datasets', '/some/route', '/kalibraevil/api/health', '/assets/x.js']) {
       const res = await go(path);
       expect(res.status, path).toBe(404);
-      expect((await res.json()).error.message, path).toMatch(/under \/kalibra\//);
+      expect(((await res.json()) as any).error.message, path).toMatch(/under \/kalibra\//);
     }
     expect(await (await go('/kalibra/api/health')).json()).toEqual({ ok: true, name: 'kalibra' });
     expect((await go('/kalibra/')).status).toBe(200);

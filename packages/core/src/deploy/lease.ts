@@ -154,7 +154,7 @@ export class BucketLease {
     this.handingOver = false;
     await this.clearOwnRequest();
     this.timer = setInterval(() => void this.renew(), this.opts.renewMs ?? RENEW_MS).unref();
-    if (this.opts.onHandover) this.watcher = setInterval(() => void this.checkHandover(), this.opts.handoverPollMs ?? HANDOVER_POLL_MS).unref();
+    if (this.opts.onHandover) this.watcher = setInterval(() => void this.checkHandover().catch((e) => this.opts.log?.(`checking for a handover request failed (${e?.message ?? e})`)), this.opts.handoverPollMs ?? HANDOVER_POLL_MS).unref();
   }
 
   /** Makes sure a fresh request addressed to `holder` is in the bucket (ours, or a competitor's). */

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Db } from '../db.js';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Db, TxOptions } from '../db.js';
 import type { Coordinator } from './coordinator.js';
 
 /*
@@ -11,6 +12,10 @@ import type { Coordinator } from './coordinator.js';
  * and an entry only counts while the epoch it was read under is still current. Entries are tagged
  * with the epoch read *before* loading, so a write racing a load can only make the entry stale-tagged,
  * never stale-but-trusted. Hub writes are rare (sign-ins, account and member changes), reads are not.
+ *
+ * Entries decide who is signed in, so with a signing key (derived from KALIBRA_SECRET_KEY) each one
+ * carries an HMAC: whoever can write to Redis (Memorystore has no password by default) can't plant
+ * a session or a role. An entry without a valid signature is ignored and loaded again.
  */
 
 const EPOCH = 'hub:epoch';
@@ -30,12 +35,32 @@ const changesCache = (sql: string) => !isRead(sql) && !BOOKKEEPING.some((re) => 
 
 export class HubCache {
   private writes = new AsyncLocalStorage<{ dirty: boolean }>();
+  /** The epoch each value handed out was valid for, so refresh() can't re-tag an old value as current. */
+  private readAt = new WeakMap<object, string>();
 
   constructor(
     private coord: Coordinator,
     readonly enabled: boolean,
     private ttlMs = 60_000,
+    private signingKey?: Buffer,
   ) {}
+
+  private sign(key: string, epoch: string, json: string) {
+    return createHmac('sha256', this.signingKey!).update(`${key}\n${epoch}\n${json}`).digest('base64url');
+  }
+
+  private signed(key: string, epoch: string, json: string, sig: unknown) {
+    if (!this.signingKey) return true;
+    if (typeof sig !== 'string') return false;
+    const want = Buffer.from(this.sign(key, epoch, json));
+    const got = Buffer.from(sig);
+    return got.length === want.length && timingSafeEqual(got, want);
+  }
+
+  private remember<T>(value: T, epoch: string): T {
+    if (value && typeof value === 'object') this.readAt.set(value, epoch);
+    return value;
+  }
 
   /** The value for `key`, from the cache while no hub write happened since it was stored. */
   async lookup<T>(key: string, load: () => Promise<T | undefined>): Promise<T | undefined> {
@@ -51,26 +76,30 @@ export class HubCache {
     const current = epoch ?? '0';
     if (raw) {
       try {
-        const hit = JSON.parse(raw) as { e: string; v: T | null };
-        if (hit.e === current) return hit.v ?? undefined;
+        const hit = JSON.parse(raw) as { e: string; v: string; s?: string };
+        if (hit.e === current && typeof hit.v === 'string' && this.signed(key, hit.e, hit.v, hit.s)) {
+          const value = JSON.parse(hit.v) as T | null;
+          return this.remember(value ?? undefined, current);
+        }
       } catch {
         /* unreadable entry: reload */
       }
     }
     const value = await load();
     await this.store(key, value, current);
-    return value;
+    return this.remember(value, current);
   }
 
-  /** Replaces an entry (e.g. a refreshed "last seen") without invalidating anything else. */
-  async refresh<T>(key: string, value: T | undefined) {
+  /**
+   * Replaces an entry (e.g. a refreshed "last seen") without invalidating anything else. `from` is
+   * the value lookup() returned: if a hub write happened since (a sign-out, a revoked token), the
+   * new value is stored under that older epoch, so it isn't trusted and the next lookup reloads.
+   */
+  async refresh<T>(key: string, value: T | undefined, from: object) {
     if (!this.enabled) return;
-    try {
-      const [epoch] = await this.coord.getMany([EPOCH]);
-      await this.store(key, value, epoch ?? '0');
-    } catch {
-      /* best effort */
-    }
+    const epoch = this.readAt.get(from);
+    if (epoch === undefined) return;
+    await this.store(key, value, epoch);
   }
 
   /** Makes every cached lookup stale, on every instance. */
@@ -116,10 +145,10 @@ export class HubCache {
         await db.exec(sql);
         await after(sql);
       },
-      tx: async <T>(fn: () => Promise<T>) => {
-        if (writes.getStore()) return db.tx(fn);
+      tx: async <T>(fn: () => Promise<T>, opts?: TxOptions) => {
+        if (writes.getStore()) return db.tx(fn, opts);
         const ctx = { dirty: false };
-        const out = await writes.run(ctx, () => db.tx(fn));
+        const out = await writes.run(ctx, () => db.tx(fn, opts));
         if (ctx.dirty) await this.invalidate();
         return out;
       },
@@ -136,7 +165,8 @@ export class HubCache {
 
   private async store<T>(key: string, value: T | undefined, epoch: string) {
     try {
-      await this.coord.set(PREFIX + key, JSON.stringify({ e: epoch, v: value ?? null }), this.ttlMs);
+      const v = JSON.stringify(value ?? null);
+      await this.coord.set(PREFIX + key, JSON.stringify({ e: epoch, v, ...(this.signingKey ? { s: this.sign(key, epoch, v) } : {}) }), this.ttlMs);
     } catch {
       /* best effort */
     }

@@ -14,6 +14,18 @@ import { nowIso } from '../util.js';
  *   value = "v1:<key id>:<nonce, base64url>:<ciphertext + tag, base64url>"
  */
 
+/** The bytes of KALIBRA_SECRET_KEY: at least 32 random bytes, as hex or base64. */
+function keyBytes(raw: string): Buffer {
+  const bytes = Buffer.from(raw.trim(), /^[0-9a-f]+$/i.test(raw.trim()) ? 'hex' : 'base64');
+  if (bytes.length < 32) throw new Error('KALIBRA_SECRET_KEY must hold at least 32 random bytes (e.g. `openssl rand -base64 32`).');
+  return bytes;
+}
+
+/** A separate key for signing entries of the shared lookup cache (see HubCache), from KALIBRA_SECRET_KEY. */
+export function cacheSigningKey(raw: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', keyBytes(raw), 'kalibra', 'hub-cache-v1', 32));
+}
+
 export class SecretKey {
   readonly id: string;
   private key: Buffer;
@@ -25,9 +37,7 @@ export class SecretKey {
 
   /** From KALIBRA_SECRET_KEY: at least 32 random bytes, as hex or base64. */
   static from(raw: string): SecretKey {
-    const bytes = Buffer.from(raw.trim(), /^[0-9a-f]+$/i.test(raw.trim()) ? 'hex' : 'base64');
-    if (bytes.length < 32) throw new Error('KALIBRA_SECRET_KEY must hold at least 32 random bytes (e.g. `openssl rand -base64 32`).');
-    return new SecretKey(Buffer.from(hkdfSync('sha256', bytes, 'kalibra', 'secrets-v1', 32)));
+    return new SecretKey(Buffer.from(hkdfSync('sha256', keyBytes(raw), 'kalibra', 'secrets-v1', 32)));
   }
 
   encrypt(plain: string, aad: string): string {
@@ -56,24 +66,29 @@ export class SecretKey {
 
 /**
  * Secrets in the `secrets` table of a hub or project database. Secrets of an older local file
- * (secrets.json, hub-secrets.json) are imported on first use and the file is renamed `.imported`.
+ * (secrets.json, hub-secrets.json) are imported when the store is created and the file is renamed
+ * `.imported`.
  */
 export class DbSecretStore implements SecretStore {
-  private ready?: Promise<void>;
+  private ready: Promise<void>;
 
   constructor(
     private db: Db,
     private key: SecretKey,
     private scope: 'hub' | 'project',
     private legacyFile?: string,
-  ) {}
+  ) {
+    // Started here (the database is being opened), not on first use: first use can be inside a caller's
+    // transaction, and if that rolled back the imported rows would vanish after the file was renamed.
+    this.ready = this.importLegacy();
+    this.ready.catch(() => {}); // reported by the first get/set/list
+  }
 
   private aad(name: string) {
     return `${this.scope}:${name}`;
   }
 
   private init() {
-    this.ready ??= this.importLegacy();
     return this.ready;
   }
 

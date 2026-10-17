@@ -232,9 +232,7 @@ export class Accounts {
   }
 
   async unlinkIdentity(userId: string, provider: string) {
-    return this.db.tx(async () => {
-      await this.db.run('DELETE FROM identities WHERE user_id = ? AND provider = ?', userId, provider);
-    });
+    await this.db.run('DELETE FROM identities WHERE user_id = ? AND provider = ?', userId, provider);
   }
 
   // ── Sessions ──────────────────────────────────────────────────────────────
@@ -273,7 +271,7 @@ export class Accounts {
     if (Date.now() - Date.parse(s.touchedAt!) > TOUCH_MS) {
       const now = nowIso();
       await this.db.run('UPDATE sessions SET last_seen_at = ? WHERE id = ?', now, s.id);
-      await this.cache.refresh(key, { ...s, touchedAt: now });
+      await this.cache.refresh(key, { ...s, touchedAt: now }, s);
     }
     return { user: s.user, sessionId: s.id };
   }
@@ -291,15 +289,11 @@ export class Accounts {
   }
 
   async revokeAllSessions(userId: string, except?: string) {
-    return this.db.tx(async () => {
-      await this.db.run('DELETE FROM sessions WHERE user_id = ? AND id != ?', userId, except ?? '');
-    });
+    await this.db.run('DELETE FROM sessions WHERE user_id = ? AND id != ?', userId, except ?? '');
   }
 
   async pruneSessions() {
-    return this.db.tx(async () => {
-      await this.db.run('DELETE FROM sessions WHERE expires_at <= ?', nowIso());
-    });
+    await this.db.run('DELETE FROM sessions WHERE expires_at <= ?', nowIso());
   }
 
   // ── Access tokens ─────────────────────────────────────────────────────────
@@ -334,7 +328,7 @@ export class Accounts {
     if (!t.touchedAt || Date.now() - Date.parse(t.touchedAt) > TOUCH_MS) {
       const now = nowIso();
       await this.db.run('UPDATE tokens SET last_used_at = ? WHERE id = ?', now, t.id);
-      await this.cache.refresh(key, { ...t, touchedAt: now });
+      await this.cache.refresh(key, { ...t, touchedAt: now }, t);
     }
     return { user: t.user, tokenId: t.id };
   }

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { BASE_PATH, DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, publicOrigin, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
+import { BASE_PATH, DEFAULT_PROJECT, deployConfigFrom, FileSecretStore, Hub, KalibraError, publicOrigin, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
 import { openDeployment } from './deploy.js';
 
 /*
@@ -71,6 +71,12 @@ export function runningOn(dir: string): { kind: 'app' | 'server'; pid: number } 
   } catch {
     return undefined;
   }
+}
+
+/** `kalibra users` next to a running setup-B server (SQLite synced to a bucket) works on its files directly. */
+export function usesLocalFilesOfRunningServer(dir: string, env: Record<string, string | undefined> = process.env) {
+  const cfg = deployConfigFrom(env);
+  return !cfg.databaseUrl && !!cfg.storageUrl && runningOn(dir)?.kind === 'server';
 }
 
 function readEngineInfo(dir: string): EngineInfo | undefined {

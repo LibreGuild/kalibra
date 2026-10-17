@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { publicOrigin } from '../base-path.js';
 import { HubCache } from '../coord/cache.js';
@@ -84,6 +84,11 @@ export interface HubOptions {
   coordinator?: Coordinator;
   /** Cache session, token, role, project and settings lookups (default: with Redis or Postgres, where they cost a round trip). */
   cache?: boolean;
+  /**
+   * Signs the shared lookup cache's entries (from KALIBRA_SECRET_KEY, see cacheSigningKey), so whoever
+   * can write to Redis can't plant a session or a role. Set whenever Redis is used.
+   */
+  cacheKey?: Buffer;
   /** Run lease timings (tests shorten them). */
   runLease?: Partial<LeaseTiming>;
   /** Where the hub and project databases live (SQLite files by default, or Postgres); closed with the hub. */
@@ -151,7 +156,7 @@ export class Hub {
     this.mode = opts.mode;
     this.ownsCoordinator = !opts.coordinator;
     this.coordinator = opts.coordinator ?? new LocalCoordinator();
-    this.cache = new HubCache(this.coordinator, opts.cache ?? (this.coordinator.kind !== 'local' || db.dialect === 'postgres'));
+    this.cache = new HubCache(this.coordinator, opts.cache ?? (this.coordinator.kind !== 'local' || db.dialect === 'postgres'), undefined, opts.cacheKey);
     // Every hub write that could change a cached lookup invalidates the cache, on every instance.
     this.db = this.cache.watch(db);
     this.accounts = new Accounts(this.db, this.cache);
@@ -318,6 +323,16 @@ export class Hub {
 
   /** The engine of a live project, opened on first use and kept open. */
   async engine(projectId: string): Promise<Engine> {
+    // Callers pass a project they already looked up and checked (callProject, the server's routes);
+    // an engine that is open needs no second lookup (one less cache or database round trip per call).
+    const open = this.engines.get(projectId);
+    if (open) {
+      this.engines.delete(projectId); // re-inserted: the map stays in use order
+      this.engines.set(projectId, open);
+      this.lastUsed.set(projectId, Date.now());
+      await this.closeIdle(projectId); // returns at once while under the open limit
+      return open;
+    }
     const project = await this.projects.get(projectId);
     let engine = this.engines.get(project.id);
     if (!engine) {
@@ -325,6 +340,10 @@ export class Hub {
       let opening = this.opening.get(project.id);
       if (!opening) {
         const dir = resolve(this.dir, project.dir);
+        // A project's folder is the hub folder or inside it; the hub database can come from a bucket
+        // or Postgres, so a changed row must not point Kalibra at files elsewhere on the machine.
+        const rel = relative(resolve(this.dir), dir);
+        if (rel.startsWith('..') || isAbsolute(rel)) throw new KalibraError('invalid', `Project ${project.id} points outside the data folder`);
         const databases = this.opts.databases!;
         opening = (async () =>
           Engine.open({

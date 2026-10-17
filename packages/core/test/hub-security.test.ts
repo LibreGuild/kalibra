@@ -186,3 +186,16 @@ describe('lookups by id or name', () => {
     expect((await hub.projects.group(g.id)).name).toBe('speech');
   });
 });
+
+describe('project folders', () => {
+  it("won't open a project whose folder points outside the data folder (a changed hub database)", async () => {
+    const { hub, admin } = await server();
+    const p = await hub.call<any>(as(admin), 'create_project', { name: 'Elsewhere' });
+    // The hub database can come from a bucket or Postgres; a changed row mustn't reach other files.
+    await hub.closeEngine(p.id); // as after a restart
+    await hub.db.run('UPDATE projects SET dir = ? WHERE id = ?', '../../outside', p.id);
+    await expect(hub.engine(p.id)).rejects.toThrow(/outside the data folder/);
+    await hub.db.run('UPDATE projects SET dir = ? WHERE id = ?', '/tmp/outside', p.id);
+    await expect(hub.engine(p.id)).rejects.toThrow(/outside the data folder/);
+  });
+});

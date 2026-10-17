@@ -89,6 +89,14 @@ describe('saving results', () => {
     await save(engine, run.id, c.id);
     expect((await engine.repos.runs.get(run.id)).done).toBe(3);
   });
+
+  it('counts each finished row once when many saves run at the same time', async () => {
+    // Saves take row locks rather than SERIALIZABLE retries on Postgres: the same row saved by
+    // several workers at once (a retried row, a resumed run) must still count once.
+    const { engine, run, pending } = await runWith(10);
+    await Promise.all(pending.flatMap((p) => Array.from({ length: 5 }, () => save(engine, run.id, p.id))));
+    expect((await engine.repos.runs.get(run.id)).done).toBe(10);
+  });
 });
 
 describe('run summaries', () => {

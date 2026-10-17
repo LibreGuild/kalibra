@@ -290,13 +290,26 @@ export interface Db {
   get<T = any>(sql: string, ...params: unknown[]): Promise<T | undefined>;
   all<T = any>(sql: string, ...params: unknown[]): Promise<T[]>;
   exec(sql: string): Promise<void>;
-  tx<T>(fn: () => Promise<T>): Promise<T>;
+  tx<T>(fn: () => Promise<T>, opts?: TxOptions): Promise<T>;
   /** The tables with their columns, primary key and the tables they reference (for copying data between databases). */
   tables(): Promise<TableInfo[]>;
   /** Bytes the data takes on disk (database file, or the schema's tables in Postgres). */
   sizeBytes(): Promise<number>;
   close(): Promise<void>;
 }
+
+export interface TxOptions {
+  /**
+   * Postgres only (SQLite always runs one writer at a time). `serializable` (default) keeps SQLite's
+   * guarantees for read-check-write code and retries on conflicts. `read committed` is for hot paths
+   * that only need row locks and atomic updates (e.g. `done = done + 1` from every worker of a run):
+   * no conflicts to retry; lock what you read-then-write with `FOR UPDATE` (see `forUpdate`).
+   */
+  isolation?: 'serializable' | 'read committed';
+}
+
+/** ` FOR UPDATE` on Postgres (locks the rows read until the transaction ends), nothing on SQLite. */
+export const forUpdate = (db: Db) => (db.dialect === 'postgres' ? ' FOR UPDATE' : '');
 
 export interface TableInfo {
   name: string;
@@ -462,7 +475,7 @@ class SqliteDb implements Db {
   }
 
   /** Runs `fn` in a transaction (nested calls join the outer one). Other writes wait until it ends. */
-  tx<T>(fn: () => Promise<T>): Promise<T> {
+  tx<T>(fn: () => Promise<T>, _opts?: TxOptions): Promise<T> {
     if (this.inTx()) return fn();
     return this.lock.run(async () => {
       const raw = this.writer.raw;

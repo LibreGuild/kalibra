@@ -75,7 +75,7 @@ What used to live in one process and where it lives now. Everything goes through
 | State | One instance | Several instances |
 |---|---|---|
 | Live updates to browsers | in-process event bus | every event is also published on `kalibra:events` (tagged with its instance), and delivered to live streams on the others; each stream gets each event once |
-| Session / token / user / role / project / ingest-key / settings lookups | read from the database each request (cached in memory with Postgres) | Redis cache, 60 s TTL; **any** committed hub write except bookkeeping (last seen, audit, pending sign-ins) bumps one epoch, so no write path can leave a stale entry; inside a transaction lookups read the database |
+| Session / token / user / role / project / ingest-key / settings lookups | read from the database each request (cached in memory with Postgres) | Redis cache, 60 s TTL; **any** committed hub write except bookkeeping (last seen, audit, pending sign-ins) bumps one epoch, so no write path can leave a stale entry; inside a transaction lookups read the database; entries carry an HMAC (key derived from `KALIBRA_SECRET_KEY`), so write access to Redis can't plant a session or role |
 | Sign-in rate limits | sliding window in memory | sliding window in Redis (sorted set), shared |
 | Pending SSO sign-ins | database (`sso_pending`, taken with one `DELETE … RETURNING`) | same |
 | The one-time setup code | in memory, new each start | database, created once, so every instance prints the same link |

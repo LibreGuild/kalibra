@@ -3,7 +3,8 @@ import { closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync
 import { createReadStream, createWriteStream } from 'node:fs';
 import { dirname, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { createGunzip, createGzip, gunzipSync, gzipSync } from 'node:zlib';
+import { createGunzip, createGzip, gunzipSync, gzip } from 'node:zlib';
+import { promisify } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
 import { sqliteControl, type Db, type SqliteControl } from '../db.js';
 import type { ObjectStore } from './objects.js';
@@ -120,8 +121,13 @@ export function readWal(walFile: string, state: WalState): WalRead {
   return { kind: 'pages', pageSize, dbSize, pages, end: committed, frames: committed.frames - start };
 }
 
-/** One page set: the database size after it and the changed pages. */
-export function encodeDelta(pageSize: number, dbSize: number, pages: Map<number, Buffer>): Buffer {
+const gzipAsync = promisify(gzip);
+
+/**
+ * One page set: the database size after it and the changed pages. Compressed off the event loop: a
+ * burst of writes can make a page set 100 MB, which takes ~200 ms to gzip.
+ */
+export async function encodeDelta(pageSize: number, dbSize: number, pages: Map<number, Buffer>): Promise<Buffer> {
   const head = Buffer.alloc(16);
   head.write(DELTA_MAGIC, 0, 'latin1');
   head.writeUInt32BE(pageSize, 4);
@@ -133,7 +139,7 @@ export function encodeDelta(pageSize: number, dbSize: number, pages: Map<number,
     n.writeUInt32BE(pgno);
     parts.push(n, data);
   }
-  return gzipSync(Buffer.concat(parts), { level: 6 });
+  return gzipAsync(Buffer.concat(parts), { level: 6 });
 }
 
 export function decodeDelta(gz: Buffer): { pageSize: number; dbSize: number; pages: [number, Buffer][] } {
@@ -334,7 +340,7 @@ class DbSync {
       this.log(`${this.name}: ${read.reason}; taking a full snapshot`);
       return this.snapshot();
     }
-    const body = encodeDelta(read.pageSize, read.dbSize, read.pages);
+    const body = await encodeDelta(read.pageSize, read.dbSize, read.pages);
     const seq = this.seq + 1;
     await this.objects.put(this.key('generations', this.generation!, 'pages', `${seqName(seq)}.gz`), body, { contentType: 'application/gzip' });
     this.seq = seq;

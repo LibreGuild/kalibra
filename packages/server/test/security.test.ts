@@ -45,13 +45,13 @@ describe('forwarded addresses', () => {
     expect(spoofed.status).toBe(403);
     await hub.providers.save({ id: 'gate', trustedProxies: ['127.0.0.1', '::1', '::ffff:127.0.0.1'] });
     const real = await post(srv, '/kalibra/api/hub/get_me', {}, { 'x-forwarded-email': 'ivy@corp.example' });
-    expect((await real.json()).data.user.email).toBe('ivy@corp.example');
+    expect(((await real.json()) as any).data.user.email).toBe('ivy@corp.example');
   });
 
   it('applies a disabled account to gateway sign-ins at once', async () => {
     const { hub, srv } = await team();
     await hub.providers.save({ name: 'Gateway', id: 'gate', kind: 'proxy', emailHeader: 'X-Forwarded-Email', trustedProxies: ['127.0.0.1', '::1', '::ffff:127.0.0.1'], autoCreate: true });
-    const me = await (await post(srv, '/kalibra/api/hub/get_me', {}, { 'x-forwarded-email': 'jo@corp.example' })).json();
+    const me = (await (await post(srv, '/kalibra/api/hub/get_me', {}, { 'x-forwarded-email': 'jo@corp.example' })).json()) as any;
     await hub.accounts.update(me.data.user.id, { disabled: true });
     expect((await post(srv, '/kalibra/api/hub/get_me', {}, { 'x-forwarded-email': 'jo@corp.example' })).status).toBe(403);
   });
@@ -95,13 +95,13 @@ describe('provider callbacks', () => {
     expect(res.headers.get('location')).toBe('/kalibra/login');
     const flash = res.headers.getSetCookie().find((c) => c.startsWith('kalibra_login_error='))!.split(';')[0];
     const status = await fetch(`${srv.url}/kalibra/api/auth/status`, { headers: { cookie: flash } });
-    const { error } = (await status.json()).data;
+    const { error } = ((await status.json()) as any).data;
     expect(error).toMatch(/expired or was already used/);
     expect(error).not.toContain('555-0100');
     // Shown once: the status answer clears it.
     expect(status.headers.getSetCookie().join()).toMatch(/kalibra_login_error=; .*Max-Age=0/);
     // Text in the address is never shown.
-    expect((await (await fetch(`${srv.url}/kalibra/api/auth/status?error=hello`)).json()).data.error).toBeUndefined();
+    expect(((await (await fetch(`${srv.url}/kalibra/api/auth/status?error=hello`)).json()) as any).data.error).toBeUndefined();
   });
 });
 
