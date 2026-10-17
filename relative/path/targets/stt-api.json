@@ -1,0 +1,55 @@
+{
+  "description": "",
+  "name": "STT API",
+  "spec": {
+    "config": {
+      "auth": {
+        "type": "none"
+      },
+      "body": {
+        "binary": "",
+        "content": "",
+        "contentType": "",
+        "form": [],
+        "parts": [],
+        "type": "none"
+      },
+      "followRedirects": true,
+      "headers": [
+        {
+          "enabled": true,
+          "key": "Authorization",
+          "value": "Bearer {{secret.api_token}}"
+        }
+      ],
+      "kind": "http",
+      "method": "POST",
+      "outputs": [
+        {
+          "from": "text",
+          "name": "output",
+          "path": ""
+        }
+      ],
+      "query": [],
+      "scripts": {
+        "afterResponse": "",
+        "beforeRequest": ""
+      },
+      "streaming": {
+        "doneWhen": "",
+        "mode": "none",
+        "textPath": ""
+      },
+      "timeoutMs": 60000,
+      "url": "{{vars.base_url}}/stt"
+    },
+    "variables": [
+      {
+        "enabled": true,
+        "key": "base_url",
+        "value": "http://localhost:9"
+      }
+    ]
+  }
+}

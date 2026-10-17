@@ -1,0 +1,19 @@
+{
+  "format": "kalibra-folder",
+  "formatVersion": 1,
+  "index": {
+    "connections": [
+      "connections/openai.json"
+    ],
+    "datasets": [
+      "datasets/voice-images"
+    ],
+    "suites": [
+      "suites/stt-checks.json"
+    ],
+    "targets": [
+      "targets/stt-api.json"
+    ]
+  },
+  "note": "Managed by Kalibra. Edit freely; import to apply changes."
+}

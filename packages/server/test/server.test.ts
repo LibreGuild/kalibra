@@ -3,13 +3,14 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Engine } from '@kalibra/core';
+import { Hub, type Engine } from '@kalibra/core';
 import { startServer, type RunningServer } from '../src/index.js';
 
 const TOKEN = 'test-token';
 
 describe('HTTP server hardening', () => {
   let dir: string;
+  let hub: Hub;
   let engine: Engine;
   let srv: RunningServer;
   const auth = { authorization: `Bearer ${TOKEN}` };
@@ -20,13 +21,14 @@ describe('HTTP server hardening', () => {
     mkdirSync(join(dir, 'web', 'dist-private'), { recursive: true });
     writeFileSync(join(dir, 'web', 'dist', 'index.html'), '<!doctype html><title>ui</title>');
     writeFileSync(join(dir, 'web', 'dist-private', 'secret.txt'), 'do not serve');
-    engine = new Engine({ dir: join(dir, 'ws') });
-    srv = await startServer({ engine, token: TOKEN, staticDir: join(dir, 'web', 'dist') });
+    hub = new Hub({ dir: join(dir, 'ws'), mode: 'local' });
+    engine = hub.engine('default');
+    srv = await startServer({ hub, token: TOKEN, staticDir: join(dir, 'web', 'dist') });
   });
 
   afterAll(async () => {
     await srv?.close();
-    engine?.close();
+    hub?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -67,7 +69,7 @@ describe('HTTP server hardening', () => {
   });
 
   it('closes even while a live event stream is open', async () => {
-    const extra = await startServer({ engine, token: TOKEN });
+    const extra = await startServer({ hub, token: TOKEN });
     await new Promise<void>((resolve, reject) => {
       const req = request(`${extra.url}/api/events`, { headers: auth }, (res) => res.once('data', () => resolve()));
       req.on('error', () => {});

@@ -2,6 +2,7 @@ import type { Db } from '../db.js';
 import type { Actor } from '../registry.js';
 import { DEF_KINDS, type DefKind } from '../specs.js';
 import { conflict, invalid, newId, notFound, nowIso, parseJson } from '../util.js';
+import { assertCodeChange } from '../policy.js';
 
 /*
  * Targets, suites and connections share one versioned store. Every save creates an immutable
@@ -67,6 +68,7 @@ export class DefRepo {
   create(kind: DefKind, input: { name: string; description?: string; spec: unknown }, actor: Actor): DefRecord {
     const spec = this.validate(kind, input.spec);
     if (!input.name.trim()) throw invalid('Name is required');
+    assertCodeChange({}, spec, `This ${kind}`);
     if (this.db.get('SELECT 1 FROM defs WHERE kind = ? AND name = ? AND deleted_at IS NULL', kind, input.name)) {
       throw conflict(`A ${kind} named "${input.name}" already exists`);
     }
@@ -93,6 +95,7 @@ export class DefRepo {
       throw conflict(`A ${kind} named "${name}" already exists`);
     }
     const spec = patch.spec !== undefined ? this.validate(kind, patch.spec) : cur.spec;
+    assertCodeChange(cur.spec, spec, `This ${kind}`);
     const specChanged = JSON.stringify(spec) !== JSON.stringify(cur.spec) || name !== cur.name;
     const now = nowIso();
     const a = JSON.stringify(actor);

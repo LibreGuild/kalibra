@@ -5,7 +5,7 @@ import { EventBus } from './events.js';
 import { createLlmClient } from './providers/index.js';
 import type { LlmClient } from './providers/types.js';
 import { Embeddings, type Embedder } from './providers/embeddings.js';
-import { LOCAL_USER, Registry, type Actor } from './registry.js';
+import { ALL_CAPABILITIES, LOCAL_USER, opAccess, Registry, roleAtLeast, type Actor, type Capabilities, type ProjectRole } from './registry.js';
 import { DatasetRepo } from './repo/datasets.js';
 import { DefRepo } from './repo/defs.js';
 import { RunRepo } from './repo/runs.js';
@@ -13,8 +13,9 @@ import { Runner } from './runner/runner.js';
 import { ConnectionSpec } from './specs.js';
 import { FileSecretStore, FsBlobStore, type BlobStore, type SecretStore } from './storage.js';
 import type { TemplateEnv } from './template.js';
-import { nowIso } from './util.js';
+import { KalibraError, nowIso } from './util.js';
 import { ALL_OPS } from './ops/index.js';
+import { withCall } from './policy.js';
 import { Jobs } from './jobs.js';
 
 export interface EngineOptions {
@@ -31,7 +32,15 @@ export class Engine {
   readonly blobs: BlobStore;
   readonly secrets: SecretStore;
   readonly events = new EventBus();
-  readonly registry = new Registry();
+  readonly registry = new Registry({
+    authorize: (def, ctx) => {
+      const needed = opAccess(def);
+      if (!roleAtLeast(ctx.role, needed)) {
+        throw new KalibraError('forbidden', `${def.title} needs the ${needed} role in this project (you are ${ctx.role === 'viewer' ? 'a viewer' : `an ${ctx.role}`})`);
+      }
+    },
+    accessOf: opAccess,
+  });
   readonly repos: { datasets: DatasetRepo; defs: DefRepo; runs: RunRepo };
   readonly runner: Runner;
   readonly llm: LlmClient;
@@ -54,9 +63,14 @@ export class Engine {
     this.runner.recover();
   }
 
-  /** Calls an operation as `actor`. Every change is logged with its actor and broadcast to listeners. */
-  async call<T = any>(name: string, input: unknown, actor: Actor = LOCAL_USER): Promise<T> {
-    const result = await this.registry.call({ engine: this, actor }, name, input);
+  /**
+   * Calls an operation as `actor`. Every change is logged with its actor and broadcast to listeners.
+   * `role` and `caps` default to full access (the desktop's single user); the hub passes the caller's
+   * real role and the server's capabilities.
+   */
+  async call<T = any>(name: string, input: unknown, actor: Actor = LOCAL_USER, access: { role?: ProjectRole; caps?: Capabilities } = {}): Promise<T> {
+    const ctx = { engine: this, actor, role: access.role ?? 'owner', caps: access.caps ?? ALL_CAPABILITIES };
+    const result = await withCall(ctx, () => this.registry.call(ctx, name, input));
     const def = this.registry.get(name)!;
     if (!def.readOnly && !def.quiet) {
       const summary = describeChange(def.title, input);

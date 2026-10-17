@@ -3,6 +3,7 @@ import { defineOp, type OpDef } from '../registry.js';
 import { RunOverrides, RunSettings, TargetSpec } from '../specs.js';
 import { applyOverrides } from '../runner/overrides.js';
 import { invalid } from '../util.js';
+import { assertCodeChange } from '../policy.js';
 import type { Engine } from '../engine.js';
 import type { RunRecord } from '../repo/runs.js';
 import { mcnemarExact, prepareRun, runPreflight } from './runs.js';
@@ -97,8 +98,10 @@ export const groupsOps: OpDef<any, any>[] = [
       // Validate every variant before creating anything.
       const prepared = i.variants.map((v, n) => {
         const target = defs.get('target', v.target);
+        let saved;
         try {
-          applyOverrides(TargetSpec.parse(target.spec), v.overrides);
+          saved = TargetSpec.parse(target.spec);
+          assertCodeChange(saved, applyOverrides(saved, v.overrides), 'These settings');
         } catch (e: any) {
           throw invalid(`Variant ${n + 1} (${v.label || target.name}): ${e?.message ?? e}`);
         }

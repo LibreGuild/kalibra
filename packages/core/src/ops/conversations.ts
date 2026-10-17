@@ -5,6 +5,7 @@ import { runConversation } from '../runner/conversation.js';
 import { callTarget } from '../runner/runner.js';
 import type { LogEntry } from '../script.js';
 import { invalid } from '../util.js';
+import { assertCodeChange } from '../policy.js';
 
 export const conversationsOps: OpDef<any, any>[] = [
   defineOp({
@@ -14,6 +15,8 @@ export const conversationsOps: OpDef<any, any>[] = [
       'Runs one multi-turn conversation against a target without creating a run, and returns the transcript. Scripted mode sends the user messages from a list column (e.g. "turns"); simulated mode lets a model play the user from a persona and goal. Works with unsaved target specs.',
     category: 'runs',
     readOnly: true,
+    // Calls the app (and possibly a model) with the project's secrets.
+    access: 'editor',
     input: z.object({
       target: z.string().optional().describe('Saved target id or name'),
       spec: z.record(z.string(), z.unknown()).optional().describe('Unsaved target spec (overrides target)'),
@@ -24,7 +27,9 @@ export const conversationsOps: OpDef<any, any>[] = [
     }),
     handler: async ({ engine }, i) => {
       if (i.conversation.mode === 'off') throw invalid('Choose "scripted" or "simulated" conversation mode');
-      const spec = TargetSpec.parse(i.spec ?? (i.target ? engine.repos.defs.get('target', i.target).spec : undefined));
+      const saved = i.target ? engine.repos.defs.get('target', i.target).spec : undefined;
+      const spec = TargetSpec.parse(i.spec ?? saved);
+      if (i.spec) assertCodeChange(saved ?? {}, spec, 'This target');
       let row: Record<string, unknown> = i.values ?? {};
       let rowId = 'manual';
       if (!i.values && (i.rowId || i.dataset)) {

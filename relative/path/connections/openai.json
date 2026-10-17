@@ -1,0 +1,17 @@
+{
+  "description": "",
+  "name": "OpenAI",
+  "spec": {
+    "apiKeySecret": "openai_key",
+    "baseUrl": "",
+    "defaultModel": "gpt-x",
+    "embeddingModel": "",
+    "headers": [],
+    "imageModel": "",
+    "models": [],
+    "options": {},
+    "provider": "openai",
+    "speechModel": "",
+    "transcriptionModel": ""
+  }
+}

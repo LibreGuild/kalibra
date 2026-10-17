@@ -79,6 +79,8 @@ export const qualityOps = [
       'Groups rows that are copies of each other. method "exact" ignores case, spacing and unicode variants; "near" catches small edits (character overlap ≥ threshold, default 0.8); "semantic" catches paraphrases using embeddings (cosine ≥ threshold, default 0.92; local model or a connection). Rejected rows are ignored. Compare on all columns or only the ones you list.',
     category: 'datasets',
     readOnly: true,
+    // Semantic search can call a connection's embedding model.
+    access: 'editor',
     input: z.object({
       dataset: datasetRef,
       method: z.enum(['exact', 'near', 'semantic']).default('near'),
@@ -199,10 +201,10 @@ export const qualityOps = [
     category: 'connections',
     readOnly: true,
     input: z.object({}),
-    handler: async ({ engine }) => ({
+    handler: async ({ engine, caps }) => ({
       ...(await engine.embeddings.status()),
       downloadMb: LOCAL_DOWNLOAD_MB,
-      dir: engine.embeddings instanceof Embeddings ? engine.embeddings.dir : undefined,
+      dir: caps.showPaths && engine.embeddings instanceof Embeddings ? engine.embeddings.dir : undefined,
     }),
   }),
 
@@ -234,6 +236,8 @@ export const qualityOps = [
     description: 'Embeds two similar sentences with the local model (or a connection\'s embedding model) and reports their similarity, vector size and latency.',
     category: 'connections',
     readOnly: true,
+    // Calls the embedding model, possibly with the project's keys.
+    access: 'editor',
     input: z.object({
       connectionId: z.string().optional(),
       spec: z.record(z.string(), z.unknown()).optional().describe('Unsaved connection spec to test instead of a saved connection'),

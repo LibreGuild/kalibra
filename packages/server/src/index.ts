@@ -1,31 +1,46 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve, sep } from 'node:path';
-import { KalibraError, LOCAL_USER, type Actor, type Engine, type EngineEvent } from '@kalibra/core';
+import { randomBytes } from 'node:crypto';
+import { DEFAULT_PROJECT, KalibraError, roleAtLeast, type EngineEvent, type Hub, type Principal } from '@kalibra/core';
+import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, RateLimiter, sessionCookieName, type AuthConfig } from './auth.js';
+import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serveBlob, serveStatic } from './http.js';
 
 /*
- * The engine's HTTP API. The desktop app runs this on 127.0.0.1 with a per-launch token; a future
- * server mode runs the same API behind TLS and a login. Everything is an operation:
- *   GET  /api/ops            list operations (+ JSON Schemas)
- *   POST /api/ops/:name      call one
- *   GET  /api/events         live change events (SSE)
- *   POST /api/files          upload a file (raw body) → blob info
- *   GET  /api/files/:hash    download / stream a file (supports Range for audio seeking)
+ * The HTTP API. The desktop app and `npx kalibra` run it on 127.0.0.1 with a per-launch token
+ * (local mode); a team server runs the same API with sign-in (server mode). Everything is an
+ * operation, and every call goes through the hub, which decides access:
+ *
+ *   GET  /api/health                         liveness (no auth)
+ *   GET  /api/auth/status                    mode, whether setup is needed, who is signed in (no auth)
+ *   POST /api/auth/setup | login | logout    first administrator, sign in, sign out (server mode)
+ *   GET  /api/meta                           version, how to start the MCP bridge
+ *   GET  /api/hub                            hub operations (+ JSON Schemas)
+ *   POST /api/hub/:op                        your account, projects, members, administration
+ *   GET  /api/projects/:p/ops                project operations (+ JSON Schemas and needed roles)
+ *   POST /api/projects/:p/ops/:op            call one
+ *   GET  /api/projects/:p/events             live change events (SSE)
+ *   POST /api/projects/:p/files              upload a file (raw body) → blob info
+ *   GET  /api/projects/:p/files/:hash        download / stream a file (Range supported)
+ *
+ * /api/ops, /api/events and /api/files are kept as shortcuts to the default project, for older
+ * MCP bridge configs and scripts.
  */
 
 export interface ServerOptions {
-  engine: Engine;
+  hub: Hub;
   host?: string;
   port?: number;
-  /** Required on every request (Bearer header or cookie). Omit only for trusted local development. */
+  /** Local mode: required on every request (Bearer header or cookie). Omit only for trusted local development. */
   token?: string;
   /** Built web UI to serve (SPA). */
   staticDir?: string;
   /** Extra allowed browser origins (e.g. the Vite dev server). */
   allowedOrigins?: string[];
+  /** Server mode: the address people use (https://kalibra.example.com), for origin checks and secure cookies. */
+  publicUrl?: string;
+  /** Server mode: trust X-Forwarded-For/Proto/Host from a reverse proxy in front of Kalibra. */
+  trustProxy?: boolean;
   /** Facts about how this engine was launched, shown in the UI (e.g. the MCP command for coding agents). */
-  meta?: { mcp?: { command: string; args: string[]; env?: Record<string, string> }; version?: string; mode?: 'desktop' | 'cli' | 'dev' };
+  meta?: { mcp?: { command: string; args: string[]; env?: Record<string, string> }; version?: string; mode?: 'desktop' | 'cli' | 'dev' | 'server' };
 }
 
 export interface RunningServer {
@@ -35,18 +50,19 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-const STATUS: Record<string, number> = { not_found: 404, invalid: 400, conflict: 409, forbidden: 403, unavailable: 503, internal: 500 };
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json', '.map': 'application/json',
-};
-
 export const newToken = () => randomBytes(32).toString('base64url');
 
+/** Sign-in attempts per IP address in 10 minutes (each account also locks after repeated wrong passwords). */
+const LOGIN_LIMIT = 20;
+/** How often live event streams re-check that the caller may still see the project. */
+const RECHECK_MS = 30_000;
+
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
-  const { engine } = opts;
+  const { hub } = opts;
   const host = opts.host ?? '127.0.0.1';
   let port = 0;
+  const cfg: AuthConfig = { hub, token: opts.token, allowedOrigins: opts.allowedOrigins ?? [], publicUrl: opts.publicUrl?.replace(/\/$/, ''), trustProxy: !!opts.trustProxy };
+  const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000);
 
   const server = createServer(async (req, res) => {
     try {
@@ -56,139 +72,178 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
   });
 
-  function allowedHosts() {
-    return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, ...(opts.allowedOrigins ?? []).map((o) => new URL(o).host)]);
-  }
-
-  /** Blocks DNS-rebinding and cross-site requests: Host must be ours; Origin, when present, must be ours too. */
-  function checkOrigin(req: IncomingMessage): boolean {
-    if (host !== '127.0.0.1' && host !== 'localhost') return true; // server mode: handled by a reverse proxy / auth layer
-    const hosts = allowedHosts();
-    if (!req.headers.host || !hosts.has(req.headers.host)) return false;
-    // "null" comes from sandboxed iframes and file:// pages, which any website can create.
-    const origin = req.headers.origin;
-    if (origin !== undefined) {
-      try {
-        if (!hosts.has(new URL(origin).host)) return false;
-      } catch {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function authorized(req: IncomingMessage): boolean {
-    if (!opts.token) return true;
-    const header = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    const cookie = /(?:^|;\s*)kalibra_token=([^;]+)/.exec(req.headers.cookie ?? '')?.[1];
-    const given = header || cookie || '';
-    const a = Buffer.from(given);
-    const b = Buffer.from(opts.token);
-    return a.length === b.length && timingSafeEqual(a, b);
-  }
-
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', 'http://localhost');
-    if (!checkOrigin(req)) return send(res, 403, { error: { code: 'forbidden', message: 'Host or origin not allowed' } });
+    if (hub.mode === 'local' ? !checkLocalOrigin(req, port, cfg) : !originAllowed(req, cfg)) return fail(res, 403, 'forbidden', 'Host or origin not allowed');
 
-    // Desktop shell opens /?token=… once; we turn it into an HttpOnly cookie for the UI.
-    if (opts.token && url.searchParams.get('token') === opts.token && !url.pathname.startsWith('/api/')) {
-      res.writeHead(302, {
-        'set-cookie': `kalibra_token=${opts.token}; HttpOnly; SameSite=Strict; Path=/`,
-        location: url.pathname,
-      });
+    // The desktop shell opens /?token=… once; we turn it into an HttpOnly cookie for the UI.
+    if (hub.mode === 'local' && opts.token && url.searchParams.get('token') === opts.token && !url.pathname.startsWith('/api/')) {
+      res.writeHead(302, { ...BASE_HEADERS, 'set-cookie': `${LOCAL_COOKIE}=${opts.token}; HttpOnly; SameSite=Strict; Path=/`, location: url.pathname });
       return res.end();
     }
 
-    if (url.pathname.startsWith('/api/')) {
-      if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra' });
-      if (!authorized(req)) return send(res, 401, { error: { code: 'forbidden', message: 'Missing or invalid token' } });
-      return api(req, res, url);
+    if (!url.pathname.startsWith('/api/')) return serveStatic(opts.staticDir, req, res, url);
+    if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra' });
+    if (url.pathname.startsWith('/api/auth/')) return authRoutes(req, res, url);
+
+    const auth = authenticate(req, cfg);
+    if (!auth.ok) return fail(res, auth.status, auth.code, auth.message);
+    const p = auth.principal;
+    // A browser session must not write with another site's help (CSRF): writes need our Origin.
+    if (auth.via === 'session' && req.method !== 'GET' && req.method !== 'HEAD' && !req.headers.origin) {
+      return fail(res, 403, 'forbidden', 'Missing Origin header');
     }
-    return serveStatic(req, res, url);
+    // Accounts given a starting password must pick their own before doing anything else.
+    if (p.user.mustChangePassword && auth.via === 'session' && !['/api/hub/change_password', '/api/hub/get_me', '/api/meta'].includes(url.pathname)) {
+      return fail(res, 403, 'password_change_required', 'Choose a new password to continue');
+    }
+    return api(req, res, url, p);
   }
 
-  async function api(req: IncomingMessage, res: ServerResponse, url: URL) {
+  // ── Sign-in ───────────────────────────────────────────────────────────────
+
+  function sessionCookie(req: IncomingMessage, value: string, maxAgeSec: number) {
+    const secure = isSecure(req, cfg);
+    return `${sessionCookieName(secure)}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
+  }
+
+  async function startSession(req: IncomingMessage, res: ServerResponse, userId: string) {
+    const days = hub.settings().sessionDays;
+    const s = hub.accounts.createSession(userId, { days, ip: clientIp(req, cfg.trustProxy), userAgent: String(req.headers['user-agent'] ?? '') });
+    const me = await hub.call({ user: hub.accounts.get(userId), via: 'user', sessionId: s.id }, 'get_me', {});
+    sendData(res, me, { 'set-cookie': sessionCookie(req, s.secret, days * 86_400) });
+  }
+
+  async function authRoutes(req: IncomingMessage, res: ServerResponse, url: URL) {
+    const ip = clientIp(req, cfg.trustProxy);
     const path = url.pathname;
-    if (path === '/api/ops' && req.method === 'GET') return send(res, 200, engine.registry.describe());
-    if (path === '/api/meta' && req.method === 'GET') return send(res, 200, { data: { dir: engine.dir, ...opts.meta } });
 
-    const op = /^\/api\/ops\/([a-z0-9_]+)$/.exec(path);
-    if (op && req.method === 'POST') {
-      const body = await readBody(req, 50 * 1024 * 1024);
-      const input = body.length ? JSON.parse(body.toString('utf8')) : {};
-      const result = await engine.call(op[1], input, actorFrom(req));
-      return send(res, 200, { data: result ?? null });
-    }
-
-    if (path === '/api/events' && req.method === 'GET') {
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-      res.write(': connected\n\n');
-      const unsubscribe = engine.events.subscribe((e: EngineEvent) => res.write(`data: ${JSON.stringify(e)}\n\n`));
-      const ping = setInterval(() => res.write(': ping\n\n'), 15000);
-      req.on('close', () => {
-        clearInterval(ping);
-        unsubscribe();
+    if (path === '/api/auth/status' && req.method === 'GET') {
+      const auth = authenticate(req, cfg);
+      return sendData(res, {
+        mode: hub.mode,
+        setupRequired: hub.needsSetup(),
+        user: auth.ok ? auth.principal.user : null,
+        providers: [],
       });
-      return;
     }
 
-    if (path === '/api/files' && req.method === 'POST') {
-      const data = await readBody(req, 2 * 1024 * 1024 * 1024);
-      const name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')) || undefined;
-      const type = String(req.headers['content-type'] ?? '');
-      const info = await engine.blobs.put(data, { name, mime: type && type !== 'application/octet-stream' ? type : undefined });
-      return send(res, 200, { data: info });
+    if (req.method !== 'POST') return fail(res, 404, 'not_found', `No route ${req.method} ${path}`);
+    if (hub.mode === 'local') return fail(res, 400, 'invalid', 'This Kalibra runs on your computer without sign-in');
+    if (!req.headers.origin) return fail(res, 403, 'forbidden', 'Missing Origin header');
+
+    if (path === '/api/auth/logout') {
+      const auth = authenticate(req, cfg);
+      if (auth.ok && auth.principal.sessionId) hub.accounts.revokeSession(auth.principal.sessionId);
+      return sendData(res, { signedOut: true }, { 'set-cookie': sessionCookie(req, '', 0) });
     }
 
-    const file = /^\/api\/files\/([a-f0-9]{64})$/.exec(path);
-    if (file && (req.method === 'GET' || req.method === 'HEAD')) {
-      const info = engine.blobs.info(file[1]);
-      if (!info || !engine.blobs.has(file[1])) return send(res, 404, { error: { code: 'not_found', message: 'File not found' } });
-      const headers: Record<string, string | number> = {
-        'content-type': info.mime,
-        'accept-ranges': 'bytes',
-        'cache-control': 'private, max-age=31536000, immutable',
-        // Files come from datasets, bundles and model output: opened directly (e.g. an SVG or HTML file),
-        // they must not run script with this origin's access to the API.
-        'content-security-policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
-        'x-content-type-options': 'nosniff',
-      };
-      if (url.searchParams.has('download')) headers['content-disposition'] = `attachment; filename="${encodeURIComponent(info.name ?? info.hash)}"`;
-      const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
-      if (range && (range[1] || range[2])) {
-        const start = range[1] ? Number(range[1]) : Math.max(0, info.size - Number(range[2]));
-        const end = range[1] && range[2] ? Math.min(Number(range[2]), info.size - 1) : info.size - 1;
-        if (start > end || start >= info.size) {
-          res.writeHead(416, { 'content-range': `bytes */${info.size}` });
-          return res.end();
-        }
-        res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${info.size}`, 'content-length': end - start + 1 });
-        if (req.method === 'HEAD') return res.end();
-        return engine.blobs.stream(info.hash, { start, end }).pipe(res);
+    const body = await readJson(req, 64 * 1024);
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+
+    if (path === '/api/auth/setup') {
+      if (!logins.allow(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
+      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip);
+      return startSession(req, res, user.id);
+    }
+
+    if (path === '/api/auth/login') {
+      const username = str(body.username).trim();
+      if (!logins.allow(ip)) {
+        hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
+        return fail(res, 429, 'rate_limited', 'Too many sign-in attempts. Wait a few minutes.');
       }
-      res.writeHead(200, { ...headers, 'content-length': info.size });
-      if (req.method === 'HEAD') return res.end();
-      return engine.blobs.stream(info.hash).pipe(res);
+      try {
+        const user = await hub.accounts.authenticate(username, str(body.password));
+        hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
+        return startSession(req, res, user.id);
+      } catch (e) {
+        hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
+        throw e;
+      }
     }
 
-    send(res, 404, { error: { code: 'not_found', message: `No route ${req.method} ${path}` } });
+    return fail(res, 404, 'not_found', `No route ${req.method} ${path}`);
   }
 
-  function serveStatic(req: IncomingMessage, res: ServerResponse, url: URL) {
-    if (!opts.staticDir) return send(res, 404, { error: { code: 'not_found', message: 'UI not built. Run the web dev server or build the UI.' } });
-    const root = resolve(opts.staticDir);
-    let file = normalize(join(root, decodeURIComponent(url.pathname)));
-    if (file !== root && !file.startsWith(root + sep)) return send(res, 403, { error: { code: 'forbidden', message: 'Bad path' } });
-    if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
-    const isAsset = file.includes(`${root}/assets/`);
-    res.writeHead(200, {
-      'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-      'cache-control': isAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
-    });
-    if (req.method === 'HEAD') return res.end();
-    createReadStream(file).pipe(res);
+  // ── API ───────────────────────────────────────────────────────────────────
+
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL, p: Principal) {
+    const path = url.pathname;
+    const ip = clientIp(req, cfg.trustProxy);
+
+    if (path === '/api/meta' && req.method === 'GET') {
+      const local = hub.mode === 'local';
+      return sendData(res, { ...opts.meta, mode: local ? opts.meta?.mode : 'server', hubMode: hub.mode, ...(local ? { dir: hub.dir } : {}), ...(local ? {} : { mcp: undefined }), publicUrl: cfg.publicUrl });
+    }
+
+    if (path === '/api/hub' && req.method === 'GET') return send(res, 200, hub.registry.describe());
+    const hubOp = /^\/api\/hub\/([a-z0-9_]+)$/.exec(path);
+    if (hubOp && req.method === 'POST') return sendData(res, await hub.call(p, hubOp[1], await readJson(req), { ip }));
+
+    // Project routes, and the legacy shortcuts to the default project.
+    const m = /^\/api\/projects\/([^/]+)(\/.*)$/.exec(path);
+    const projectId = m ? decodeURIComponent(m[1]) : DEFAULT_PROJECT;
+    const rest = m ? m[2] : path.replace(/^\/api/, '');
+
+    if (rest === '/ops' && req.method === 'GET') {
+      const { project } = hub.projectFor(p, projectId);
+      return send(res, 200, hub.engine(project.id).registry.describe());
+    }
+
+    const op = /^\/ops\/([a-z0-9_]+)$/.exec(rest);
+    if (op && req.method === 'POST') return sendData(res, await hub.callProject(p, projectId, op[1], await readJson(req)));
+
+    if (rest === '/events' && req.method === 'GET') return events(req, res, p, projectId);
+
+    if (rest === '/files' && req.method === 'POST') {
+      const { project, role } = hub.projectFor(p, projectId);
+      if (!roleAtLeast(role, 'editor')) throw new KalibraError('forbidden', 'Uploading files needs the editor role in this project');
+      const data = await readBody(req, 2 * 1024 * 1024 * 1024);
+      let name: string | undefined;
+      try {
+        name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')) || undefined;
+      } catch {
+        throw new KalibraError('invalid', 'Bad x-file-name header');
+      }
+      const type = String(req.headers['content-type'] ?? '');
+      return sendData(res, await hub.engine(project.id).blobs.put(data, { name, mime: type && type !== 'application/octet-stream' ? type : undefined }));
+    }
+
+    const file = /^\/files\/([a-f0-9]{64})$/.exec(rest);
+    if (file && (req.method === 'GET' || req.method === 'HEAD')) {
+      const { project } = hub.projectFor(p, projectId);
+      return serveBlob(hub.engine(project.id), req, res, file[1], url);
+    }
+
+    fail(res, 404, 'not_found', `No route ${req.method} ${path}`);
   }
+
+  /** Live events of one project, for as long as the caller may see it. */
+  function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string) {
+    const { project } = hub.projectFor(p, projectId);
+    const engine = hub.engine(project.id);
+    res.writeHead(200, { ...BASE_HEADERS, 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+    res.write(': connected\n\n');
+    const unsubscribe = engine.events.subscribe((e: EngineEvent) => res.write(`data: ${JSON.stringify(e)}\n\n`));
+    const stillAllowed = () => {
+      try {
+        if (p.sessionId && !hub.accounts.resolveSession(cookieValue(req) ?? '')) return false;
+        if (p.tokenId && !hub.accounts.resolveToken(/^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '')) return false;
+        hub.projectFor(hub.mode === 'local' ? p : { ...p, user: hub.accounts.get(p.user.id) }, project.id);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const ping = setInterval(() => (stillAllowed() ? res.write(': ping\n\n') : res.end()), RECHECK_MS);
+    req.on('close', () => {
+      clearInterval(ping);
+      unsubscribe();
+    });
+  }
+
+  const cookieValue = (req: IncomingMessage) => cookie(req, sessionCookieName(true)) ?? cookie(req, sessionCookieName(false));
 
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject);
@@ -197,7 +252,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   port = (server.address() as any).port;
 
   return {
-    url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`,
+    url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`,
     port,
     token: opts.token,
     close: () =>
@@ -207,50 +262,4 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         server.closeAllConnections();
       }),
   };
-}
-
-/** Callers holding the token may say who they are (the MCP bridge marks agent calls). */
-function actorFrom(req: IncomingMessage): Actor {
-  const raw = req.headers['x-kalibra-actor'];
-  if (typeof raw === 'string') {
-    try {
-      const a = JSON.parse(raw);
-      if (['user', 'agent', 'cli'].includes(a.kind) && typeof a.id === 'string') {
-        return { kind: a.kind, id: a.id.slice(0, 100), client: a.client?.slice?.(0, 100), model: a.model?.slice?.(0, 100) };
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-  return LOCAL_USER;
-}
-
-function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
-  return new Promise((resolveBody, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size > limit) {
-        reject(new KalibraError('invalid', 'Request body too large'));
-        req.destroy();
-      } else chunks.push(c);
-    });
-    req.on('end', () => resolveBody(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
-function send(res: ServerResponse, status: number, body: unknown) {
-  if (res.headersSent) return res.end();
-  const text = JSON.stringify(body);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
-  res.end(text);
-}
-
-function sendError(res: ServerResponse, e: unknown) {
-  if (e instanceof KalibraError) return send(res, STATUS[e.code] ?? 500, { error: { code: e.code, message: e.message, details: e.details } });
-  if (e instanceof SyntaxError) return send(res, 400, { error: { code: 'invalid', message: `Invalid JSON: ${e.message}` } });
-  const message = (e as any)?.message ?? String(e);
-  send(res, 500, { error: { code: 'internal', message } });
 }

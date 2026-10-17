@@ -3,14 +3,22 @@ import { defineOp, type OpDef } from '../registry.js';
 import { exportBundle, importBundle, inspectBundle } from '../sharing/bundle.js';
 import { exportToFolder, importFromFolder } from '../sharing/folder.js';
 import { importExternal, inspectExternal } from '../sharing/importers.js';
-import { settingsGet, settingsSet } from '../sharing/common.js';
-import { invalid } from '../util.js';
+import { settingsGet, settingsSet, type CodeItem } from '../sharing/common.js';
+import { invalid, KalibraError } from '../util.js';
+import { allowedFolder } from '../policy.js';
 import type { Engine } from '../engine.js';
 
 /*
  * Team sharing without a server: bundles to send to a teammate, a Git-friendly folder to sync,
  * and importers for other eval tools. Secret values are never exported.
  */
+
+/** Imports that would add code are refused as a whole where only administrators may add code. */
+function refuseCode(code: CodeItem[], source: string) {
+  if (!code.length) return;
+  const list = code.map((c) => `${c.kind} "${c.name}"`).join(', ');
+  throw new KalibraError('forbidden', `${source} contains JavaScript (${list}). On this server only administrators can import code.`);
+}
 
 async function blobBytes(engine: Engine, hash: string) {
   if (!engine.blobs.info(hash) || !engine.blobs.has(hash)) throw invalid('Upload the file first (blob not found)');
@@ -24,6 +32,8 @@ export const sharingOps: OpDef<any, any>[] = [
     description:
       'Packs datasets (with their audio/image files), targets, suites, connections and optionally runs into one .kalibra file a teammate can import. Secret values are never included — only the names of secrets they need to set. Pass everything: true for the whole workspace. Returns the file (blob hash) to download.',
     category: 'workspace',
+    // Packing up what you can already read; viewers may take a copy.
+    access: 'viewer',
     input: z.object({
       datasets: z.array(z.string()).optional(),
       targets: z.array(z.string()).optional(),
@@ -61,7 +71,12 @@ export const sharingOps: OpDef<any, any>[] = [
       'Imports an uploaded .kalibra bundle. When something with the same name exists: rename (keep both), skip (keep yours) or new_version (update yours; datasets get the new rows). Files are deduplicated, run references are rewired, and the report lists secrets to set.',
     category: 'workspace',
     input: z.object({ blob: z.string(), onConflict: z.enum(['rename', 'skip', 'new_version']).default('rename') }),
-    handler: async ({ engine, actor }, i) => importBundle(engine, await blobBytes(engine, i.blob), i.onConflict, actor),
+    handler: async ({ engine, actor, caps }, i) => {
+      const bytes = await blobBytes(engine, i.blob);
+      // Refuse up front rather than stopping halfway through an import.
+      if (!caps.code) refuseCode((await inspectBundle(engine, bytes)).code, 'This bundle');
+      return importBundle(engine, bytes, i.onConflict, actor);
+    },
   }),
 
   defineOp({
@@ -79,6 +94,7 @@ export const sharingOps: OpDef<any, any>[] = [
     title: 'Set sharing settings',
     description: 'Remembers the Git sync folder and options.',
     category: 'workspace',
+    access: 'owner',
     quiet: true,
     input: z.object({ folder: z.string().optional(), includeRows: z.boolean().optional(), includeMedia: z.boolean().optional() }),
     handler: ({ engine }, i) => settingsSet(engine, i),
@@ -90,8 +106,10 @@ export const sharingOps: OpDef<any, any>[] = [
     description:
       'Writes targets, suites, connections (no secrets) and datasets as small, stable text files in a folder your team keeps in Git. Re-exporting only changes files whose content changed. Takes an absolute path on this computer (desktop/CLI).',
     category: 'workspace',
+    // Writes to a folder on the engine's machine.
+    access: 'owner',
     input: z.object({ dir: z.string(), includeRows: z.boolean().default(true), includeMedia: z.boolean().default(false).describe('Also copy audio/image files (large; usually left out of Git)') }),
-    handler: ({ engine }, i) => exportToFolder(engine, i.dir, i),
+    handler: (ctx, i) => exportToFolder(ctx.engine, allowedFolder(ctx, i.dir), i),
   }),
 
   defineOp({
@@ -100,8 +118,13 @@ export const sharingOps: OpDef<any, any>[] = [
     description:
       'Reads a Kalibra folder (e.g. after git pull) and applies differences: new items are added, changed definitions get a new version, changed rows are updated. Use dryRun to preview. Nothing is deleted unless prune is true. Takes an absolute path on this computer.',
     category: 'workspace',
+    access: 'owner',
     input: z.object({ dir: z.string(), dryRun: z.boolean().default(false), prune: z.boolean().default(false).describe('Also delete items and rows that are not in the folder') }),
-    handler: ({ engine, actor }, i) => importFromFolder(engine, i.dir, i, actor),
+    handler: async (ctx, i) => {
+      const dir = allowedFolder(ctx, i.dir);
+      if (!ctx.caps.code && !i.dryRun) refuseCode((await importFromFolder(ctx.engine, dir, { ...i, dryRun: true }, ctx.actor)).code, 'This folder');
+      return importFromFolder(ctx.engine, dir, i, ctx.actor);
+    },
   }),
 
   defineOp({

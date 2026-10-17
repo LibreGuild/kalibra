@@ -12,11 +12,11 @@ export const workspaceOps = [
     category: 'workspace',
     readOnly: true,
     input: z.object({}),
-    handler: async ({ engine }) => {
+    handler: async ({ engine, caps }) => {
       const count = (sql: string) => engine.db.get(sql).n as number;
       const blobs = engine.db.get('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM blobs');
       return {
-        dir: engine.dir,
+        dir: caps.showPaths ? engine.dir : undefined,
         datasets: count('SELECT COUNT(*) AS n FROM datasets WHERE deleted_at IS NULL'),
         rows: count('SELECT COUNT(*) AS n FROM rows WHERE deleted_at IS NULL'),
         targets: count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'target' AND deleted_at IS NULL"),

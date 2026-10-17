@@ -7,6 +7,7 @@ import { defineOp, type OpDef } from '../registry.js';
 import { ConnectionSpec, TargetSpec, type DefKind } from '../specs.js';
 import { executeTarget, parseCurl } from '../targets/index.js';
 import { invalid } from '../util.js';
+import { assertCodeChange } from '../policy.js';
 
 const LABEL: Record<DefKind, { one: string; many: string; about: string }> = {
   target: { one: 'target', many: 'targets', about: 'A target is the AI application under test: an HTTP API, a WebSocket service, a model + prompt, or a custom script.' },
@@ -20,6 +21,8 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
   const category = kind === 'target' ? 'targets' : kind === 'suite' ? 'suites' : 'connections';
   const ref = z.string().describe(`${L.one} id or name`);
   const changed = (engine: any, id: string, actor: any) => engine.events.emit({ type: 'def.changed', kind, id, actor });
+  // Connections hold the project's model accounts (and point at its secrets): only owners change them.
+  const writeAccess = kind === 'connection' ? ('owner' as const) : undefined;
   return [
     defineOp({
       name: `list_${L.many}`,
@@ -44,6 +47,7 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       title: `Create ${L.one}`,
       description: `Creates a ${L.one}. ${L.about} Omitted spec fields get defaults.`,
       category,
+      access: writeAccess,
       input: z.object({ name: z.string().min(1), description: z.string().default(''), spec: z.record(z.string(), z.unknown()) }),
       handler: ({ engine, actor }, i) => {
         const d = engine.repos.defs.create(kind, i, actor);
@@ -56,6 +60,7 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       title: `Update ${L.one}`,
       description: `Saves a new version of a ${L.one}. Pass baseVersion (the version you read) so a concurrent edit is not overwritten.`,
       category,
+      access: writeAccess,
       input: z.object({
         id: ref,
         name: z.string().optional(),
@@ -74,6 +79,7 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       title: `Delete ${L.one}`,
       description: `Moves a ${L.one} to the trash. Past runs keep the exact version they used.`,
       category,
+      access: writeAccess,
       destructive: true,
       input: z.object({ id: ref }),
       handler: ({ engine, actor }, i) => {
@@ -107,6 +113,8 @@ export const defOpsAll = [
       'Calls a target once with one dataset row (or values you pass) and returns the rendered request, response, extracted outputs, metrics and logs. Works with unsaved specs, so you can try before saving.',
     category: 'targets',
     readOnly: true,
+    // Calls the app with the project's secrets.
+    access: 'editor',
     input: z.object({
       target: z.string().optional().describe('Saved target id or name'),
       spec: z.record(z.string(), z.unknown()).optional().describe('Unsaved target spec (overrides target)'),
@@ -115,7 +123,9 @@ export const defOpsAll = [
       values: z.record(z.string(), z.unknown()).optional().describe('Row values to use instead of a dataset row'),
     }),
     handler: async ({ engine }, i) => {
-      const spec = TargetSpec.parse(i.spec ?? (i.target ? engine.repos.defs.get('target', i.target).spec : undefined));
+      const saved = i.target ? engine.repos.defs.get('target', i.target).spec : undefined;
+      const spec = TargetSpec.parse(i.spec ?? saved);
+      if (i.spec) assertCodeChange(saved ?? {}, spec, 'This target');
       let row: Record<string, unknown> = i.values ?? {};
       let rowId = 'manual';
       if (!i.values && (i.rowId || i.dataset)) {
@@ -187,6 +197,8 @@ export const defOpsAll = [
     description:
       'Makes one small call through a connection and reports latency. Text models get a tiny prompt, image models draw a small test image, speech models say one sentence, transcription models transcribe a short clip. Works with unsaved specs.',
     category: 'connections',
+    // Calls the provider with the project's keys.
+    access: 'editor',
     readOnly: true,
     input: z.object({
       id: z.string().optional(),
@@ -232,6 +244,8 @@ export const defOpsAll = [
     title: 'List models',
     description: 'Lists models available through a connection, when the provider supports listing.',
     category: 'connections',
+    // Calls the provider with the project's keys.
+    access: 'editor',
     readOnly: true,
     input: z.object({ id: z.string().optional(), spec: z.record(z.string(), z.unknown()).optional() }),
     handler: async ({ engine }, i) => {
@@ -255,6 +269,7 @@ export const defOpsAll = [
     title: 'Set secret',
     description: 'Stores a secret value in the OS keychain-backed store.',
     category: 'connections',
+    access: 'owner',
     mcp: false,
     input: z.object({ name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), value: z.string() }),
     handler: async ({ engine }, i) => {
@@ -268,6 +283,7 @@ export const defOpsAll = [
     title: 'Delete secret',
     description: 'Removes a stored secret.',
     category: 'connections',
+    access: 'owner',
     mcp: false,
     destructive: true,
     input: z.object({ name: z.string() }),

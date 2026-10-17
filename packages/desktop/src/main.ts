@@ -2,23 +2,25 @@ import { app, BrowserWindow, Menu, nativeTheme, safeStorage, shell } from 'elect
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Engine, FileSecretStore } from '@kalibra/core';
+import { FileSecretStore, Hub } from '@kalibra/core';
 import { newToken, startServer, type RunningServer } from '@kalibra/server';
 
 /*
- * Desktop shell: runs the engine + HTTP API on 127.0.0.1 with a per-launch token and opens the
- * web UI in a window. The UI is the same one a future self-hosted server mode serves to browsers.
+ * Desktop shell: runs the hub (all your projects) + HTTP API on 127.0.0.1 with a per-launch token
+ * and opens the web UI in a window. Single user, no sign-in; the same UI a team server serves to
+ * browsers.
  */
 
 const dir = process.env.KALIBRA_DIR || join(homedir(), 'Kalibra', 'default');
-let engine: Engine | undefined;
+let hub: Hub | undefined;
 let server: RunningServer | undefined;
 
 // Secrets are encrypted with a key held by the OS keychain (macOS Keychain, Windows DPAPI, libsecret).
-function secretStore() {
+// Each project keeps its own secrets.enc in its folder.
+function secretStore(projectDir: string) {
   const usable = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
   if (!usable) console.warn('OS keychain encryption unavailable; secrets are stored with file permissions only.');
-  return new FileSecretStore(join(dir, 'secrets.enc'), {
+  return new FileSecretStore(join(projectDir, 'secrets.enc'), {
     encrypt: (s) => (usable ? safeStorage.encryptString(s) : Buffer.from(s, 'utf8')),
     decrypt: (b) => (usable ? safeStorage.decryptString(b) : b.toString('utf8')),
   });
@@ -26,12 +28,13 @@ function secretStore() {
 
 async function boot() {
   mkdirSync(dir, { recursive: true });
-  engine = new Engine({ dir, secrets: secretStore() });
+  hub = new Hub({ dir, mode: 'local', secretsFor: secretStore });
+  hub.openAll();
   const token = newToken();
   const resources = app.isPackaged ? process.resourcesPath : join(__dirname);
   const cli = join(resources, 'cli', 'kalibra.mjs');
   server = await startServer({
-    engine,
+    hub,
     token,
     staticDir: join(__dirname, 'web'),
     meta: {
@@ -107,6 +110,6 @@ else {
       /* ignore */
     }
     await server?.close();
-    engine?.close();
+    hub?.close();
   });
 }

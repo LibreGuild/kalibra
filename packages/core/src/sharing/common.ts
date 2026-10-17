@@ -76,22 +76,34 @@ export function secretNames(spec: unknown): string[] {
 const CODE_KEYS = new Set(['code', 'beforeRequest', 'afterResponse', 'onMessage', 'waitForOpenAck', 'ignoreWhen', 'isFinal', 'doneExpression', 'applyWhen', 'expression']);
 const DONE_WHEN_MODES = new Set(['final_after_audio', 'close', 'expression', 'idle']);
 
-/** Where a definition runs JavaScript (scripts, expressions), e.g. ["applyWhen", "code"]. */
-export function codeIn(spec: unknown): string[] {
-  const found = new Set<string>();
+/** Calls `found(place, code)` for every piece of JavaScript in a definition. */
+function walkCode(spec: unknown, found: (place: string, code: string) => void) {
   const walk = (v: unknown, key?: string) => {
     if (typeof v === 'string') {
       // `doneWhen` is JS on streaming HTTP targets and a mode name on WebSocket targets.
-      if (v.trim() && key && (CODE_KEYS.has(key) || (key === 'doneWhen' && !DONE_WHEN_MODES.has(v)))) found.add(key);
+      if (v.trim() && key && (CODE_KEYS.has(key) || (key === 'doneWhen' && !DONE_WHEN_MODES.has(v)))) found(key, v);
     } else if (Array.isArray(v)) v.forEach((x) => walk(x));
     else if (v && typeof v === 'object') {
       const o = v as Record<string, unknown>;
-      if (o.from === 'expression' && typeof o.path === 'string' && o.path.trim()) found.add('output expression');
+      if (o.from === 'expression' && typeof o.path === 'string' && o.path.trim()) found('output expression', o.path);
       for (const [k, x] of Object.entries(o)) walk(x, k);
     }
   };
   walk(spec);
+}
+
+/** Where a definition runs JavaScript (scripts, expressions), e.g. ["applyWhen", "code"]. */
+export function codeIn(spec: unknown): string[] {
+  const found = new Set<string>();
+  walkCode(spec, (place) => found.add(place));
   return [...found].sort();
+}
+
+/** The JavaScript in a definition, as a stable list. Two specs run the same code when these are equal. */
+export function codeSnippets(spec: unknown): string[] {
+  const out: string[] = [];
+  walkCode(spec, (place, code) => out.push(`${place}\u0000${code.trim()}`));
+  return out.sort();
 }
 
 /**

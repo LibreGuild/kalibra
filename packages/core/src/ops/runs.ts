@@ -5,6 +5,7 @@ import { RunSettings, TargetSpec } from '../specs.js';
 import { preflight } from '../runner/preflight.js';
 import { applyOverrides } from '../runner/overrides.js';
 import { invalid } from '../util.js';
+import { assertCodeChange } from '../policy.js';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
 
@@ -315,6 +316,9 @@ export function mcnemarExact(b: number, c: number): number | null {
 /** Setup problems for a dataset × target pair (with the run's overrides applied). */
 export function runPreflight(engine: Engine, dataset: string, target: string, settings: RunSettings) {
   const ds = engine.repos.datasets.get(dataset);
-  const spec = applyOverrides(TargetSpec.parse(engine.repos.defs.get('target', target).spec), settings.overrides);
+  const saved = TargetSpec.parse(engine.repos.defs.get('target', target).spec);
+  const spec = applyOverrides(saved, settings.overrides);
+  // Overrides can replace any config field, including scripts and hooks.
+  assertCodeChange(saved, spec, 'These run settings');
   return preflight(spec, ds.schema, settings.conversation);
 }

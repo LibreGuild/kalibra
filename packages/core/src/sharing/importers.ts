@@ -5,7 +5,8 @@ import type { Actor } from '../registry.js';
 import { DEFAULT_JUDGE_PROMPT, getCheckType } from '../checks/index.js';
 import { ColumnSpec, type ColumnType, type CheckSpec } from '../specs.js';
 import { invalid } from '../util.js';
-import { freeName, insertRows, type IncomingRow } from './common.js';
+import { codeIn, freeName, insertRows, type IncomingRow } from './common.js';
+import { currentCall } from '../policy.js';
 
 /*
  * Importers for other eval tools' files. Each one turns what it can into a Kalibra dataset (and,
@@ -337,9 +338,10 @@ function importPromptfoo(engine: Engine, text: string, name: string | undefined,
   const rows: IncomingRow[] = rowsData.map((data) => ({ data, tags: ['promptfoo'] }));
   const ds = createDataset(engine, actor, String(title), typeof cfg.description === 'string' ? cfg.description : 'Imported from a promptfoo config', rows, report, { prompt: 'The prompt rendered with this test’s vars', test_description: 'promptfoo test description' });
 
-  if (checks.length) {
-    const suite = engine.repos.defs.create('suite', { name: defName(engine, 'suite', `${title} checks`), description: 'Imported from promptfoo assertions', spec: { checks } }, actor);
-    report.suite = { id: suite.id, name: suite.name, checks: checks.length };
+  const kept = dropCode(checks, report);
+  if (kept.length) {
+    const suite = engine.repos.defs.create('suite', { name: defName(engine, 'suite', `${title} checks`), description: 'Imported from promptfoo assertions', spec: { checks: kept } }, actor);
+    report.suite = { id: suite.id, name: suite.name, checks: kept.length };
     engine.events.emit({ type: 'def.changed', kind: 'suite', id: suite.id, actor });
   }
 
@@ -457,9 +459,10 @@ function importOpenAiEvals(engine: Engine, text: string, name: string | undefine
         report.unsupported.push({ what: `grader ${g.type ?? '?'}`, reason: g.type === 'python' ? 'Python graders are not supported; port it to a script check' : 'Unknown grader' });
     }
   }
-  if (checks.length) {
-    const suite = engine.repos.defs.create('suite', { name: defName(engine, 'suite', `${name || 'OpenAI Evals'} graders`), description: 'Imported from OpenAI Evals graders', spec: { checks } }, actor);
-    report.suite = { id: suite.id, name: suite.name, checks: checks.length };
+  const kept = dropCode(checks, report);
+  if (kept.length) {
+    const suite = engine.repos.defs.create('suite', { name: defName(engine, 'suite', `${name || 'OpenAI Evals'} graders`), description: 'Imported from OpenAI Evals graders', spec: { checks: kept } }, actor);
+    report.suite = { id: suite.id, name: suite.name, checks: kept.length };
     engine.events.emit({ type: 'def.changed', kind: 'suite', id: suite.id, actor });
   }
 }
@@ -575,4 +578,14 @@ export function importExternal(engine: Engine, bytes: Uint8Array, opts: { format
       throw invalid('Format not recognised. For a plain CSV/JSONL, create a dataset and use import_rows.');
   }
   return report;
+}
+
+/** Where only administrators may add code (team servers), checks with JavaScript are left out and listed. */
+function dropCode(checks: CheckSpec[], report: { unsupported: { what: string; reason: string }[] }): CheckSpec[] {
+  if (currentCall()?.caps.code !== false) return checks;
+  return checks.filter((c) => {
+    if (!codeIn(c).length) return true;
+    report.unsupported.push({ what: `check ${c.name || c.type}`, reason: 'Contains JavaScript; on this server only administrators can add code' });
+    return false;
+  });
 }

@@ -4,7 +4,8 @@ type Param = null | number | bigint | string | Uint8Array;
 const norm = (params: unknown[]): Param[] =>
   params.map((p) => (p === undefined ? null : typeof p === 'boolean' ? (p ? 1 : 0) : (p as Param)));
 
-const MIGRATIONS: string[] = [
+/** Schema of a project database (kalibra.db). The hub database has its own list (hub/schema.ts). */
+export const PROJECT_MIGRATIONS: string[] = [
   `
   CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -210,7 +211,10 @@ export class Db {
   private static readonly MAX_CACHED = 500;
   private depth = 0;
 
-  constructor(file: string) {
+  constructor(
+    file: string,
+    private migrations: string[] = PROJECT_MIGRATIONS,
+  ) {
     // Loaded lazily so hosts can silence node:sqlite's ExperimentalWarning before it is first used.
     const { DatabaseSync: Sqlite } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
     this.raw = new Sqlite(file);
@@ -220,9 +224,12 @@ export class Db {
 
   private migrate() {
     const current = Number((this.raw.prepare('PRAGMA user_version').get() as any).user_version);
-    for (let v = current; v < MIGRATIONS.length; v++) {
+    if (current > this.migrations.length) {
+      throw new Error(`This data was written by a newer version of Kalibra (schema ${current}, this version knows ${this.migrations.length}). Update Kalibra to open it.`);
+    }
+    for (let v = current; v < this.migrations.length; v++) {
       this.tx(() => {
-        this.raw.exec(MIGRATIONS[v]);
+        this.raw.exec(this.migrations[v]);
         this.raw.exec(`PRAGMA user_version = ${v + 1}`);
       });
     }

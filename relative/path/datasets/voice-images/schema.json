@@ -1,0 +1,33 @@
+{
+  "description": "Mixed media",
+  "name": "Voice & images",
+  "schema": {
+    "columns": [
+      {
+        "description": "",
+        "key": "reference",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "description": "",
+        "key": "audio",
+        "required": false,
+        "type": "audio"
+      },
+      {
+        "description": "",
+        "key": "image",
+        "required": false,
+        "type": "image"
+      },
+      {
+        "description": "",
+        "key": "keywords",
+        "required": false,
+        "type": "list"
+      }
+    ],
+    "instructions": ""
+  }
+}
