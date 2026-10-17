@@ -17,10 +17,12 @@ import { ObjectNotFound, type ObjectStore } from './objects.js';
  * Reads go through a bounded local cache, so audio seeking and repeated runs don't re-download.
  */
 
-const key = (hash: string) => {
+/** A file's object name in the bucket. */
+export const fileKey = (hash: string) => {
   if (!/^[a-f0-9]{64}$/.test(hash)) throw invalid(`Not a file hash: ${String(hash).slice(0, 80)}`);
   return `files/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
 };
+const key = fileKey;
 
 /** Least-recently-used files on local disk, up to a size limit; shared by every project. */
 export class FileCache {

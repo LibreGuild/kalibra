@@ -151,7 +151,11 @@ KALIBRA_SECRET_KEY=… kalibra migrate --dir ~/Kalibra/default \
 kalibra migrate --dir … --storage … --dry-run    # show what would be copied
 ```
 
-It copies users, projects, every project's data, uploaded files and stored provider keys, refuses a target that already has data, and checks the row counts at the end. Everyone signs in again afterwards.
+It copies users, projects (including those in the trash), every project's data, uploaded files and stored provider keys (encrypted with `KALIBRA_SECRET_KEY`), refuses a target that already has data, and checks the row counts at the end by reading the target back. The source folder is never changed; everyone signs in again afterwards (sessions aren't moved).
+
+- `--storage` alone (setup B): each database is uploaded as the first snapshot of its bucket sync, the same way a running Kalibra does it.
+- `--database-url` alone (setup C with files on disk): files stay in the folder, so run Kalibra with `--dir` pointing at it (or migrate again with `--storage` to move them).
+- `--force` deletes the target's data before copying. It can't be undone.
 
 ## Back up, restore, upgrade
 

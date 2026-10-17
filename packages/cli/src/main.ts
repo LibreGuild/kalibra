@@ -6,7 +6,8 @@ import { parseArgs } from 'node:util';
 import { newToken, startServer } from '@kalibra/server';
 import { BASE_PATH, deployConfigFrom, postgresDatabases, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
-import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
+import { clearEngineInfo, clearServerMarker, connect, defaultDir, openHub, runningOn, writeEngineInfo, writeServerMarker } from './engine-client.js';
+import { runMigrate } from './migrate.js';
 import { openDeployment } from './deploy.js';
 import { runMcp } from './mcp.js';
 import { backup } from './backup.js';
@@ -38,6 +39,8 @@ Usage:
   kalibra users <list|create|reset-password|make-admin> [username] [--password P]
                                               Manage accounts of a team server from its machine (recovery)
   kalibra backup <folder>                     Consistent copy of all data, safe while Kalibra runs
+  kalibra migrate [--database-url URL] [--storage URL] [--dry-run] [--force]
+                                              Move this data folder (SQLite and files) to Postgres and/or a bucket
 
 Options:
   --dir <path>         Data folder (default: $KALIBRA_DIR or ~/Kalibra/default)
@@ -88,6 +91,8 @@ async function main() {
       takeover: { type: 'boolean', default: false },
       'redis-url': { type: 'string' },
       'database-url': { type: 'string' },
+      'dry-run': { type: 'boolean', default: false },
+      force: { type: 'boolean', default: false },
       password: { type: 'string' },
       dataset: { type: 'string' },
       target: { type: 'string' },
@@ -113,6 +118,11 @@ async function main() {
   if (cmd === 'serve') return serveLocal(dir, values);
   if (cmd === 'mcp') return runMcp(dir, { server: values.server, project: values.project });
   if (cmd === 'users') return users(dir, rest, values.password);
+  if (cmd === 'migrate') {
+    const running = runningOn(dir);
+    if (running) throw new Error(`Kalibra (${running.kind === 'app' ? 'the local app' : 'a team server'}, pid ${running.pid}) is running on ${dir}. Stop it first: changes made while copying would be lost.`);
+    return runMigrate(dir, values);
+  }
   if (cmd === 'backup') {
     if (!rest[0]) throw new Error('Usage: kalibra backup <folder>');
     // With Postgres, the copy is exported table by table into SQLite files (opens with --dir anywhere).
@@ -243,6 +253,7 @@ async function serveTeam(dir: string, values: Flags) {
     meta: { mode: 'server', version: VERSION },
     storageStatus: () => deployment.storage.status(),
   });
+  writeServerMarker(dir);
   const base = `${publicOrigin(publicUrl) ?? srv.url}${BASE_PATH}`;
   console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/\n  ${deployment.describe}`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
@@ -253,6 +264,7 @@ async function serveTeam(dir: string, values: Flags) {
   const code = await hub.setupCode();
   if (code) console.log(`\n  No administrator yet. Open this link to create one:\n  ${base}/setup?code=${code}\n`);
   onStop(async () => {
+    clearServerMarker(dir);
     await srv.close();
     await hub.close();
     await deployment.close();

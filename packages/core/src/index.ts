@@ -25,6 +25,7 @@ export { openStorage, type StorageRuntime, type StorageHooks, type StorageStatus
 export { sqliteDatabases, postgresDatabases, postgresSchemas, defaultDatabases, setDefaultDatabases, type Databases } from './deploy/databases.js';
 export { PostgresPool, toPostgres, toPostgresDdl, hubSchema, projectSchema } from './db-postgres.js';
 export { copyDatabase } from './deploy/copy.js';
+export { migrate, type MigrateOptions, type MigrateReport, type MigratedDatabase } from './deploy/migrate.js';
 export type { Db, TableInfo } from './db.js';
 export { createCoordinator, LocalCoordinator, HubCache, type Coordinator, type Lock } from './coord/index.js';
 export { RedisCoordinator } from './coord/redis.js';

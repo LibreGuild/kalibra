@@ -44,6 +44,35 @@ export function clearEngineInfo(dir: string) {
   }
 }
 
+const serverFile = (dir: string) => join(dir, '.server.json');
+
+/** A team server marks its data folder while it runs, so `kalibra migrate` won't copy it mid-flight. */
+export function writeServerMarker(dir: string) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(serverFile(dir), JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+}
+
+export function clearServerMarker(dir: string) {
+  try {
+    if (JSON.parse(readFileSync(serverFile(dir), 'utf8')).pid === process.pid) rmSync(serverFile(dir));
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/** The Kalibra (local app or team server) that has this data folder open, if any. */
+export function runningOn(dir: string): { kind: 'app' | 'server'; pid: number } | undefined {
+  const app = readEngineInfo(dir);
+  if (app) return { kind: 'app', pid: app.pid };
+  try {
+    const { pid } = JSON.parse(readFileSync(serverFile(dir), 'utf8'));
+    process.kill(pid, 0); // throws if the process is gone
+    return { kind: 'server', pid };
+  } catch {
+    return undefined;
+  }
+}
+
 function readEngineInfo(dir: string): EngineInfo | undefined {
   if (!existsSync(infoFile(dir))) return undefined;
   try {

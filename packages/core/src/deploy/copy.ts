@@ -13,7 +13,7 @@ export interface CopyResult {
 }
 
 /** Parents before the tables that reference them. */
-function dependencyOrder(tables: TableInfo[]): TableInfo[] {
+export function dependencyOrder(tables: TableInfo[]): TableInfo[] {
   const byName = new Map(tables.map((t) => [t.name, t]));
   const done = new Set<string>();
   const out: TableInfo[] = [];
