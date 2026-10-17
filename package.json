@@ -9,8 +9,8 @@
     "dev": "node scripts/dev.mjs",
     "dev:server": "tsx watch packages/cli/src/main.ts serve --dev",
     "dev:web": "npm run dev -w @kalibra/web",
-    "build": "npm run build -w @kalibra/web && npm run build -w kalibra && npm run build -w @kalibra/desktop",
-    "typecheck": "tsc -p packages/core && tsc -p packages/server && tsc -p packages/cli && tsc -p packages/web && tsc -p packages/demo && tsc -p packages/desktop",
+    "build": "npm run build -w kalibra-sdk && npm run build -w @kalibra/web && npm run build -w kalibra && npm run build -w @kalibra/desktop",
+    "typecheck": "tsc -p packages/core && tsc -p packages/server && tsc -p packages/cli && tsc -p packages/web && tsc -p packages/demo && tsc -p packages/desktop && tsc -p packages/sdk",
     "test": "vitest run",
     "demo": "tsx packages/demo/src/main.ts",
     "desktop": "npm run build && npm run start -w @kalibra/desktop"
