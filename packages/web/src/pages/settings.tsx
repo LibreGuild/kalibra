@@ -37,7 +37,7 @@ function AccentPicker({ value, onChange }: { value: AccentChoice; onChange: (a: 
     refs.current[to]?.focus();
   };
   return (
-    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Accent colour">
+    <div className="flex flex-wrap justify-end gap-1.5" role="radiogroup" aria-label="Accent colour">
       {ACCENTS.map((a, i) => {
         const checked = value === a.id;
         return (

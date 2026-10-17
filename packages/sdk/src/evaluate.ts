@@ -74,7 +74,7 @@ export interface EvaluateResult {
   newFailures: { rowId: string; reason?: string }[];
   /** Rows that failed in the baseline and pass now. */
   fixed: string[];
-  baseline?: { runId: string; passRate: number | null };
+  baseline?: { runId: string; passRate: number | null; number?: number; name?: string };
   /** Open the run in Kalibra. */
   url: string;
   summary: any;
@@ -221,7 +221,8 @@ export async function evaluate(options: EvaluateOptions): Promise<EvaluateResult
     failed: summary.failed ?? 0,
     newFailures: done?.newFailures ?? [],
     fixed: done?.fixed ?? [],
-    ...(done?.baseline ? { baseline: done.baseline } : {}),
+    // The server names the baseline run `id`; results expose it as `runId` like the run itself.
+    ...(done?.baseline ? { baseline: { runId: done.baseline.id ?? done.baseline.runId, passRate: done.baseline.passRate ?? null, number: done.baseline.number, name: done.baseline.name } } : {}),
     url: `${conn.url}/p/${encodeURIComponent(done?.run?.projectId ?? conn.project)}/runs/${runId}`,
     summary,
     run: done?.run,

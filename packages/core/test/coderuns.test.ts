@@ -47,7 +47,8 @@ describe('runs from code', () => {
     expect(finished.run).toMatchObject({ kind: 'code', status: 'completed', git: { branch: 'main', commit: 'aaa' } });
     expect(finished.summary).toMatchObject({ passed: 2, failed: 1 });
     expect(finished.baseline).toBeNull();
-    expect(finished.newFailures).toEqual([expect.objectContaining({ reason: expect.stringMatching(/^Matches/), wasInBaseline: false })]);
+    // Nothing to compare with yet: a first run never counts its failures as new (CI gates stay green).
+    expect(finished.newFailures).toEqual([]);
   });
 
   it('compares a pull request run with the latest main run: new failures, fixed rows and the change', async () => {

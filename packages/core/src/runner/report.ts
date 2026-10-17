@@ -93,6 +93,9 @@ export function compareToBaseline(engine: Engine, runId: string, baselineRunId?:
   const before = new Map((base ? runs.allLite(base.id) : []).map((r) => [key(r), r]));
   const newFailures: EvalReport['newFailures'] = [];
   for (const r of now) {
+    // Without a baseline there is nothing to compare: no row is "new", so a first run never fails a
+    // "no new failures" gate in CI.
+    if (!base) continue;
     const b = before.get(key(r));
     const isFail = failed(r);
     if (isFail && (!b || !failed(b))) newFailures.push({ rowId: r.rowId, resultId: r.id, reason: failureReason(r), wasInBaseline: !!b });

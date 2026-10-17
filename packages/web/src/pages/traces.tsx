@@ -218,7 +218,7 @@ export function TracesPage() {
               {
                 key: 'name',
                 header: 'Trace',
-                width: 'minmax(260px, 2.4fr)',
+                width: 'minmax(180px, 2.4fr)',
                 render: (t) => (
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -241,7 +241,7 @@ export function TracesPage() {
                   </Badge>
                 ),
               },
-              { key: 'duration', header: 'Duration', width: '96px', align: 'right', render: (t) => <span className="tabular-nums text-ink-muted">{ms(t.durationMs)}</span> },
+              { key: 'duration', header: 'Duration', width: '84px', align: 'right', render: (t) => <span className="tabular-nums text-ink-muted">{ms(t.durationMs)}</span> },
               {
                 key: 'steps',
                 header: 'Steps',
@@ -250,11 +250,11 @@ export function TracesPage() {
                 help: 'How many steps (model calls, tool calls, retrievals) were recorded inside the call.',
                 render: (t) => <span className="tabular-nums text-ink-muted">{t.spanCount ?? t.spans?.length ?? '—'}</span>,
               },
-              { key: 'source', header: 'Source', width: '120px', render: (t) => <span className="text-ink-muted">{SOURCE_LABEL[t.source] ?? t.source}</span> },
+              { key: 'source', header: 'Source', width: '96px', render: (t) => <span className="text-ink-muted">{SOURCE_LABEL[t.source] ?? t.source}</span> },
               {
                 key: 'env',
                 header: 'Environment',
-                width: 'minmax(110px, 0.8fr)',
+                width: 'minmax(120px, 0.8fr)',
                 help: 'From the environment and release your app passes to the SDK.',
                 render: (t) => {
                   const m = (t.metadata ?? {}) as Record<string, unknown>;
@@ -265,7 +265,7 @@ export function TracesPage() {
               {
                 key: 'run',
                 header: 'Run',
-                width: '64px',
+                width: '72px',
                 align: 'center',
                 help: 'Calls made by an eval run link back to the run row they belong to.',
                 render: (t) =>

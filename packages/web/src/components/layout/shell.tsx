@@ -332,17 +332,17 @@ export function Page({
   return (
     <div className={clsx('mx-auto px-8 pt-7 pb-16', width === 'default' && 'max-w-[1180px]', width === 'wide' && 'max-w-[1480px]')}>
       {back && <div className="mb-2">{back}</div>}
-      {/* Title and description take all the width the actions leave; actions stay top-right and only
-          drop below the title on narrow screens. */}
-      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-        <div className="min-w-0 flex-1">
+      {/* Title and actions share the first row (actions top-right, below the title on narrow screens);
+          the description runs the full width underneath, so it never wraps early next to the buttons. */}
+      <header className="mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
           <div className="flex min-w-0 items-center gap-2.5">
             <h1 className="truncate text-[1.5rem] font-bold tracking-tight">{title}</h1>
             {badge}
           </div>
-          {description && <p className="mt-1 max-w-[160ch] text-[0.84375rem] text-ink-muted">{description}</p>}
+          {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:max-w-[60%] sm:justify-end">{actions}</div>}
+        {description && <p className="mt-1.5 max-w-[160ch] text-[0.84375rem] text-ink-muted">{description}</p>}
       </header>
       {children}
     </div>

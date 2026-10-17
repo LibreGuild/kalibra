@@ -277,9 +277,11 @@ export function RunsPage() {
                           </span>
                         </Tip>
                       )}
-                      {e.run.kind === 'code' && <BaselineChip run={e.run} />}
                     </div>
-                    <div className="truncate text-[0.78125rem] text-ink-muted">
+                    {/* The baseline chip sits on the second line so it never squeezes the run name. */}
+                    <div className="flex min-w-0 items-center gap-2 text-[0.78125rem] text-ink-muted">
+                      {e.run.kind === 'code' && <BaselineChip run={e.run} />}
+                      <span className="truncate">
                       {[
                         names.dataset.get(e.run.datasetId ?? ''),
                         e.run.kind === 'imported' ? 'imported outputs' : e.run.kind === 'code' ? gitLabel(e.run.git) || 'from code' : names.target.get(e.run.targetId ?? ''),
@@ -287,6 +289,7 @@ export function RunsPage() {
                       ]
                         .map((x) => x ?? '—')
                         .join(' · ')}
+                      </span>
                     </div>
                   </div>
                 ) : (

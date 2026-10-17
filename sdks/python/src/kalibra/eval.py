@@ -212,7 +212,8 @@ def _finish(client: _Client, run_id: str, baseline: Optional[str]) -> EvalResult
         errors=int(summary.get("targetErrors") or summary.get("errors") or 0),
         new_failures=list(done.get("newFailures") or []),
         fixed=list(done.get("fixed") or []),
-        baseline=done.get("baseline"),
+        # The server names the baseline run "id"; expose it as "runId" too, like the JS SDK.
+        baseline=({**done["baseline"], "runId": done["baseline"].get("id")} if done.get("baseline") else None),
         url=f"{client.url}/p/{quote(client.project, safe='')}/runs/{run_id}",
         summary=summary,
         run=done.get("run") or {},

@@ -49,7 +49,8 @@ export function Field({
   return (
     <div className={clsx('min-w-0', inline ? 'flex items-center justify-between gap-4' : 'flex flex-col gap-1.5', className)}>
       {label && (
-        <div className="flex items-center gap-1.5 text-[0.8125rem] font-medium text-ink">
+        // Inline labels keep their width; the control (accent swatches, segments) wraps instead.
+        <div className={clsx('flex items-center gap-1.5 text-[0.8125rem] font-medium text-ink', inline && 'shrink-0 whitespace-nowrap')}>
           <span id={labelId}>{label}</span>
           {help && <HelpTip>{help}</HelpTip>}
         </div>
@@ -89,7 +90,11 @@ export function Select({
   const named = { ...useFieldLabel({ 'aria-label': ariaLabel }), ...(ariaLabel ? { 'aria-label': ariaLabel } : {}) };
   return (
     <S.Root value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <S.Trigger {...named} className={clsx(control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[0.8125rem]' : 'h-8.5', className)}>
+      <S.Trigger
+        {...named}
+        // A width given by the page (w-40, min-w-…) replaces the default full width instead of fighting it.
+        className={clsx(/\b(?:min-)?w-/.test(className ?? '') ? control.replace('w-full ', '') : control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[0.8125rem]' : 'h-8.5', className)}
+      >
         <span className="truncate">
           <S.Value placeholder={<span className="text-ink-faint">{placeholder}</span>} />
         </span>

@@ -41,6 +41,17 @@ That starts Kalibra on your machine and opens it in the browser. No account, not
 
 Every structured option has a script escape hatch, so you are never blocked by what the UI anticipated.
 
+<table>
+  <tr>
+    <td><img src="docs/images/screenshot-dataset.jpg" alt="A speech dataset with audio, reference transcripts and keywords"></td>
+    <td><img src="docs/images/screenshot-run.jpg" alt="A run with pass rate, confidence interval, latency and per-row results"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Datasets with audio, text and image columns</sub></td>
+    <td align="center"><sub>Runs with confidence intervals and per-row checks</sub></td>
+  </tr>
+</table>
+
 ## Connect your app
 
 Kalibra calls your app from outside like any client. When you want to see *inside* (retrieved documents, tool calls, prompts), add the SDK. It's dev-only by default and costs nothing when it's off.
@@ -66,6 +77,8 @@ def answer(question): ...
 - **Traces:** see every real request with its steps, and add the interesting ones to a dataset in one click. OpenTelemetry and an OpenAI-compatible proxy work without code changes.
 - **Evals in your tests:** `evaluate()` runs a dataset through your own function inside `vitest`, `jest` or `pytest`; CI comments the pass rate and new failures on each pull request.
 - **Tool record and replay:** record real tool responses once, then replay them so evals are fast, free and never send a real email or refund.
+
+<img src="docs/images/screenshot-trace.jpg" width="760" alt="A trace with its tool call, retrieval and model steps on a timeline">
 
 More: [packages/sdk](packages/sdk/README.md) · [sdks/python](sdks/python/README.md) · [design](docs/design/sdk-and-traces.md)
 
