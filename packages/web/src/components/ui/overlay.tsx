@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Dialog as D, DropdownMenu as M, Tooltip as T, Popover as P } from 'radix-ui';
 import clsx from 'clsx';
 import { CircleHelp, X } from 'lucide-react';
@@ -10,11 +10,34 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
   return <T.Provider delayDuration={250} skipDelayDuration={150}>{children}</T.Provider>;
 }
 
+/*
+ * Radix opens a tooltip on any focus of its trigger. Browsers re-focus the last focused element when
+ * the window comes back (after switching apps), which used to pop a tooltip with no mouse anywhere
+ * near it. A focus therefore opens a tooltip only for keyboard users (the input mode is tracked on
+ * <html data-input>, see main.tsx), and never right after the window regained focus; a real hover
+ * always does.
+ */
+let windowFocusedAt = 0;
+if (typeof window !== 'undefined') window.addEventListener('focus', () => (windowFocusedAt = Date.now()));
+
+const focusMayOpenTip = (el: HTMLElement) =>
+  el.matches(':hover') || (Date.now() - windowFocusedAt > 400 && document.documentElement.dataset.input === 'keyboard');
+
 export function Tip({ content, children, side = 'top' }: { content: ReactNode; children: ReactNode; side?: 'top' | 'bottom' | 'left' | 'right' }) {
+  const [open, setOpen] = useState(false);
+  // Set when the latest focus should not open the tooltip; cleared by any pointer movement over it.
+  const quiet = useRef(false);
   if (!content) return <>{children}</>;
   return (
-    <T.Root>
-      <T.Trigger asChild>{children}</T.Trigger>
+    <T.Root open={open} onOpenChange={(next) => (!next || !quiet.current) && setOpen(next)}>
+      <T.Trigger
+        asChild
+        onFocus={(e) => (quiet.current = !focusMayOpenTip(e.currentTarget as HTMLElement))}
+        onBlur={() => (quiet.current = false)}
+        onPointerMove={() => (quiet.current = false)}
+      >
+        {children}
+      </T.Trigger>
       <T.Portal>
         <T.Content
           side={side}
@@ -171,12 +194,22 @@ export function useConfirm() {
 
 /* Menus and popovers ─────────────────────────────────────────────────────── */
 
-export function Menu({ trigger, children, align = 'end' }: { trigger: ReactNode; children: ReactNode; align?: 'start' | 'end' }) {
+export function Menu({
+  trigger,
+  children,
+  align = 'end',
+  side = 'bottom',
+}: {
+  trigger: ReactNode;
+  children: ReactNode;
+  align?: 'start' | 'end';
+  side?: 'top' | 'bottom' | 'left' | 'right';
+}) {
   return (
     <M.Root>
       <M.Trigger asChild>{trigger}</M.Trigger>
       <M.Portal>
-        <M.Content align={align} sideOffset={6} className="z-50 min-w-48 rounded-lg border border-line bg-surface p-1 shadow-card">
+        <M.Content align={align} side={side} sideOffset={6} collisionPadding={8} className="z-50 min-w-48 rounded-lg border border-line bg-surface p-1 shadow-card">
           {children}
         </M.Content>
       </M.Portal>
@@ -203,6 +236,11 @@ export function MenuItem({ icon, children, onSelect, danger, hint }: { icon?: Re
 }
 
 export const MenuSeparator = () => <M.Separator className="my-1 h-px bg-line" />;
+
+/** Quiet, non-interactive text in a menu (e.g. the app version at the bottom of the profile menu). */
+export function MenuNote({ children }: { children: ReactNode }) {
+  return <M.Label className="px-2.5 pt-1 pb-0.5 text-[0.71875rem] text-ink-faint">{children}</M.Label>;
+}
 
 export function Popover({ trigger, children, align = 'start', className }: { trigger: ReactNode; children: ReactNode; align?: 'start' | 'end' | 'center'; className?: string }) {
   return (

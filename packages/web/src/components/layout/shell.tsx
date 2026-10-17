@@ -2,30 +2,38 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate as useRawNavigate } from 'react-router';
 import { NavLink } from '../../lib/nav';
 import clsx from 'clsx';
-import { BookOpen, Bot, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
+import { Activity, BookOpen, Bot, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { authCall, forgetProject, useHubOp, useOp } from '../../lib/api';
+import { authCall, forgetProject, useHubOp, useMeta, useOp } from '../../lib/api';
 import { ProjectProvider, useProject, useSession } from '../../lib/session';
-import { Menu, MenuItem, MenuSeparator, Tip } from '../ui/overlay';
+import { Menu, MenuItem, MenuNote, MenuSeparator, Tip } from '../ui/overlay';
 import { toastError } from '../ui/toast';
 import { ProjectSwitcher } from './project-switcher';
 
+/*
+ * The app frame: sidebar (logo, project switcher, the project's pages, tools, and the profile menu
+ * with everything personal or app-wide: account, administration, settings, docs, coding agents) and
+ * the page area. `Page` below is the one place page headers are laid out.
+ */
+
+/** Pages of the current project. */
 const NAV = [
   { to: '/', label: 'Overview', icon: Home, end: true, hint: 'Getting started and recent activity' },
   { to: '/datasets', label: 'Datasets', icon: Database, hint: 'Test cases: inputs, expected values, audio and images' },
   { to: '/targets', label: 'Targets', icon: Crosshair, hint: 'The AI application under test: HTTP API, WebSocket, model or script' },
   { to: '/suites', label: 'Suites', icon: ListChecks, hint: 'Layered checks that score every result' },
   { to: '/runs', label: 'Runs', icon: Play, hint: 'Run a dataset through a target and score it with a suite' },
+  { to: '/traces', label: 'Traces', icon: Activity, hint: 'What happened inside your app: traces sent by the SDK, OpenTelemetry or the proxy' },
 ];
+/** Project tools. */
 const NAV2 = [
   { to: '/playground', label: 'Playground', icon: FlaskConical, hint: 'Try a prompt on a few rows across models, side by side' },
   { to: '/connections', label: 'Connections', icon: Plug, hint: 'Model providers for judges, generation, images and speech' },
-  { to: '/agents', label: 'Coding agents', icon: Bot, hint: 'Let Claude Code, Codex, Cursor and others drive Kalibra through MCP' },
 ];
-const NAV3 = [
-  { to: '/docs', label: 'Docs', icon: BookOpen, hint: 'Short, illustrated guides to every feature' },
-  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, reading font and text size' },
-];
+
+/** The build's version, for when the server does not report one (set from packages/cli/package.json in vite.config.ts). */
+declare const __APP_VERSION__: string;
+export const useAppVersion = () => useMeta().data?.version || __APP_VERSION__;
 
 function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: string; label: string; icon: any; end?: boolean; hint: string; count?: number; collapsed: boolean }) {
   return (
@@ -131,15 +139,17 @@ function Shell() {
                 type="button"
                 onClick={toggleFromButton}
                 aria-label="Expand sidebar"
-                className="group relative grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent focus-visible:outline-offset-2"
+                className="group relative grid size-7 shrink-0 place-items-center rounded-lg focus-visible:outline-offset-2"
               >
-                <span className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">K</span>
-                <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
+                <Logo className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+                <span className="absolute inset-0 grid place-items-center rounded-lg bg-hover text-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                  <PanelLeftOpen className="size-4" />
+                </span>
               </button>
             </Tip>
           ) : (
             <>
-              <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent">K</div>
+              <Logo />
               <span className="flex-1 text-[1.0625rem] font-bold tracking-tight">Kalibra</span>
               <Tip content={'Collapse sidebar (⌘\\)'} side="right">
                 <button
@@ -175,18 +185,17 @@ function Shell() {
             ))}
           </nav>
         )}
-        <div className="my-3 h-px bg-line" />
-        <nav className="flex flex-col gap-0.5">
-          {NAV2.filter((n) => !noProjects || n.to === '/agents').map((n) => (
-            <NavItem key={n.to} {...n} collapsed={collapsed} />
-          ))}
-        </nav>
-        <nav className="mt-auto flex flex-col gap-0.5">
-          {NAV3.map((n) => (
-            <NavItem key={n.to} {...n} collapsed={collapsed} />
-          ))}
-        </nav>
-        {session.isServer && session.user && <UserMenu collapsed={collapsed} />}
+        {!noProjects && (
+          <>
+            <div className="my-3 h-px bg-line" />
+            <nav className="flex flex-col gap-0.5">
+              {NAV2.map((n) => (
+                <NavItem key={n.to} {...n} collapsed={collapsed} />
+              ))}
+            </nav>
+          </>
+        )}
+        <ProfileMenu collapsed={collapsed} />
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto">
         {project && !project.canEdit && <ViewOnlyBar />}
@@ -205,12 +214,32 @@ function ViewOnlyBar() {
   );
 }
 
-/** Bottom of the sidebar on a team server: who you are, your account, administration, sign out. */
-function UserMenu({ collapsed }: { collapsed: boolean }) {
-  const { user, isAdmin } = useSession();
+/**
+ * The app's logo: the icon image when it loads, else the "K" tile. `className` lets the collapsed
+ * sidebar fade it out for its expand icon.
+ */
+function Logo({ className }: { className?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <span className={clsx('grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent', className)}>K</span>;
+  }
+  return <img src="/logo.png" alt="" draggable={false} onError={() => setFailed(true)} className={clsx('size-7 shrink-0 rounded-lg object-cover', className)} />;
+}
+
+/**
+ * Bottom of the sidebar, in every mode: who you are ("You" on the desktop), and the menu for what
+ * is yours or app-wide: account and administration (team server), settings, docs, coding agents,
+ * sign out, and the app version.
+ */
+function ProfileMenu({ collapsed }: { collapsed: boolean }) {
+  const { user, isAdmin, isServer } = useSession();
   const navigate = useRawNavigate();
   const qc = useQueryClient();
-  if (!user) return null;
+  const version = useAppVersion();
+  const signedIn = isServer && !!user;
+  const name = signedIn ? user!.name : 'You';
+  const detail = signedIn ? (isAdmin ? 'Administrator' : user!.username) : 'This computer';
+  const initial = (signedIn ? user!.name || user!.username : 'You').slice(0, 1).toUpperCase();
   const signOut = async () => {
     try {
       await authCall('logout');
@@ -222,39 +251,61 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
     forgetProject();
     window.location.assign('/login');
   };
-  const initial = (user.name || user.username).slice(0, 1).toUpperCase();
   return (
-    <div className="mt-1.5 border-t border-line pt-1.5">
+    <div className="mt-auto border-t border-line pt-1.5">
       <Menu
-        align="start"
+        align={collapsed ? 'end' : 'start'}
+        side={collapsed ? 'right' : 'top'}
         trigger={
           <button
             type="button"
-            aria-label={`Account: ${user.name}`}
-            className={clsx('flex h-9 w-full items-center rounded-lg text-left text-[0.8125rem] hover:bg-hover', collapsed ? 'justify-center' : 'gap-2.5 px-2')}
+            aria-label={`${name}: account, settings, docs and coding agents`}
+            className={clsx('flex h-10 w-full items-center rounded-lg text-left text-[0.8125rem] hover:bg-hover', collapsed ? 'justify-center' : 'gap-2.5 px-2')}
           >
-            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[0.6875rem] font-bold text-accent-ink">{initial}</span>
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-[0.75rem] font-bold text-accent-ink">{initial}</span>
             {!collapsed && (
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium leading-tight">{user.name}</span>
-                <span className="block truncate text-[0.6875rem] leading-tight text-ink-faint">{isAdmin ? 'Administrator' : user.username}</span>
+                <span className="block truncate font-medium leading-tight">{name}</span>
+                <span className="block truncate text-[0.6875rem] leading-tight text-ink-faint">{detail}</span>
               </span>
             )}
           </button>
         }
       >
-        <MenuItem icon={<KeyRound />} onSelect={() => navigate('/account')} hint="Password, access tokens, sign-ins">
-          Your account
-        </MenuItem>
-        {isAdmin && (
+        {signedIn && (
+          <MenuItem icon={<KeyRound />} onSelect={() => navigate('/account')} hint="Password, access tokens, sign-ins">
+            Your account
+          </MenuItem>
+        )}
+        {signedIn && isAdmin && (
           <MenuItem icon={<Shield />} onSelect={() => navigate('/admin/users')} hint="Users, groups, sign-in, settings">
             Administration
           </MenuItem>
         )}
-        <MenuSeparator />
-        <MenuItem icon={<LogOut />} onSelect={signOut}>
-          Sign out
+        {signedIn && <MenuSeparator />}
+        <MenuItem icon={<Settings />} onSelect={() => navigate('/settings')} hint="Theme, accent, reading font, text size">
+          Settings
         </MenuItem>
+        <MenuItem icon={<BookOpen />} onSelect={() => navigate('/docs')} hint="Short, illustrated guides">
+          Docs
+        </MenuItem>
+        <MenuItem icon={<Bot />} onSelect={() => navigate('/agents')} hint="Claude Code, Codex, Cursor… through MCP">
+          Coding agents
+        </MenuItem>
+        {signedIn && (
+          <>
+            <MenuSeparator />
+            <MenuItem icon={<LogOut />} onSelect={signOut}>
+              Sign out
+            </MenuItem>
+          </>
+        )}
+        {version && (
+          <>
+            <MenuSeparator />
+            <MenuNote>Kalibra {version}</MenuNote>
+          </>
+        )}
       </Menu>
     </div>
   );
@@ -281,15 +332,17 @@ export function Page({
   return (
     <div className={clsx('mx-auto px-8 pt-7 pb-16', width === 'default' && 'max-w-[1180px]', width === 'wide' && 'max-w-[1480px]')}>
       {back && <div className="mb-2">{back}</div>}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2.5">
+      {/* Title and description take all the width the actions leave; actions stay top-right and only
+          drop below the title on narrow screens. */}
+      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2.5">
             <h1 className="truncate text-[1.5rem] font-bold tracking-tight">{title}</h1>
             {badge}
           </div>
-          {description && <p className="mt-1 max-w-2xl text-[0.84375rem] text-ink-muted">{description}</p>}
+          {description && <p className="mt-1 max-w-[160ch] text-[0.84375rem] text-ink-muted">{description}</p>}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:max-w-[60%] sm:justify-end">{actions}</div>}
       </header>
       {children}
     </div>

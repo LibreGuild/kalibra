@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-/* Appearance preferences: theme, reading font and text size. Stored per browser/app install. */
+/* Appearance preferences: theme, accent, reading font and text size. Stored per browser/app install. */
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 export type FontChoice = 'atkinson' | 'inter' | 'plex' | 'system';
 export type TextScale = 0.9 | 1 | 1.1 | 1.25;
-export type AccentChoice = 'clay' | 'teal' | 'sky' | 'rose' | 'violet';
+/** Keep in sync with the accent tokens in styles.css and public/theme-init.js. */
+export type AccentChoice = 'teal' | 'clay' | 'sky' | 'indigo' | 'violet' | 'plum' | 'rose' | 'forest' | 'amber' | 'slate';
+export const DEFAULT_ACCENT: AccentChoice = 'teal';
 
 interface Prefs {
   choice: ThemeChoice;
@@ -27,7 +29,7 @@ const Ctx = createContext<Prefs>({
   setFont: () => {},
   scale: 1,
   setScale: () => {},
-  accent: 'clay',
+  accent: DEFAULT_ACCENT,
   setAccent: () => {},
 });
 
@@ -52,7 +54,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [choice, setChoiceState] = useState<ThemeChoice>(() => read('kalibra.theme', 'system' as ThemeChoice));
   const [font, setFontState] = useState<FontChoice>(() => read('kalibra.font', 'atkinson' as FontChoice));
   const [scale, setScaleState] = useState<TextScale>(() => read('kalibra.scale', 1 as TextScale, (s) => (Number(s) || 1) as TextScale));
-  const [accent, setAccentState] = useState<AccentChoice>(() => read('kalibra.accent', 'clay' as AccentChoice));
+  const [accent, setAccentState] = useState<AccentChoice>(() => read('kalibra.accent', DEFAULT_ACCENT));
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
 
   useEffect(() => {

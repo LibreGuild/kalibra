@@ -602,7 +602,7 @@ export const GUIDES: Guide[] = [
       {
         type: 'steps',
         items: [
-          { text: 'Copy the setup command for your agent.', link: { to: '/agents', label: 'Coding agents' } },
+          { text: 'Open **Coding agents** from your profile menu (bottom left) and copy the setup command for your agent.', link: { to: '/agents', label: 'Coding agents' } },
           { text: 'Ask in plain words: "Create 50 rows for Support questions, cover refusals too."' },
           { text: 'The agent reads the schema, submits rows, fixes rejected ones, and they appear here live.' },
           { text: 'Approve them in the review queue.' },
@@ -962,10 +962,11 @@ export const GUIDES: Guide[] = [
         type: 'defs',
         items: [
           { term: 'Theme', text: 'Light, dark, or follow your system.' },
-          { term: 'Accent colour', text: 'Clay orange by default, or teal, sky, rose, violet. Pass and fail colours never change.' },
+          { term: 'Accent colour', text: 'Teal by default, or one of nine others (clay, sky, indigo, violet, plum, rose, forest, amber, slate). Pass and fail colours never change.' },
           { term: 'Reading font', text: 'Atkinson Hyperlegible Next by default: every 0, O, l, 1 and I is unmistakable.' },
           { term: 'Text size', text: 'Scale the whole app up or down.' },
           { term: 'Sidebar', text: 'Collapse it to icons when you need the space.' },
+          { term: 'Where it lives', text: 'Settings, Docs and Coding agents are in your profile menu at the bottom of the sidebar (“You” on the desktop, your name on a team server), along with the app version.' },
         ],
       },
       { type: 'links', links: [{ to: '/settings', label: 'Open Settings', primary: true }] },
@@ -1025,7 +1026,7 @@ export const GUIDES: Guide[] = [
           { q: 'Can I test an app that has no API?', a: 'Yes. Export the inputs, run them yourself, import the outputs. See "Score outputs from anywhere".' },
           { q: 'My service speaks a weird protocol.', a: 'Use a WebSocket session script or a custom script target. If you can code it, Kalibra can test it.' },
           { q: 'How many rows do I need?', a: 'For a rough read, 50. To detect a 5-point change with confidence, a few hundred.' },
-          { q: 'Can my team share this?', a: 'Yes, without a server: send a .kalibra bundle, or keep a folder in Git (Settings → Share with your team). A self-hosted server mode is on the roadmap.' },
+          { q: 'Can my team share this?', a: 'Yes: run a team server (kalibra server) with sign-in and project members, or share without a server by sending a .kalibra bundle or keeping a folder in Git (project settings → Share with your team).' },
           { q: 'Which model should my app use?', a: 'Try a few in the Playground, then run them all as a comparison on your dataset. The leaderboard says which is best and whether the gap is real.' },
           { q: 'Is it free?', a: 'Yes. MIT-licensed open source.' },
           { q: 'Why is my safety pass rate so low on the demo bot?', a: 'On purpose: the demo bot falls for base64 and role-play. Your app should do better. Check the Breakdown by converter.' },
