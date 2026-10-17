@@ -91,12 +91,12 @@ describe('generate_images with maxKb', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-imgsize-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     await engine.call('create_connection', { name: 'Img', spec: { provider: 'openai', imageModel: 'gpt-image-2' } });
     await engine.call('create_dataset', { name: 'Pics', columns: [{ key: 'prompt' }, { key: 'image', type: 'image' }] });
   });
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -64,7 +64,7 @@ function stubLlm(opts: { sim?: (req: any, n: number) => any; final?: any; text?:
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kalibra-conv-'));
-  engine = new Engine({ dir });
+  engine = await Engine.open({ dir });
   servers = await startDemoServers({ port: 0 });
   await engine.call('create_dataset', {
     name: 'Convos',
@@ -98,7 +98,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  engine?.close();
+  await engine?.close();
   await servers?.close();
   rmSync(dir, { recursive: true, force: true });
 });

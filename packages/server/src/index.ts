@@ -50,14 +50,25 @@ export interface ServerOptions {
   trustProxy?: boolean;
   /** Facts about how this engine was launched, shown in the UI (e.g. the MCP command for coding agents). */
   meta?: { mcp?: { command: string; args: string[]; env?: Record<string, string> }; version?: string; mode?: 'cli' | 'dev' | 'server' };
+  /** Where files and databases are kept and how the bucket sync is doing; shown to administrators in /api/meta. */
+  storageStatus?: () => unknown;
 }
 
 export interface RunningServer {
   url: string;
   port: number;
   token?: string;
+  /**
+   * Stops serving data (another instance is taking over): API requests get 503 with Retry-After,
+   * live event streams end, the health check reports `handingOver`. The UI's static files still load.
+   */
+  setUnavailable(message: string): void;
+  /** Waits (up to `timeoutMs`) for requests already in progress to finish. */
+  drain(timeoutMs: number): Promise<void>;
   close(): Promise<void>;
 }
+
+export { handOverOnRequest } from './handover.js';
 
 export const newToken = () => randomBytes(32).toString('base64url');
 
@@ -78,18 +89,31 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const host = opts.host ?? '127.0.0.1';
   let port = 0;
   const cfg: AuthConfig = { hub, token: opts.token, allowedOrigins: opts.allowedOrigins ?? [], publicUrl: publicOrigin(opts.publicUrl), trustProxy: !!opts.trustProxy };
-  const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000);
+  const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000, hub.coordinator);
   const ingest = ingestRoutes(hub, cfg);
 
+  /** Set while another instance takes over: the message API callers get with a 503. */
+  let unavailable: string | undefined;
+  /** Requests in progress (live event streams are tracked separately: they never end on their own). */
+  let inFlight = 0;
+  const streams = new Set<ServerResponse>();
+
   const server = createServer(async (req, res) => {
+    inFlight++;
+    let counted = true;
+    const done = () => {
+      if (counted) inFlight--;
+      counted = false;
+    };
+    res.once('close', done);
     try {
-      await handle(req, res);
+      await handle(req, res, done);
     } catch (e) {
       sendError(res, e);
     }
   });
 
-  async function handle(req: IncomingMessage, res: ServerResponse) {
+  async function handle(req: IncomingMessage, res: ServerResponse, notInFlight: () => void) {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (hub.mode === 'local' ? !checkLocalOrigin(req, port, cfg) : !originAllowed(req, cfg)) return fail(res, 403, 'forbidden', 'Host or origin not allowed');
 
@@ -105,7 +129,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
 
     if (!url.pathname.startsWith('/api/')) return serveStatic(opts.staticDir, req, res, url);
-    if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra' });
+    if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra', ...(unavailable ? { handingOver: true } : {}) });
+    if (unavailable) return fail(res, 503, 'unavailable', unavailable, { 'retry-after': '5' });
     if (url.pathname.startsWith('/api/auth/')) return authRoutes(req, res, url);
     // Apps sending traces authenticate with an ingest key (or a normal sign-in): see ingest.ts.
     if (isIngestRoute(url.pathname)) return ingest(req, res, url);
@@ -121,7 +146,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (p.user.mustChangePassword && auth.via === 'session' && !['/api/hub/change_password', '/api/hub/get_me', '/api/meta'].includes(url.pathname)) {
       return fail(res, 403, 'password_change_required', 'Choose a new password to continue');
     }
-    return api(req, res, url, p);
+    return api(req, res, url, p, notInFlight);
   }
 
   // ── Sign-in ───────────────────────────────────────────────────────────────
@@ -132,15 +157,15 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     return `${sessionCookieName(secure)}=${value}; HttpOnly; SameSite=Lax; Path=${secure ? '/' : BASE_PATH}; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
   }
 
-  function newSession(req: IncomingMessage, userId: string) {
-    const days = hub.settings().sessionDays;
-    const s = hub.accounts.createSession(userId, { days, ip: clientIp(req, cfg.trustProxy), userAgent: String(req.headers['user-agent'] ?? '') });
+  async function newSession(req: IncomingMessage, userId: string) {
+    const days = (await hub.settings()).sessionDays;
+    const s = await hub.accounts.createSession(userId, { days, ip: clientIp(req, cfg.trustProxy), userAgent: String(req.headers['user-agent'] ?? '') });
     return { ...s, cookie: sessionCookie(req, s.secret, days * 86_400) };
   }
 
   async function startSession(req: IncomingMessage, res: ServerResponse, userId: string) {
-    const s = newSession(req, userId);
-    const me = await hub.call({ user: hub.accounts.get(userId), via: 'user', sessionId: s.id }, 'get_me', {});
+    const s = await newSession(req, userId);
+    const me = await hub.call({ user: await hub.accounts.get(userId), via: 'user', sessionId: s.id }, 'get_me', {});
     sendData(res, me, { 'set-cookie': s.cookie });
   }
 
@@ -170,14 +195,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const { url: to, binding } = await hub.sso.start(providerId, { redirectUri: callback, next: url.searchParams.get('next') ?? undefined });
         return redirect(res, to, [ssoCookie(req, binding, 600)]);
       }
-      if (logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
+      if (await logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
       try {
         const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${BASE_PATH}${url.pathname}${url.search}`, binding: cookie(req, ssoCookieName(req)), ip });
-        const s = newSession(req, user.id);
+        const s = await newSession(req, user.id);
         // `next` is an app path (safeNext), so the browser always lands inside Kalibra.
         return redirect(res, `${BASE_PATH}${next}`, [s.cookie, ssoCookie(req, '', 0)]);
       } catch (e) {
-        logins.fail(ip);
+        await logins.fail(ip);
         throw e;
       }
     } catch (e: any) {
@@ -198,10 +223,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         res,
         {
           mode: hub.mode,
-          setupRequired: hub.needsSetup(),
+          setupRequired: await hub.needsSetup(),
           user: auth.ok ? auth.principal.user : null,
-          providers: server ? hub.providers.enabled().map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
-          passwordLogin: server ? hub.settings().passwordLogin : true,
+          providers: server ? (await hub.providers.enabled()).map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
+          passwordLogin: server ? (await hub.settings()).passwordLogin : true,
           ...(error ? { error } : {}),
         },
         flashed !== undefined ? { 'set-cookie': flash(req, '', 0) } : {},
@@ -220,7 +245,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     if (path === '/api/auth/logout') {
       const auth = await authenticate(req, cfg);
-      if (auth.ok && auth.principal.sessionId) hub.accounts.revokeSession(auth.principal.sessionId);
+      if (auth.ok && auth.principal.sessionId) await hub.accounts.revokeSession(auth.principal.sessionId);
       return sendData(res, { signedOut: true }, { 'set-cookie': sessionCookie(req, '', 0) });
     }
 
@@ -228,9 +253,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
     if (path === '/api/auth/setup') {
-      if (logins.blocked(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
-      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip).catch((e) => {
-        if (e?.code === 'forbidden') logins.fail(ip);
+      if (await logins.blocked(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
+      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip).catch(async (e) => {
+        if (e?.code === 'forbidden') await logins.fail(ip);
         throw e;
       });
       return startSession(req, res, user.id);
@@ -238,22 +263,22 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     if (path === '/api/auth/login') {
       const username = str(body.username).trim();
-      if (logins.blocked(ip)) {
-        hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
+      if (await logins.blocked(ip)) {
+        await hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
         return fail(res, 429, 'rate_limited', 'Too many sign-in attempts. Wait a few minutes.');
       }
       try {
         const user = await hub.accounts.authenticate(username, str(body.password));
         // With password sign-in off, administrators keep it so a broken provider never locks everyone out.
-        if (!hub.settings().passwordLogin && user.role !== 'admin') {
-          const names = hub.providers.enabled().map((x) => x.name).join(' or ');
+        if (!(await hub.settings()).passwordLogin && user.role !== 'admin') {
+          const names = (await hub.providers.enabled()).map((x) => x.name).join(' or ');
           throw new KalibraError('forbidden', `Password sign-in is turned off on this server${names ? `. Sign in with ${names}.` : '.'}`);
         }
-        hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
+        await hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
         return startSession(req, res, user.id);
       } catch (e) {
-        logins.fail(ip);
-        hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
+        await logins.fail(ip);
+        await hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
         throw e;
       }
     }
@@ -263,13 +288,24 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   // ── API ───────────────────────────────────────────────────────────────────
 
-  async function api(req: IncomingMessage, res: ServerResponse, url: URL, p: Principal) {
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL, p: Principal, notInFlight: () => void) {
     const path = url.pathname;
     const ip = clientIp(req, cfg.trustProxy);
 
     if (path === '/api/meta' && req.method === 'GET') {
       const local = hub.mode === 'local';
-      return sendData(res, { ...opts.meta, mode: local ? opts.meta?.mode : 'server', hubMode: hub.mode, ...(local ? { dir: hub.dir } : {}), ...(local ? {} : { mcp: undefined }), publicUrl: cfg.publicUrl });
+      const admin = local || p.user.role === 'admin';
+      return sendData(res, {
+        ...opts.meta,
+        mode: local ? opts.meta?.mode : 'server',
+        hubMode: hub.mode,
+        ...(local ? { dir: hub.dir } : {}),
+        ...(local ? {} : { mcp: undefined }),
+        publicUrl: cfg.publicUrl,
+        ...(admin && opts.storageStatus ? { storage: opts.storageStatus() } : {}),
+        // Which instance answered and what instances share (Redis or this process only).
+        ...(admin ? { instance: { id: hub.coordinator.instanceId, coordinator: hub.coordinator.kind } } : {}),
+      });
     }
 
     if (path === '/api/hub' && req.method === 'GET') return send(res, 200, hub.registry.describe());
@@ -287,17 +323,17 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const rest = m ? m[2] : path.replace(/^\/api/, '');
 
     if (rest === '/ops' && req.method === 'GET') {
-      const { project } = hub.projectFor(p, projectId);
-      return send(res, 200, hub.engine(project.id).registry.describe());
+      const { project } = await hub.projectFor(p, projectId);
+      return send(res, 200, (await hub.engine(project.id)).registry.describe());
     }
 
     const op = /^\/ops\/([a-z0-9_]+)$/.exec(rest);
     if (op && req.method === 'POST') return sendData(res, await hub.callProject(p, projectId, op[1], await readJson(req)));
 
-    if (rest === '/events' && req.method === 'GET') return events(req, res, p, projectId);
+    if (rest === '/events' && req.method === 'GET') return await events(req, res, p, projectId, notInFlight);
 
     if (rest === '/files' && req.method === 'POST') {
-      const { project, role } = hub.projectFor(p, projectId);
+      const { project, role } = await hub.projectFor(p, projectId);
       if (!roleAtLeast(role, 'editor')) throw new KalibraError('forbidden', 'Uploading files needs the editor role in this project');
       let name: string | undefined;
       try {
@@ -307,7 +343,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       }
       const type = String(req.headers['content-type'] ?? '');
       const meta = { name, mime: type && type !== 'application/octet-stream' ? type : undefined };
-      const blobs = hub.engine(project.id).blobs;
+      const blobs = (await hub.engine(project.id)).blobs;
       // Streamed to disk while hashing: a 2 GB upload must not need 2–4 GB of memory.
       if (blobs.putStream) return sendData(res, await blobs.putStream(req, meta, MAX_UPLOAD));
       return sendData(res, await blobs.put(await readBody(req, MAX_UPLOAD), meta));
@@ -315,32 +351,37 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     const file = /^\/files\/([a-f0-9]{64})$/.exec(rest);
     if (file && (req.method === 'GET' || req.method === 'HEAD')) {
-      const { project } = hub.projectFor(p, projectId);
-      return serveBlob(hub.engine(project.id), req, res, file[1], url);
+      const { project } = await hub.projectFor(p, projectId);
+      return await serveBlob(await hub.engine(project.id), req, res, file[1], url);
     }
 
     fail(res, 404, 'not_found', `No route ${req.method} ${path}`);
   }
 
   /** Live events of one project, for as long as the caller may see it. */
-  function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string) {
-    const { project } = hub.projectFor(p, projectId);
-    const engine = hub.engine(project.id);
+  async function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string, notInFlight: () => void) {
+    const { project } = await hub.projectFor(p, projectId);
+    const engine = await hub.engine(project.id);
+    // The browser may have gone while the project opened: 'close' already fired, so don't subscribe.
+    if (req.destroyed || res.destroyed || req.socket.destroyed) return;
     res.writeHead(200, { ...BASE_HEADERS, 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
     res.write(': connected\n\n');
+    notInFlight();
+    streams.add(res);
+    res.once('close', () => streams.delete(res));
     const unsubscribe = engine.events.subscribe((e: EngineEvent) => res.write(`data: ${JSON.stringify(e)}\n\n`));
-    const stillAllowed = () => {
+    const stillAllowed = async () => {
       try {
-        if (p.sessionId && !hub.accounts.resolveSession(cookieValue(req) ?? '')) return false;
-        if (!p.sessionId && !p.tokenId && hub.mode === 'server' && hub.accounts.get(p.user.id).disabled) return false;
-        if (p.tokenId && !hub.accounts.resolveToken(/^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '')) return false;
-        hub.projectFor(hub.mode === 'local' ? p : { ...p, user: hub.accounts.get(p.user.id) }, project.id);
+        if (p.sessionId && !(await hub.accounts.resolveSession(cookieValue(req) ?? ''))) return false;
+        if (!p.sessionId && !p.tokenId && hub.mode === 'server' && (await hub.accounts.get(p.user.id)).disabled) return false;
+        if (p.tokenId && !(await hub.accounts.resolveToken(/^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? ''))) return false;
+        await hub.projectFor(hub.mode === 'local' ? p : { ...p, user: await hub.accounts.get(p.user.id) }, project.id);
         return true;
       } catch {
         return false;
       }
     };
-    const ping = setInterval(() => (stillAllowed() ? res.write(': ping\n\n') : res.end()), RECHECK_MS);
+    const ping = setInterval(() => void stillAllowed().then((ok) => (ok ? res.write(': ping\n\n') : res.end()), () => res.end()), RECHECK_MS);
     req.on('close', () => {
       clearInterval(ping);
       unsubscribe();
@@ -359,6 +400,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`,
     port,
     token: opts.token,
+    setUnavailable(message: string) {
+      unavailable = message;
+      // Browsers reconnect, get a 503 and retry until the new instance answers.
+      for (const s of streams) s.end();
+      streams.clear();
+    },
+    async drain(timeoutMs: number) {
+      const until = Date.now() + timeoutMs;
+      while (inFlight > 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    },
     close: () =>
       new Promise((r) => {
         server.close(() => r());

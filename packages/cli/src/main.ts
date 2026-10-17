@@ -3,14 +3,17 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { newToken, startServer } from '@kalibra/server';
-import { BASE_PATH, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
+import { handOverOnRequest, newToken, startServer } from '@kalibra/server';
+import { BASE_PATH, deployConfigFrom, openObjectStore, postgresDatabases, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
-import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
+import { clearEngineInfo, clearServerMarker, connect, defaultDir, openHub, runningOn, usesLocalFilesOfRunningServer, writeEngineInfo, writeServerMarker } from './engine-client.js';
+import { runMigrate } from './migrate.js';
+import { openDeployment } from './deploy.js';
 import { runMcp } from './mcp.js';
 import { backup } from './backup.js';
 import { detectGit, runUrl } from './report.js';
 import { VERSION } from './version.js';
+import { adminFromEnv } from './admin-env.js';
 
 // node:sqlite prints an ExperimentalWarning on load; it is expected and noisy for CLI users.
 const emit = process.emitWarning;
@@ -37,6 +40,8 @@ Usage:
   kalibra users <list|create|reset-password|make-admin> [username] [--password P]
                                               Manage accounts of a team server from its machine (recovery)
   kalibra backup <folder>                     Consistent copy of all data, safe while Kalibra runs
+  kalibra migrate [--database-url URL] [--storage URL] [--dry-run] [--force]
+                                              Move this data folder (SQLite and files) to Postgres and/or a bucket
 
 Options:
   --dir <path>         Data folder (default: $KALIBRA_DIR or ~/Kalibra/default)
@@ -51,6 +56,18 @@ Team server (kalibra server, or kalibra serve with KALIBRA_MODE=server):
   --trust-proxy        Trust X-Forwarded-* headers from that proxy ($KALIBRA_TRUST_PROXY=1)
   --folder-root <dir>  Allow folder sync inside this folder only ($KALIBRA_FOLDER_ROOT; off otherwise)
   KALIBRA_ADMIN_USERNAME / KALIBRA_ADMIN_PASSWORD create the first administrator at start.
+
+Where data lives (serve and server; see docs/self-hosting.md):
+  --database-url <url> Postgres instead of SQLite files: postgres://user:pass@host:5432/db
+                       ($KALIBRA_DATABASE_URL; Cloud SQL socket: ?host=/cloudsql/PROJECT:REGION:INSTANCE;
+                       schemas <$KALIBRA_DATABASE_SCHEMA or kalibra>_hub and _p_<project>; pool $KALIBRA_DATABASE_POOL, 10)
+  --storage <url>      Files (and, with SQLite, the databases) in a bucket: gs://, s3:// or az://
+                       ($KALIBRA_STORAGE_URL; SQLite syncs every $KALIBRA_SQLITE_SYNC_SECONDS, default 10)
+  --takeover           Ask the instance holding that bucket to hand over (rolling deploys; $KALIBRA_TAKEOVER=1),
+                       or wait for its lease to expire if it stopped, instead of refusing to start
+  KALIBRA_SECRET_KEY   Required with a bucket or Postgres: encrypts provider keys stored in the database
+  --redis-url <url>    Several instances behind a load balancer (with Postgres and a bucket): live events,
+                       cancels, sign-in limits and the lookup cache are shared ($KALIBRA_REDIS_URL)
 `;
 
 async function main() {
@@ -72,6 +89,12 @@ async function main() {
       'public-url': { type: 'string' },
       'trust-proxy': { type: 'boolean', default: false },
       'folder-root': { type: 'string' },
+      storage: { type: 'string' },
+      takeover: { type: 'boolean', default: false },
+      'redis-url': { type: 'string' },
+      'database-url': { type: 'string' },
+      'dry-run': { type: 'boolean', default: false },
+      force: { type: 'boolean', default: false },
       password: { type: 'string' },
       dataset: { type: 'string' },
       target: { type: 'string' },
@@ -97,9 +120,22 @@ async function main() {
   if (cmd === 'serve') return serveLocal(dir, values);
   if (cmd === 'mcp') return runMcp(dir, { server: values.server, project: values.project });
   if (cmd === 'users') return users(dir, rest, values.password);
+  if (cmd === 'migrate') {
+    const running = runningOn(dir);
+    if (running) throw new Error(`Kalibra (${running.kind === 'app' ? 'the local app' : 'a team server'}, pid ${running.pid}) is running on ${dir}. Stop it first: changes made while copying would be lost.`);
+    return runMigrate(dir, values);
+  }
   if (cmd === 'backup') {
     if (!rest[0]) throw new Error('Usage: kalibra backup <folder>');
-    const r = backup(dir, rest[0]);
+    // With Postgres, the copy is exported table by table into SQLite files (opens with --dir anywhere).
+    const cfg = deployConfigFrom(process.env, {
+      ...(typeof values['database-url'] === 'string' ? { 'database-url': values['database-url'] } : {}),
+      ...(typeof values.storage === 'string' ? { storage: values.storage } : {}),
+    });
+    const databases = cfg.databaseUrl ? await postgresDatabases({ url: cfg.databaseUrl, max: 2, schema: cfg.databaseSchema }) : undefined;
+    // Files in a bucket are read directly (no lease: a backup only reads, also while a server runs).
+    const objects = cfg.storageUrl ? await openObjectStore(cfg) : undefined;
+    const r = await backup(dir, rest[0], { ...(databases ? { databases } : {}), ...(objects ? { objects } : {}) }).finally(() => databases?.close());
     return void console.log(`Backed up ${r.databases} database${r.databases === 1 ? '' : 's'} and ${r.files} files to ${r.out}`);
   }
 
@@ -167,8 +203,9 @@ const staticUi = () => {
 
 /** Single-user Kalibra on this computer (what `npx kalibra` runs). */
 async function serveLocal(dir: string, values: Flags) {
-  const hub = openHub(dir, 'local');
-  hub.openAll();
+  const deployment = await openDeployment(dir, values);
+  const hub = await openHub(dir, 'local', deployment.hub);
+  await hub.openAll();
   const token = values.dev || values['no-token'] ? undefined : newToken();
   const host = String(values.host ?? '127.0.0.1');
   if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
@@ -183,10 +220,13 @@ async function serveLocal(dir: string, values: Flags) {
     staticDir,
     allowedOrigins: values.dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
     meta: { mode: values.dev ? 'dev' : 'cli', version: VERSION, mcp: mcpCommand(dir) },
+    storageStatus: () => deployment.storage.status(),
   });
   writeEngineInfo(dir, { url: srv.url, token, pid: process.pid });
+  const closeHub = handOverOnRequest(deployment.storage, srv, hub);
   const openUrl = `${srv.url}${BASE_PATH}/${token ? `?token=${token}` : ''}`;
   console.log(`Kalibra running\n  data: ${dir}\n  url:  ${openUrl}${staticDir ? '' : `\n  (UI not built — use the Vite dev server on http://localhost:5173${BASE_PATH}/)`}`);
+  if (deployment.storage.objects || deployment.cfg.databaseUrl) console.log(`  ${deployment.describe}`);
   if (values.open) {
     const { exec } = await import('node:child_process');
     exec(`${process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open'} "${openUrl}"`);
@@ -194,7 +234,8 @@ async function serveLocal(dir: string, values: Flags) {
   onStop(async () => {
     clearEngineInfo(dir);
     await srv.close();
-    hub.close();
+    await closeHub();
+    await deployment.close();
   });
 }
 
@@ -202,11 +243,11 @@ async function serveLocal(dir: string, values: Flags) {
 async function serveTeam(dir: string, values: Flags) {
   const folderRoot = (values['folder-root'] as string | undefined) ?? process.env.KALIBRA_FOLDER_ROOT;
   const publicUrl = (values['public-url'] as string | undefined) ?? process.env.KALIBRA_PUBLIC_URL;
-  const hub = openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv() });
-  hub.openAll();
-  const adminUser = process.env.KALIBRA_ADMIN_USERNAME;
-  const adminPassword = process.env.KALIBRA_ADMIN_PASSWORD;
-  if (adminUser && adminPassword && hub.needsSetup()) await hub.ensureAdmin(adminUser, adminPassword);
+  const deployment = await openDeployment(dir, values);
+  const hub = await openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv(), ...deployment.hub });
+  await hub.openAll();
+  const admin = adminFromEnv();
+  if (admin && await hub.needsSetup()) await hub.ensureAdmin(admin.username, admin.password);
   const host = String(values.host ?? process.env.KALIBRA_HOST ?? '127.0.0.1');
   const srv = await startServer({
     hub,
@@ -217,21 +258,27 @@ async function serveTeam(dir: string, values: Flags) {
     trustProxy: !!values['trust-proxy'] || process.env.KALIBRA_TRUST_PROXY === '1',
     allowedOrigins: values.dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
     meta: { mode: 'server', version: VERSION },
+    storageStatus: () => deployment.storage.status(),
   });
+  writeServerMarker(dir);
+  const closeHub = handOverOnRequest(deployment.storage, srv, hub);
   const base = `${publicOrigin(publicUrl) ?? srv.url}${BASE_PATH}`;
-  console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/`);
+  console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/\n  ${deployment.describe}`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
   if (!folderRoot) console.log('  Folder sync is off (set --folder-root to allow it inside one folder).');
-  const providers = hub.providers.enabled();
-  if (providers.length) console.log(`  Sign-in: password${hub.settings().passwordLogin ? '' : ' (administrators only)'}, ${providers.map((p) => p.name).join(', ')}`);
+  const providers = await hub.providers.enabled();
+  if (providers.length) console.log(`  Sign-in: password${(await hub.settings()).passwordLogin ? '' : ' (administrators only)'}, ${providers.map((p) => p.name).join(', ')}`);
   if (providers.some((p) => p.kind !== 'proxy') && !publicUrl) console.warn('  Note: set --public-url so sign-in providers send people back to the right address.');
-  const code = hub.setupCode();
+  const code = await hub.setupCode();
   if (code) console.log(`\n  No administrator yet. Open this link to create one:\n  ${base}/setup?code=${code}\n`);
   onStop(async () => {
+    clearServerMarker(dir);
     await srv.close();
-    hub.close();
+    await closeHub();
+    await deployment.close();
   });
 }
+
 
 function onStop(fn: () => Promise<void>) {
   const stop = async () => {
@@ -248,38 +295,42 @@ function onStop(fn: () => Promise<void>) {
  */
 async function users(dir: string, args: string[], password?: string) {
   const [action, username] = args;
-  const hub = openHub(dir, 'server');
+  // Setup B with the server running on this machine: it holds the bucket lease and syncs these
+  // database files, so change them in place (the server ships the change). Taking the lease would fail.
+  const deployment = usesLocalFilesOfRunningServer(dir) ? undefined : await openDeployment(dir);
+  const hub = await openHub(dir, 'server', deployment?.hub ?? {});
   try {
     const temp = () => password ?? randomBytes(12).toString('base64url');
     if (action === 'list' || !action) {
-      for (const u of hub.accounts.list()) console.log(`${u.username.padEnd(24)} ${u.role.padEnd(6)} ${u.disabled ? 'disabled' : 'active'}  ${u.name}`);
+      for (const u of await hub.accounts.list()) console.log(`${u.username.padEnd(24)} ${u.role.padEnd(6)} ${u.disabled ? 'disabled' : 'active'}  ${u.name}`);
     } else if (!username) {
       throw new Error(`Usage: kalibra users ${action} <username> [--password P]`);
     } else if (action === 'create') {
       const pw = temp();
       await hub.accounts.create({ username, password: pw, role: 'admin', mustChangePassword: !password }, 'cli');
-      hub.audit({ kind: 'cli', id: 'cli' }, 'user.created', username, { role: 'admin', from: 'cli' });
+      await hub.audit({ kind: 'cli', id: 'cli' }, 'user.created', username, { role: 'admin', from: 'cli' });
       console.log(`Created administrator ${username}${password ? '' : ` with temporary password: ${pw}\nThey choose a new one at first sign-in.`}`);
     } else if (action === 'reset-password') {
-      const user = hub.accounts.find(username);
+      const user = await hub.accounts.find(username);
       if (!user) throw new Error(`No user "${username}"`);
       const pw = temp();
       await hub.accounts.setPassword(user.id, pw, { mustChange: !password });
-      hub.accounts.revokeAllSessions(user.id);
-      hub.audit({ kind: 'cli', id: 'cli' }, 'password.reset', user.username, { from: 'cli' });
+      await hub.accounts.revokeAllSessions(user.id);
+      await hub.audit({ kind: 'cli', id: 'cli' }, 'password.reset', user.username, { from: 'cli' });
       console.log(`Password of ${user.username} reset${password ? '' : ` to: ${pw}\nThey choose a new one at next sign-in.`}`);
     } else if (action === 'make-admin') {
-      const user = hub.accounts.find(username);
+      const user = await hub.accounts.find(username);
       if (!user) throw new Error(`No user "${username}"`);
-      hub.accounts.update(user.id, { role: 'admin', disabled: false });
-      hub.db.run('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?', user.id);
-      hub.audit({ kind: 'cli', id: 'cli' }, 'user.updated', user.username, { role: 'admin', disabled: false, from: 'cli' });
+      await hub.accounts.update(user.id, { role: 'admin', disabled: false });
+      await hub.db.run('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?', user.id);
+      await hub.audit({ kind: 'cli', id: 'cli' }, 'user.updated', user.username, { role: 'admin', disabled: false, from: 'cli' });
       console.log(`${user.username} is now an active administrator`);
     } else {
       throw new Error(`Unknown action "${action}". Use list, create, reset-password or make-admin.`);
     }
   } finally {
-    hub.close();
+    await hub.close();
+    await deployment?.close();
   }
 }
 

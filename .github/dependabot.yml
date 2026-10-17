@@ -18,6 +18,10 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly, day: monday }
+    # Node majors (and odd, non-LTS releases) are moved by hand together with CI; digests and patches update here.
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: pip
     directory: /sdks/python
     schedule: { interval: weekly, day: monday }

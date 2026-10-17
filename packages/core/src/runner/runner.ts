@@ -14,27 +14,106 @@ const MAX_TEXT = 256 * 1024;
 /** Steps kept per row (a runaway agent can produce thousands). */
 const MAX_STEPS = 500;
 
+/** How long a run's lease lasts, how often it is renewed, and how often orphaned runs are looked for. */
+export interface LeaseTiming {
+  leaseMs: number;
+  renewMs: number;
+  sweepMs: number;
+}
+export const DEFAULT_LEASE: LeaseTiming = { leaseMs: 45_000, renewMs: 15_000, sweepMs: 30_000 };
+
+/** Why an execution stops early: a cancel, handing the run to another instance, or having lost it to one. */
+type StopReason = 'cancel' | 'handoff' | 'lost';
+
 /**
  * Executes runs in-process: bounded concurrency, retries with backoff (honouring Retry-After),
  * per-row state saved as it goes so a crash or cancel can resume where it stopped.
- * Server mode can move this behind a durable queue with separate workers.
+ *
+ * Several instances (Redis coordinator): the instance executing a run holds a lease on it in the
+ * database and renews it. When an instance stops (shutdown hands its runs back; a crash lets the
+ * lease expire), another instance's sweep resumes the run from its last saved row. A cancel can be
+ * asked on any instance: it is stored on the run and announced, and the executing instance stops.
  */
 export class Runner {
   private active = new Map<string, AbortController>();
+  private reasons = new Map<string, StopReason>();
+  private executions = new Map<string, Promise<void>>();
+  private sweeper?: ReturnType<typeof setInterval>;
+  private readonly timing: LeaseTiming;
 
-  constructor(private engine: Engine) {}
+  constructor(
+    private engine: Engine,
+    timing: Partial<LeaseTiming> = {},
+  ) {
+    this.timing = { ...DEFAULT_LEASE, ...timing };
+  }
 
-  /** Runs left running by a crash or app quit become "interrupted" and can be resumed. */
-  recover() {
+  /** Whether runs are shared with other instances. */
+  private get shared() {
+    return this.engine.coordinator.kind !== 'local';
+  }
+
+  private get owner() {
+    return this.engine.coordinator.instanceId;
+  }
+
+  private leaseUntil() {
+    return new Date(Date.now() + this.timing.leaseMs).toISOString();
+  }
+
+  /**
+   * One instance: runs left running by a crash or app quit become "interrupted" and can be resumed.
+   * Several instances: runs nobody holds are resumed here, and from now on looked for regularly.
+   */
+  async recover() {
+    if (this.shared) {
+      await this.sweep();
+      this.sweeper ??= setInterval(() => void this.sweep().catch((e) => console.error(`Looking for orphaned runs failed: ${e?.message ?? e}`)), this.timing.sweepMs);
+      this.sweeper.unref?.();
+      return;
+    }
     const { db } = this.engine;
-    for (const r of db.all("SELECT id FROM runs WHERE status IN ('running','queued') AND deleted_at IS NULL")) {
-      this.engine.repos.runs.resetRunning(r.id);
-      this.engine.repos.runs.setStatus(r.id, 'interrupted');
+    // Leases left by the previous process (one instance: nobody else can hold them).
+    await db.run('UPDATE runs SET lease_owner = NULL, lease_until = NULL WHERE lease_owner IS NOT NULL');
+    for (const r of await db.all("SELECT id FROM runs WHERE status IN ('running','queued') AND deleted_at IS NULL")) {
+      await this.engine.repos.runs.resetRunning(r.id);
+      await this.engine.repos.runs.setStatus(r.id, 'interrupted');
     }
   }
 
-  isActive(runId: string) {
+  /** Resumes runs whose instance stopped (lease expired or handed back); one instance at a time per project. */
+  async sweep() {
+    const lock = await this.engine.coordinator.tryLock(`sweep:${this.engine.projectKey}`, this.timing.sweepMs);
+    if (!lock) return;
+    try {
+      const { runs } = this.engine.repos;
+      const queuedBefore = new Date(Date.now() - this.timing.leaseMs).toISOString();
+      for (const r of await runs.orphaned(queuedBefore)) {
+        if (this.active.has(r.id)) continue;
+        if (r.cancelRequested) {
+          await runs.resetRunning(r.id);
+          const summary = summarize(await runs.summaryRows(r.id), (await runs.get(r.id)).total);
+          await runs.setStatus(r.id, 'cancelled', { summary });
+          await runs.requestCancel(r.id, false);
+          await this.emitProgress(r.id);
+          continue;
+        }
+        this.start(r.id);
+      }
+    } finally {
+      await lock.release();
+    }
+  }
+
+  /** Executing here. */
+  isLocal(runId: string) {
     return this.active.has(runId);
+  }
+
+  /** Executing here or, with several instances, on another instance that holds its lease. */
+  async isActive(runId: string) {
+    if (this.active.has(runId)) return true;
+    return this.shared && (await this.engine.repos.runs.leaseActive(runId));
   }
 
   activeCount() {
@@ -45,40 +124,112 @@ export class Runner {
     if (this.active.has(runId)) return;
     const ac = new AbortController();
     this.active.set(runId, ac);
-    void this.execute(runId, ac.signal)
+    const execution = this.execute(runId, ac.signal)
       .catch((e: any) => {
         // Only storage failing gets here. When the engine closed its database mid-run (app quit),
         // the run is still "running" on disk; recover() marks it "interrupted" (resumable) next start.
         if (!/not open/i.test(e?.message ?? '')) console.error(`Run ${runId} stopped: ${e?.message ?? e}`);
       })
-      .finally(() => this.active.delete(runId));
+      .finally(() => {
+        this.active.delete(runId);
+        this.reasons.delete(runId);
+        this.executions.delete(runId);
+      });
+    this.executions.set(runId, execution);
   }
 
-  cancel(runId: string) {
-    this.active.get(runId)?.abort(new Error('Run cancelled'));
+  /** Stops a run. With several instances the one executing it may be another: it is told to stop. */
+  async cancel(runId: string) {
+    if (this.stop(runId, 'cancel')) return;
+    if (!this.shared) return;
+    await this.engine.repos.runs.requestCancel(runId);
+    await this.engine.coordinator.publish('control', JSON.stringify({ type: 'cancel-run', project: this.engine.projectKey, runId }));
   }
 
-  /** Waits until a run is no longer executing (used by the CLI and tests). */
+  /** A cancel announced by another instance (see Hub): stops the run if it executes here. */
+  cancelLocal(runId: string) {
+    this.stop(runId, 'cancel');
+  }
+
+  private stop(runId: string, reason: StopReason) {
+    const ac = this.active.get(runId);
+    if (!ac) return false;
+    if (!this.reasons.has(runId)) this.reasons.set(runId, reason);
+    ac.abort(new Error(reason === 'cancel' ? 'Run cancelled' : 'Run moved to another instance'));
+    return true;
+  }
+
+  /**
+   * Shutting down with several instances: stops executing and hands the runs back (rows not finished
+   * go back to pending, the lease is released), so another instance resumes them right away.
+   */
+  async handOff(timeoutMs = 10_000) {
+    clearInterval(this.sweeper);
+    this.sweeper = undefined;
+    const running = [...this.executions.values()];
+    for (const id of [...this.active.keys()]) this.stop(id, 'handoff');
+    await Promise.race([Promise.allSettled(running), sleep(timeoutMs)]);
+  }
+
+  /** Stops looking for orphaned runs (the engine is closing). */
+  stopSweeping() {
+    clearInterval(this.sweeper);
+    this.sweeper = undefined;
+  }
+
+  /** Waits until a run is no longer executing (used by the CLI and tests), here or on another instance. */
   async wait(runId: string, pollMs = 200) {
     while (this.active.has(runId)) await sleep(pollMs);
-    return this.engine.repos.runs.get(runId);
+    if (this.shared) {
+      for (;;) {
+        const run = await this.engine.repos.runs.get(runId);
+        if ((run.status !== 'running' && run.status !== 'queued') || !(await this.engine.repos.runs.leaseActive(runId))) break;
+        await sleep(pollMs);
+      }
+    }
+    return await this.engine.repos.runs.get(runId);
   }
 
-  private emitProgress(runId: string) {
-    const p = this.engine.repos.runs.progress(runId);
+  private async emitProgress(runId: string) {
+    const p = await this.engine.repos.runs.progress(runId);
     this.engine.events.emit({ type: 'run.updated', runId, status: p.status, done: p.done, total: p.total });
   }
 
   private async execute(runId: string, signal: AbortSignal) {
     const { runs, defs } = this.engine.repos;
-    const run = runs.get(runId);
-    runs.setStatus(run.id, 'running');
-    this.emitProgress(run.id);
+    // The lease says which instance executes the run; another instance's valid lease means it is
+    // already running there. Rows a previous holder left "running" go back to pending.
+    if (!(await runs.acquireLease(runId, this.owner, this.leaseUntil()))) return;
+    await runs.resetRunning(runId);
+    const renew = setInterval(() => {
+      runs
+        .renewLease(runId, this.owner, this.leaseUntil())
+        .then(({ held, cancel }) => {
+          if (!held) this.stop(runId, 'lost');
+          else if (cancel) this.stop(runId, 'cancel');
+        })
+        .catch((e) => console.error(`Could not renew the lease of run ${runId}: ${e?.message ?? e}`));
+    }, this.timing.renewMs);
+    renew.unref?.();
     try {
-      const suite = SuiteSpec.parse(defs.getVersion('suite', run.suiteId!, run.suiteVersion!).spec);
-      const target = run.kind === 'live' ? applyOverrides(TargetSpec.parse(defs.getVersion('target', run.targetId!, run.targetVersion!).spec), run.settings.overrides) : null;
+      await this.executeHeld(runId, signal);
+    } finally {
+      clearInterval(renew);
+      // A run lost to another instance belongs to it now; anything else frees its lease.
+      if (this.reasons.get(runId) !== 'lost') await runs.releaseLease(runId, this.owner);
+    }
+  }
+
+  private async executeHeld(runId: string, signal: AbortSignal) {
+    const { runs, defs } = this.engine.repos;
+    const run = await runs.get(runId);
+    await runs.setStatus(run.id, 'running');
+    await this.emitProgress(run.id);
+    try {
+      const suite = SuiteSpec.parse((await defs.getVersion('suite', run.suiteId!, run.suiteVersion!)).spec);
+      const target = run.kind === 'live' ? applyOverrides(TargetSpec.parse((await defs.getVersion('target', run.targetId!, run.targetVersion!)).spec), run.settings.overrides) : null;
       const vars = target ? Object.fromEntries(target.variables.filter((v) => v.enabled && v.key).map((v) => [v.key, v.value])) : {};
-      const queue = runs.pending(run.id);
+      const queue = await runs.pending(run.id);
       let next = 0;
       let lastEmit = 0;
       let lastSummary = Date.now();
@@ -95,16 +246,16 @@ export class Runner {
           } catch (e: any) {
             // One bad row (an unexpected throw, an unstorable output) must not fail the run while
             // the other workers keep going.
-            if (!signal.aborted) this.saveCrash(run.id, item.id, e);
+            if (!signal.aborted) await this.saveCrash(run.id, item.id, e);
           }
           if (Date.now() - lastEmit > 200) {
             lastEmit = Date.now();
-            this.emitProgress(run.id);
+            await this.emitProgress(run.id);
           }
           // Live summary so pass rates and latency fill in while the run is still going.
           if (Date.now() - lastSummary > summaryEvery) {
             const started = Date.now();
-            runs.setSummary(run.id, summarize(runs.summaryRows(run.id), run.total || queue.length));
+            await runs.setSummary(run.id, summarize(await runs.summaryRows(run.id), run.total || queue.length));
             lastSummary = Date.now();
             summaryEvery = Math.max(2000, (lastSummary - started) * 10);
           }
@@ -114,20 +265,27 @@ export class Runner {
       const workers = Math.max(1, Math.min(run.settings.concurrency, queue.length));
       await Promise.all(Array.from({ length: workers }, worker));
 
-      if (signal.aborted) runs.resetRunning(run.id);
-      const summary = summarize(runs.summaryRows(run.id), runs.get(run.id).total);
-      runs.setStatus(run.id, signal.aborted ? 'cancelled' : 'completed', { summary });
+      const reason = signal.aborted ? (this.reasons.get(run.id) ?? 'cancel') : undefined;
+      // Lost to another instance: it owns the run now, touch nothing.
+      if (reason === 'lost') return;
+      if (signal.aborted) await runs.resetRunning(run.id);
+      // Handed back on shutdown: stays "running" (unfinished rows pending) for another instance to resume.
+      if (reason === 'handoff') return;
+      const summary = summarize(await runs.summaryRows(run.id), (await runs.get(run.id)).total);
+      await runs.setStatus(run.id, signal.aborted ? 'cancelled' : 'completed', { summary });
+      if (signal.aborted) await runs.requestCancel(run.id, false);
     } catch (e: any) {
-      runs.resetRunning(run.id);
-      const summary = summarize(runs.summaryRows(run.id), runs.get(run.id).total);
-      runs.setStatus(run.id, 'failed', { error: e?.message ?? String(e), summary });
+      if (this.reasons.get(run.id) === 'lost') return;
+      await runs.resetRunning(run.id);
+      const summary = summarize(await runs.summaryRows(run.id), (await runs.get(run.id)).total);
+      await runs.setStatus(run.id, 'failed', { error: e?.message ?? String(e), summary });
     }
-    this.emitProgress(run.id);
+    await this.emitProgress(run.id);
   }
 
   private async processItem(run: RunRecord, item: ResultRecord, target: TargetSpec | null, suite: SuiteSpec, vars: Record<string, string>, signal: AbortSignal) {
     const { runs } = this.engine.repos;
-    runs.markRunning(item.id);
+    await runs.markRunning(item.id);
     const logs: LogEntry[] = [];
     const log = (level: LogEntry['level'], message: string) => logs.push({ at: Date.now(), level, message });
     const env = this.engine.templateEnv();
@@ -174,7 +332,7 @@ export class Runner {
     };
     const evaluated = await evaluateChecks(suite, { scope, env, llm: this.engine.llm, embed: this.engine.embeddings, log, workspaceDir: this.engine.dir, signal });
 
-    runs.saveResult(run.id, item.id, {
+    await runs.saveResult(run.id, item.id, {
       status: call.ok ? 'done' : 'error',
       // A call that got no response can't pass, even when every check happens to accept empty output.
       passed: call.ok && evaluated.passed,
@@ -204,10 +362,10 @@ export class Runner {
     };
   }
 
-  private saveCrash(runId: string, resultId: string, e: any) {
+  private async saveCrash(runId: string, resultId: string, e: any) {
     const message = `Unexpected error: ${e?.message ?? String(e)}`;
     try {
-      this.engine.repos.runs.saveResult(runId, resultId, {
+      await this.engine.repos.runs.saveResult(runId, resultId, {
         status: 'error',
         passed: false,
         score: null,

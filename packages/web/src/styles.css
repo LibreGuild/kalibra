@@ -64,8 +64,9 @@
  * The app icon uses the same violet (docs/images/logo.png, packages/web/public/logo.png).
  */
 :root,
-[data-theme='light'] { --k-accent: #5b4bdb; --k-accent-hover: #4c3cc7; --k-accent-ink: #4c3bc9; --k-accent-soft: #ecebfd; }
-[data-theme='dark'] { --k-accent: #6656ec; --k-accent-hover: #5747e0; --k-accent-ink: #a99fff; --k-accent-soft: #29254a; }
+[data-theme='light'] { --k-accent: #5b4bdb; --k-accent-hover: #4c3cc7; --k-accent-ink: #4c3bc9; --k-accent-soft: #ecebfd; --k-chart: #8279c9; }
+[data-theme='dark'] { --k-accent: #6656ec; --k-accent-hover: #5747e0; --k-accent-ink: #a99fff; --k-accent-soft: #29254a; --k-chart: #7d77b8; }
+/* --k-chart: a calmer violet for chart lines, so the pass/fail points on them stand out. */
 
 /* Reading font (Settings → Appearance). Atkinson Hyperlegible Next is built to tell similar glyphs apart: 0/O, 1/l/I. */
 :root {

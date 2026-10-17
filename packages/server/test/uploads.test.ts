@@ -13,12 +13,12 @@ describe('file uploads', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-up-'));
-    hub = new Hub({ dir, mode: 'local' });
+    hub = await Hub.open({ dir, mode: 'local' });
     srv = await startServer({ hub });
   });
   afterAll(async () => {
     await srv?.close();
-    hub?.close();
+    await hub?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -26,7 +26,7 @@ describe('file uploads', () => {
     const body = Buffer.alloc(8 * 1024 * 1024);
     for (let i = 0; i < body.length; i += 4096) body[i] = i % 251;
     const res = await fetch(`${srv.url}/kalibra/api/projects/default/files`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-file-name': encodeURIComponent('long take.wav') }, body });
-    const info = (await res.json()).data;
+    const info = ((await res.json()) as any).data;
     expect(info).toMatchObject({ size: body.length, mime: 'audio/wav', name: 'long take.wav', hash: createHash('sha256').update(body).digest('hex') });
     const back = Buffer.from(await (await fetch(`${srv.url}/kalibra/api/projects/default/files/${info.hash}`)).arrayBuffer());
     expect(back.equals(body)).toBe(true);

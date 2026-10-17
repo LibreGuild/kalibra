@@ -15,12 +15,23 @@ export type EngineEvent =
 
 export class EventBus {
   private emitter = new EventEmitter();
+  /**
+   * Set when several instances share state (see Hub): every event raised here is also sent to the
+   * other instances, whose listeners (live-event streams, run waiters) get it through deliver().
+   */
+  relay?: (e: EngineEvent) => void;
 
   constructor() {
     this.emitter.setMaxListeners(0);
   }
 
   emit(e: EngineEvent) {
+    this.emitter.emit('event', e);
+    this.relay?.(e);
+  }
+
+  /** An event raised on another instance: given to the listeners here, not sent on again. */
+  deliver(e: EngineEvent) {
     this.emitter.emit('event', e);
   }
 

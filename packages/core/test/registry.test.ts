@@ -9,11 +9,11 @@ import { Engine } from '../src/engine.js';
  * describable as a tool (JSON Schema object input, a real description) and secret handling must
  * never be exposed to agents.
  */
-describe('operation registry', () => {
+describe('operation registry', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kalibra-registry-'));
-  const engine = new Engine({ dir });
-  afterAll(() => {
-    engine.close();
+  const engine = await Engine.open({ dir });
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

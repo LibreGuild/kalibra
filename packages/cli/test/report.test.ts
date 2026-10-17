@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openHub } from '../src/engine-client.js';
 import { detectGit, runUrl } from '../src/report.js';
+import { databaseEnv } from '../../../test-support/database.js';
 
 const run = promisify(execFile);
 
@@ -41,11 +42,11 @@ describe('kalibra eval-report', () => {
   let dir: string;
   let feature: string;
   const root = resolve(__dirname, '../../..');
-  const cli = (...args: string[]) => run(join(root, 'node_modules/.bin/tsx'), [join(root, 'packages/cli/src/main.ts'), ...args, '--dir', dir], { env: { ...process.env, KALIBRA_URL: '', GITHUB_ACTIONS: '' } });
+  const cli = (...args: string[]) => run(join(root, 'node_modules/.bin/tsx'), [join(root, 'packages/cli/src/main.ts'), ...args, '--dir', dir], { env: { ...process.env, KALIBRA_URL: '', GITHUB_ACTIONS: '', ...databaseEnv(dir) } });
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-report-'));
-    const hub = openHub(dir);
+    const hub = await openHub(dir);
     const me = hub.localPrincipal();
     const call = (op: string, input: unknown) => hub.callProject<any>(me, 'default', op, input);
     await call('create_dataset', { name: 'Math', columns: [{ key: 'q' }, { key: 'expected' }] });
@@ -58,7 +59,7 @@ describe('kalibra eval-report', () => {
     };
     await codeRun('main', (q) => String(eval(q)));
     feature = await codeRun('feature/x', (q) => (q === '2+2' ? '5' : String(eval(q))));
-    hub.close();
+    await hub.close();
   }, 60_000);
 
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

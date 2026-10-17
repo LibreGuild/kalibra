@@ -6,6 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { argsHash, Hub } from '@kalibra/core';
 import { startServer, type RunningServer } from '../src/index.js';
+import { onPostgres } from '../../../test-support/database.js';
 
 /*
  * Where apps send traces, over real HTTP on a team server: ingest keys and their scope, size
@@ -46,8 +47,8 @@ const traces = async (query: Record<string, unknown> = {}) => (await admin.call(
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kalibra-ingest-'));
-  hub = new Hub({ dir, mode: 'server' });
-  await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
+  hub = await Hub.open({ dir, mode: 'server' });
+  await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: PW });
   srv = await startServer({ hub });
   admin = browser();
   await admin.call('/kalibra/api/auth/login', { username: 'admin', password: PW });
@@ -60,7 +61,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await srv?.close();
-  hub?.close();
+  await hub?.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -126,7 +127,7 @@ describe('limits and validation', () => {
     expect((await send(path, '{not json')).status).toBe(400);
     const none = await send(path, { traces: [{ name: '' }, { spans: 3 }] });
     expect(none.status).toBe(400);
-    expect((await none.json()).error.details).toHaveLength(2);
+    expect(((await none.json()) as any).error.details).toHaveLength(2);
     const some = await (await send(path, { traces: [{ name: 'good' }, { name: '' }] })).json();
     expect(some).toMatchObject({ accepted: 1, rejected: [{ index: 1 }] });
     expect((await send(path, { traces: Array.from({ length: 1001 }, () => ({ name: 'x' })) })).status).toBe(400);
@@ -151,7 +152,7 @@ describe('OpenTelemetry', () => {
     expect((await send(path, gzipSync(JSON.stringify(span('zipped'))), { 'content-encoding': 'gzip' })).status).toBe(200);
     const proto = await send(path, Buffer.from([1, 2, 3]), { 'content-type': 'application/x-protobuf' });
     expect(proto.status).toBe(415);
-    expect((await proto.json()).error.message).toMatch(/http\/json/);
+    expect(((await proto.json()) as any).error.message).toMatch(/http\/json/);
     expect((await send(path, { nope: 1 })).status).toBe(400);
   });
 });
@@ -221,7 +222,7 @@ describe('the OpenAI proxy', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('x-request-id')).toBe('req_1');
     expect(res.headers.get('set-cookie')).toBeNull();
-    expect((await res.json()).choices[0].message.content).toBe('Hi there');
+    expect(((await res.json()) as any).choices[0].message.content).toBe('Hi there');
     expect(seen[0].path).toBe('/v1/chat/completions?api-version=1');
     expect(seen[0].headers.authorization).toBe('Bearer sk-live-SECRET-123');
     for (const h of ['x-kalibra-key', 'x-kalibra-result', 'cookie', 'origin']) expect(seen[0].headers[h]).toBeUndefined();
@@ -232,11 +233,14 @@ describe('the OpenAI proxy', () => {
     expect(t).toMatchObject({ name: 'openai.chat.completions', output: 'Hi there', resultId: 'res_42' });
     expect(t.spans[0].attributes).toMatchObject({ model: 'gpt-test', tokens_in: 7, tokens_out: 3, streamed: false });
     expect(JSON.stringify(t)).not.toContain('SECRET');
-    // Nor anywhere in the project's database files.
-    const pdir = hub.engine(project.id).dir;
-    const files = readdirSync(pdir).filter((n) => /\.db(-wal)?$/.test(n));
-    expect(files.length).toBeGreaterThan(0);
-    for (const f of files) expect(readFileSync(join(pdir, f)).includes('sk-live-SECRET')).toBe(false);
+    // Nor anywhere in the project's database: no table holds it, nor (with SQLite) any database file.
+    const engine = await hub.engine(project.id);
+    for (const table of await engine.db.tables()) expect(JSON.stringify(await engine.db.all(`SELECT * FROM ${table.name}`))).not.toContain('sk-live-SECRET');
+    if (!onPostgres) {
+      const files = readdirSync(engine.dir).filter((n) => /\.db(-wal)?$/.test(n));
+      expect(files.length).toBeGreaterThan(0);
+      for (const f of files) expect(readFileSync(join(engine.dir, f)).includes('sk-live-SECRET')).toBe(false);
+    }
   });
 
   it('passes a streamed answer through as it arrives, then records the whole text', async () => {
@@ -261,10 +265,10 @@ describe('the OpenAI proxy', () => {
   it('needs the key in x-kalibra-key, and says when the upstream is down', async () => {
     const res = await fetch(`${srv.url}/kalibra/api/projects/${project.id}/proxy/openai/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: '{}' });
     expect(res.status).toBe(401);
-    expect((await res.json()).error.message).toMatch(/x-kalibra-key/);
+    expect(((await res.json()) as any).error.message).toMatch(/x-kalibra-key/);
     await admin.call(`/kalibra/api/projects/${project.id}/ops/set_trace_settings`, { proxyOpenaiUpstream: 'http://127.0.0.1:9' });
     const down = await proxied('/v1/chat/completions', { model: 'x' });
     expect(down.status).toBe(502);
-    expect((await down.json()).error.type).toBe('kalibra_proxy_error');
+    expect(((await down.json()) as any).error.type).toBe('kalibra_proxy_error');
   });
 });

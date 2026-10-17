@@ -101,10 +101,10 @@ function columnsFor(rows: Record<string, unknown>[], descriptions: Record<string
   return keys.map((key) => ColumnSpec.parse({ key, type: inferType(rows.map((r) => r[key])), description: descriptions[key] ?? '' }));
 }
 
-function datasetName(engine: Engine, wanted: string) {
-  return freeName((n) => {
+async function datasetName(engine: Engine, wanted: string) {
+  return await freeName(async (n) => {
     try {
-      engine.repos.datasets.get(n);
+      await engine.repos.datasets.get(n);
       return true;
     } catch {
       return false;
@@ -112,10 +112,10 @@ function datasetName(engine: Engine, wanted: string) {
   }, wanted.trim() || 'Imported dataset', 'imported');
 }
 
-function defName(engine: Engine, kind: 'suite' | 'target', wanted: string) {
-  return freeName((n) => {
+async function defName(engine: Engine, kind: 'suite' | 'target', wanted: string) {
+  return await freeName(async (n) => {
     try {
-      engine.repos.defs.get(kind, n);
+      await engine.repos.defs.get(kind, n);
       return true;
     } catch {
       return false;
@@ -123,11 +123,11 @@ function defName(engine: Engine, kind: 'suite' | 'target', wanted: string) {
   }, wanted.trim() || `Imported ${kind}`, 'imported');
 }
 
-function createDataset(engine: Engine, actor: Actor, name: string, description: string, rows: IncomingRow[], report: ImportReport, descriptions: Record<string, string> = {}) {
+async function createDataset(engine: Engine, actor: Actor, name: string, description: string, rows: IncomingRow[], report: ImportReport, descriptions: Record<string, string> = {}) {
   if (!rows.length) report.warnings.push('The file has no rows');
   const columns = columnsFor(rows.map((r) => r.data), descriptions);
-  const ds = engine.repos.datasets.create({ name: datasetName(engine, name), description, schema: { columns, instructions: '' } }, actor);
-  const res = insertRows(engine, ds.id, ds.schema.columns, rows, actor, { importedFrom: report.format });
+  const ds = await engine.repos.datasets.create({ name: await datasetName(engine, name), description, schema: { columns, instructions: '' } }, actor);
+  const res = await insertRows(engine, ds.id, ds.schema.columns, rows, actor, { importedFrom: report.format });
   report.dataset = { id: ds.id, name: ds.name, rows: res.added.length, rejected: res.rejected.length, columns: columns.map((c) => c.key) };
   if (res.rejected.length) report.warnings.push(`${res.rejected.length} rows could not be imported: ${res.rejected[0].errors.join('; ')}`);
   engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
@@ -177,7 +177,7 @@ interface PfAssert {
   metric?: string;
 }
 
-function importPromptfoo(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport) {
+async function importPromptfoo(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport) {
   let cfg: any;
   try {
     cfg = tryJson(text) ?? parseYaml(text);
@@ -336,11 +336,11 @@ function importPromptfoo(engine: Engine, text: string, name: string | undefined,
 
   const title = name || cfg.description || 'promptfoo import';
   const rows: IncomingRow[] = rowsData.map((data) => ({ data, tags: ['promptfoo'] }));
-  const ds = createDataset(engine, actor, String(title), typeof cfg.description === 'string' ? cfg.description : 'Imported from a promptfoo config', rows, report, { prompt: 'The prompt rendered with this test’s vars', test_description: 'promptfoo test description' });
+  const ds = await createDataset(engine, actor, String(title), typeof cfg.description === 'string' ? cfg.description : 'Imported from a promptfoo config', rows, report, { prompt: 'The prompt rendered with this test’s vars', test_description: 'promptfoo test description' });
 
   const kept = dropCode(checks, report);
   if (kept.length) {
-    const suite = engine.repos.defs.create('suite', { name: defName(engine, 'suite', `${title} checks`), description: 'Imported from promptfoo assertions', spec: { checks: kept } }, actor);
+    const suite = await engine.repos.defs.create('suite', { name: await defName(engine, 'suite', `${title} checks`), description: 'Imported from promptfoo assertions', spec: { checks: kept } }, actor);
     report.suite = { id: suite.id, name: suite.name, checks: kept.length };
     engine.events.emit({ type: 'def.changed', kind: 'suite', id: suite.id, actor });
   }
@@ -385,7 +385,7 @@ function importPromptfoo(engine: Engine, text: string, name: string | undefined,
       continue;
     }
     try {
-      const t = engine.repos.defs.create('target', { name: defName(engine, 'target', String(label)), description: `Imported from promptfoo provider ${id}`, spec }, actor);
+      const t = await engine.repos.defs.create('target', { name: await defName(engine, 'target', String(label)), description: `Imported from promptfoo provider ${id}`, spec }, actor);
       report.targets.push({ id: t.id, name: t.name, kind: String((spec.config as any).kind), note });
       engine.events.emit({ type: 'def.changed', kind: 'target', id: t.id, actor });
     } catch (e: any) {
@@ -408,7 +408,7 @@ const oaTemplate = (s: string) =>
     .replace(/\{\{\s*sample\.output_text\s*\}\}/g, '{{output}}')
     .replace(/\{\{\s*sample\.output_json\s*\}\}/g, '{{output | json}}');
 
-function importOpenAiEvals(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport, graders?: unknown) {
+async function importOpenAiEvals(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport, graders?: unknown) {
   const json = tryJson(text);
   const records = Array.isArray(json) ? json : jsonlRecords(text);
   if (!records) throw invalid('The file is not JSONL');
@@ -416,7 +416,7 @@ function importOpenAiEvals(engine: Engine, text: string, name: string | undefine
     const item = r && typeof r.item === 'object' && r.item ? r.item : r;
     return { data: Object.fromEntries(Object.entries(item).map(([k, v]) => [safeKey(k), v])) };
   });
-  createDataset(engine, actor, name || 'OpenAI Evals import', 'Imported from an OpenAI Evals data file', rows, report);
+  await createDataset(engine, actor, name || 'OpenAI Evals import', 'Imported from an OpenAI Evals data file', rows, report);
 
   const list = Array.isArray(graders) ? graders : (graders as any)?.testing_criteria ?? [];
   const checks: CheckSpec[] = [];
@@ -461,7 +461,7 @@ function importOpenAiEvals(engine: Engine, text: string, name: string | undefine
   }
   const kept = dropCode(checks, report);
   if (kept.length) {
-    const suite = engine.repos.defs.create('suite', { name: defName(engine, 'suite', `${name || 'OpenAI Evals'} graders`), description: 'Imported from OpenAI Evals graders', spec: { checks: kept } }, actor);
+    const suite = await engine.repos.defs.create('suite', { name: await defName(engine, 'suite', `${name || 'OpenAI Evals'} graders`), description: 'Imported from OpenAI Evals graders', spec: { checks: kept } }, actor);
     report.suite = { id: suite.id, name: suite.name, checks: kept.length };
     engine.events.emit({ type: 'def.changed', kind: 'suite', id: suite.id, actor });
   }
@@ -476,7 +476,7 @@ function parseJsonCell(v: unknown) {
   return tryJson(t) ?? v;
 }
 
-function importLangSmith(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport) {
+async function importLangSmith(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport) {
   const json = tryJson(text);
   let records: Record<string, unknown>[] = Array.isArray(json) ? json : jsonlRecords(text) ?? [];
   if (!records.length) records = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true }).data;
@@ -511,12 +511,12 @@ function importLangSmith(engine: Engine, text: string, name: string | undefined,
     }
     return { data, tags, split };
   });
-  createDataset(engine, actor, name || 'LangSmith import', 'Imported from a LangSmith dataset export', rows, report);
+  await createDataset(engine, actor, name || 'LangSmith import', 'Imported from a LangSmith dataset export', rows, report);
 }
 
 // ── Langfuse ────────────────────────────────────────────────────────────────
 
-function importLangfuse(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport) {
+async function importLangfuse(engine: Engine, text: string, name: string | undefined, actor: Actor, report: ImportReport) {
   const json = tryJson(text);
   const records: any[] = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : Array.isArray(json?.data) ? json.data : jsonlRecords(text) ?? [];
   const rows: IncomingRow[] = records.map((r) => {
@@ -533,7 +533,7 @@ function importLangfuse(engine: Engine, text: string, name: string | undefined, 
     const archived = r.status === 'ARCHIVED';
     return { data, status: archived ? 'rejected' : 'approved', tags: archived ? ['archived'] : [] };
   });
-  createDataset(engine, actor, name || 'Langfuse import', 'Imported from a Langfuse dataset export', rows, report);
+  await createDataset(engine, actor, name || 'Langfuse import', 'Imported from a Langfuse dataset export', rows, report);
 }
 
 // ── Entry ───────────────────────────────────────────────────────────────────
@@ -555,22 +555,22 @@ export function inspectExternal(bytes: Uint8Array, fileName = '') {
   return out;
 }
 
-export function importExternal(engine: Engine, bytes: Uint8Array, opts: { format: ExternalFormat | 'auto'; name?: string; fileName?: string; graders?: unknown }, actor: Actor): ImportReport {
+export async function importExternal(engine: Engine, bytes: Uint8Array, opts: { format: ExternalFormat | 'auto'; name?: string; fileName?: string; graders?: unknown }, actor: Actor): Promise<ImportReport> {
   const format = opts.format === 'auto' ? detectFormat(bytes, opts.fileName) : opts.format;
   const report: ImportReport = { format, targets: [], mappedChecks: [], unsupported: [], skipped: [], warnings: [] };
   const text = Buffer.from(bytes).toString('utf8');
   switch (format) {
     case 'promptfoo':
-      importPromptfoo(engine, text, opts.name, actor, report);
+      await importPromptfoo(engine, text, opts.name, actor, report);
       break;
     case 'openai_evals':
-      importOpenAiEvals(engine, text, opts.name, actor, report, opts.graders);
+      await importOpenAiEvals(engine, text, opts.name, actor, report, opts.graders);
       break;
     case 'langsmith':
-      importLangSmith(engine, text, opts.name, actor, report);
+      await importLangSmith(engine, text, opts.name, actor, report);
       break;
     case 'langfuse':
-      importLangfuse(engine, text, opts.name, actor, report);
+      await importLangfuse(engine, text, opts.name, actor, report);
       break;
     case 'kalibra_bundle':
       throw invalid('This is a Kalibra bundle; import it with import_bundle');

@@ -30,9 +30,9 @@ describe('CLI access to Kalibra', () => {
   });
 
   it('talks to a team server under /kalibra, with or without /kalibra in the address', async () => {
-    const hub = new Hub({ dir: tmp(), mode: 'server' });
-    await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: 'a-long-password-1' });
-    const { token } = hub.accounts.createToken(hub.accounts.find('admin')!.id, { name: 'cli' });
+    const hub = await Hub.open({ dir: tmp(), mode: 'server' });
+    await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: 'a-long-password-1' });
+    const { token } = await hub.accounts.createToken((await hub.accounts.find('admin'))!.id, { name: 'cli' });
     const srv = await startServer({ hub });
     try {
       for (const server of [srv.url, `${srv.url}/`, `${srv.url}/kalibra`, `${srv.url}/kalibra/`]) {
@@ -44,15 +44,15 @@ describe('CLI access to Kalibra', () => {
       }
     } finally {
       await srv.close();
-      hub.close();
+      await hub.close();
     }
   });
 
   it('works in the default project and switches projects in process', async () => {
     const dir = tmp();
-    const hub = openHub(dir);
+    const hub = await openHub(dir);
     const voice = await hub.call<any>(hub.localPrincipal(), 'create_project', { name: 'Voice' });
-    hub.close();
+    await hub.close();
 
     const client = await connect(dir, { kind: 'cli', id: 'cli' });
     expect(client.mode).toBe('local');

@@ -11,18 +11,18 @@ import type { Actor } from '../registry.js';
 import { GitInfoInput, type RunKind } from '../repo/runs.js';
 
 /** Snapshot the dataset, pick rows per settings, create the run with one pending result per row × repetition. */
-export function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: string; target?: string; name?: string; settings: RunSettings; kind: RunKind; groupId?: string; variantLabel?: string }) {
+export async function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: string; target?: string; name?: string; settings: RunSettings; kind: RunKind; groupId?: string; variantLabel?: string }) {
   const { datasets, defs, runs } = engine.repos;
-  const ds = datasets.get(i.dataset);
-  const suite = defs.get('suite', i.suite);
-  const target = i.kind === 'live' ? defs.get('target', i.target ?? '') : null;
-  const version = datasets.createVersion(ds.id, 'Saved automatically for a run', actor);
-  let rows = datasets.versionRows(version.id).filter((r) => i.settings.includeStatuses.includes(r.status));
+  const ds = await datasets.get(i.dataset);
+  const suite = await defs.get('suite', i.suite);
+  const target = i.kind === 'live' ? await defs.get('target', i.target ?? '') : null;
+  const version = await datasets.createVersion(ds.id, 'Saved automatically for a run', actor);
+  let rows = (await datasets.versionRows(version.id)).filter((r) => i.settings.includeStatuses.includes(r.status));
   if (i.settings.rowIds?.length) rows = rows.filter((r) => i.settings.rowIds!.includes(r.id));
   if (i.settings.tags?.length) rows = rows.filter((r) => r.tags.some((t) => i.settings.tags!.includes(t)));
   if (i.settings.limit) rows = rows.slice(0, i.settings.limit);
   if (!rows.length) throw invalid('No rows match these settings (check row statuses and filters)');
-  const run = runs.create(
+  const run = await runs.create(
     { name: i.name, kind: i.kind, datasetId: ds.id, datasetVersionId: version.id, targetId: target?.id, targetVersion: target?.version, suiteId: suite.id, suiteVersion: suite.version, settings: i.settings, groupId: i.groupId, variantLabel: i.variantLabel },
     actor,
   );
@@ -44,14 +44,14 @@ export const runOps = [
       settings: RunSettings.prefault({}),
       git: GitInfoInput.optional().describe('Branch / commit / PR of the code under test (CI), so later runs can compare against the base branch'),
     }),
-    handler: ({ engine, actor }, i) => {
-      const warnings = runPreflight(engine, i.dataset, i.target, i.settings);
-      const { run, rows } = prepareRun(engine, actor, { ...i, kind: 'live' });
-      if (i.git) engine.repos.runs.setGit(run.id, i.git);
+    handler: async ({ engine, actor }, i) => {
+      const warnings = await runPreflight(engine, i.dataset, i.target, i.settings);
+      const { run, rows } = await prepareRun(engine, actor, { ...i, kind: 'live' });
+      if (i.git) await engine.repos.runs.setGit(run.id, i.git);
       const items = rows.flatMap((r) => Array.from({ length: i.settings.repetitions }, (_, rep) => ({ rowId: r.id, rowRev: r.rev, rep, input: r.data })));
-      engine.repos.runs.addPending(run.id, items);
+      await engine.repos.runs.addPending(run.id, items);
       engine.runner.start(run.id);
-      return { ...engine.repos.runs.get(run.id), warnings };
+      return { ...(await engine.repos.runs.get(run.id)), warnings };
     },
   }),
 
@@ -63,7 +63,7 @@ export const runOps = [
     category: 'runs',
     readOnly: true,
     input: z.object({ dataset: z.string(), target: z.string(), settings: RunSettings.prefault({}) }),
-    handler: ({ engine }, i) => ({ warnings: runPreflight(engine, i.dataset, i.target, i.settings) }),
+    handler: async ({ engine }, i) => ({ warnings: await runPreflight(engine, i.dataset, i.target, i.settings) }),
   }),
 
   defineOp({
@@ -84,12 +84,12 @@ export const runOps = [
     }),
     handler: async ({ engine, actor }, i) => {
       const text = (await engine.blobs.get(i.blob)).toString('utf8');
-      const name = engine.blobs.info(i.blob)?.name ?? '';
+      const name = (await engine.blobs.info(i.blob))?.name ?? '';
       const records: Record<string, any>[] = /\.csv$/i.test(name) || !/^\s*[[{]/.test(text)
         ? Papa.parse<Record<string, any>>(text, { header: true, skipEmptyLines: true }).data
         : text.trimStart().startsWith('[') ? JSON.parse(text) : text.split(/\r?\n/).filter((l) => l.trim()).map((l) => JSON.parse(l));
       const byId = new Map(records.map((r) => [String(r[i.rowIdColumn] ?? ''), r]));
-      const { run, rows } = prepareRun(engine, actor, { dataset: i.dataset, suite: i.suite, name: i.name ?? `Imported: ${name || 'outputs'}`, settings: RunSettings.parse({ concurrency: 8 }), kind: 'imported' });
+      const { run, rows } = await prepareRun(engine, actor, { dataset: i.dataset, suite: i.suite, name: i.name ?? `Imported: ${name || 'outputs'}`, settings: RunSettings.parse({ concurrency: 8 }), kind: 'imported' });
       let matched = 0;
       const items = rows.map((r) => {
         const rec = byId.get(r.id);
@@ -107,9 +107,9 @@ export const runOps = [
         };
       });
       if (!matched) throw invalid(`No rows matched. The file needs a "${i.rowIdColumn}" column with Kalibra row ids (export the dataset to get them).`);
-      engine.repos.runs.addPending(run.id, items);
+      await engine.repos.runs.addPending(run.id, items);
       engine.runner.start(run.id);
-      return { run: engine.repos.runs.get(run.id), matched, unmatchedRows: rows.length - matched, fileRows: records.length };
+      return { run: await engine.repos.runs.get(run.id), matched, unmatchedRows: rows.length - matched, fileRows: records.length };
     },
   }),
 
@@ -128,13 +128,13 @@ export const runOps = [
       limit: z.number().int().min(1).max(200).default(50),
       offset: z.number().int().min(0).default(0),
     }),
-    handler: ({ engine }, i) =>
-      engine.repos.runs.list({
-        groupId: i.comparison ? engine.repos.runs.getGroup(i.comparison).id : undefined,
+    handler: async ({ engine }, i) =>
+      await engine.repos.runs.list({
+        groupId: i.comparison ? (await engine.repos.runs.getGroup(i.comparison)).id : undefined,
         excludeGrouped: i.excludeComparisons,
-        datasetId: i.dataset ? engine.repos.datasets.get(i.dataset).id : undefined,
-        targetId: i.target ? engine.repos.defs.get('target', i.target).id : undefined,
-        suiteId: i.suite ? engine.repos.defs.get('suite', i.suite).id : undefined,
+        datasetId: i.dataset ? (await engine.repos.datasets.get(i.dataset)).id : undefined,
+        targetId: i.target ? (await engine.repos.defs.get('target', i.target)).id : undefined,
+        suiteId: i.suite ? (await engine.repos.defs.get('suite', i.suite)).id : undefined,
         limit: i.limit,
         offset: i.offset,
       }),
@@ -147,22 +147,22 @@ export const runOps = [
     category: 'runs',
     readOnly: true,
     input: z.object({ runId: z.string() }),
-    handler: ({ engine }, i) => {
-      const run = engine.repos.runs.get(i.runId);
+    handler: async ({ engine }, i) => {
+      const run = await engine.repos.runs.get(i.runId);
       const { datasets, defs } = engine.repos;
-      const name = (fn: () => string) => {
+      const name = async (fn: () => Promise<string>) => {
         try {
-          return fn();
+          return await fn();
         } catch {
           return null;
         }
       };
       return {
         ...run,
-        active: engine.runner.isActive(run.id),
-        datasetName: name(() => datasets.get(run.datasetId!).name),
-        targetName: run.targetId ? name(() => defs.get('target', run.targetId!).name) : null,
-        suiteName: name(() => defs.get('suite', run.suiteId!).name),
+        active: await engine.runner.isActive(run.id),
+        datasetName: await name(async () => (await datasets.get(run.datasetId!)).name),
+        targetName: run.targetId ? await name(async () => (await defs.get('target', run.targetId!)).name) : null,
+        suiteName: await name(async () => (await defs.get('suite', run.suiteId!)).name),
       };
     },
   }),
@@ -173,9 +173,9 @@ export const runOps = [
     description: 'Stops a running run. Finished rows are kept; it can be resumed later.',
     category: 'runs',
     input: z.object({ runId: z.string() }),
-    handler: ({ engine }, i) => {
-      const run = engine.repos.runs.get(i.runId);
-      engine.runner.cancel(run.id);
+    handler: async ({ engine }, i) => {
+      const run = await engine.repos.runs.get(i.runId);
+      await engine.runner.cancel(run.id);
       return { cancelling: run.id };
     },
   }),
@@ -186,12 +186,13 @@ export const runOps = [
     description: 'Continues a cancelled or interrupted run from the rows that are not finished yet.',
     category: 'runs',
     input: z.object({ runId: z.string() }),
-    handler: ({ engine }, i) => {
-      const run = engine.repos.runs.get(i.runId);
-      if (engine.runner.isActive(run.id)) return run;
-      engine.repos.runs.resetRunning(run.id);
+    handler: async ({ engine }, i) => {
+      const run = await engine.repos.runs.get(i.runId);
+      if (await engine.runner.isActive(run.id)) return run;
+      await engine.repos.runs.requestCancel(run.id, false);
+      await engine.repos.runs.resetRunning(run.id);
       engine.runner.start(run.id);
-      return engine.repos.runs.get(run.id);
+      return await engine.repos.runs.get(run.id);
     },
   }),
 
@@ -202,10 +203,10 @@ export const runOps = [
     category: 'runs',
     destructive: true,
     input: z.object({ runId: z.string() }),
-    handler: ({ engine }, i) => {
-      const run = engine.repos.runs.get(i.runId);
-      engine.runner.cancel(run.id);
-      engine.repos.runs.delete(run.id);
+    handler: async ({ engine }, i) => {
+      const run = await engine.repos.runs.get(i.runId);
+      await engine.runner.cancel(run.id);
+      await engine.repos.runs.delete(run.id);
       return { deleted: run.id };
     },
   }),
@@ -226,7 +227,7 @@ export const runOps = [
       offset: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(500).default(50),
     }),
-    handler: ({ engine }, i) => engine.repos.runs.query(engine.repos.runs.get(i.runId).id, i),
+    handler: async ({ engine }, i) => await engine.repos.runs.query((await engine.repos.runs.get(i.runId)).id, i),
   }),
 
   defineOp({
@@ -236,7 +237,7 @@ export const runOps = [
     category: 'runs',
     readOnly: true,
     input: z.object({ resultId: z.string() }),
-    handler: ({ engine }, i) => engine.repos.runs.getResult(i.resultId),
+    handler: async ({ engine }, i) => await engine.repos.runs.getResult(i.resultId),
   }),
 
   defineOp({
@@ -247,13 +248,13 @@ export const runOps = [
     category: 'runs',
     readOnly: true,
     input: z.object({ baseRunId: z.string(), runId: z.string() }),
-    handler: ({ engine }, i) => {
+    handler: async ({ engine }, i) => {
       const { runs } = engine.repos;
-      const base = runs.get(i.baseRunId);
-      const next = runs.get(i.runId);
+      const base = await runs.get(i.baseRunId);
+      const next = await runs.get(i.runId);
       const key = (r: { rowId: string; rep: number }) => `${r.rowId}#${r.rep}`;
-      const a = new Map(runs.allLite(base.id).map((r) => [key(r), r]));
-      const b = new Map(runs.allLite(next.id).map((r) => [key(r), r]));
+      const a = new Map((await runs.allLite(base.id)).map((r) => [key(r), r]));
+      const b = new Map((await runs.allLite(next.id)).map((r) => [key(r), r]));
       const keys = [...new Set([...a.keys(), ...b.keys()])];
       let improved = 0, regressed = 0, same = 0, onlyBase = 0, onlyNew = 0;
       const rows = keys.map((k) => {
@@ -317,9 +318,9 @@ export function mcnemarExact(b: number, c: number): number | null {
 }
 
 /** Setup problems for a dataset × target pair (with the run's overrides applied). */
-export function runPreflight(engine: Engine, dataset: string, target: string, settings: RunSettings) {
-  const ds = engine.repos.datasets.get(dataset);
-  const saved = TargetSpec.parse(engine.repos.defs.get('target', target).spec);
+export async function runPreflight(engine: Engine, dataset: string, target: string, settings: RunSettings) {
+  const ds = await engine.repos.datasets.get(dataset);
+  const saved = TargetSpec.parse((await engine.repos.defs.get('target', target)).spec);
   const spec = applyOverrides(saved, settings.overrides);
   // Overrides can replace any config field, including scripts and hooks.
   assertCodeChange(saved, spec, 'These run settings');

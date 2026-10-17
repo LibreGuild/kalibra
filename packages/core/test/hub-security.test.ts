@@ -18,15 +18,15 @@ const as = (user: User, extra: Partial<Principal> = {}): Principal => ({ user, v
 async function server() {
   const dir = mkdtempSync(join(tmpdir(), 'kalibra-sec-'));
   dirs.push(dir);
-  const hub = new Hub({ dir, mode: 'server' });
+  const hub = await Hub.open({ dir, mode: 'server' });
   hubs.push(hub);
-  const admin = await hub.completeSetup(hub.setupCode()!, { username: 'admin', password: PW });
+  const admin = await hub.completeSetup((await hub.setupCode())!, { username: 'admin', password: PW });
   const alice = await hub.call<User>(as(admin), 'create_user', { username: 'alice', password: PW, mustChangePassword: false });
   return { hub, admin, alice };
 }
 
-afterEach(() => {
-  hubs.splice(0).forEach((h) => h.close());
+afterEach(async () => {
+  for (const h of hubs.splice(0)) await h.close();
   dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
 });
 
@@ -49,7 +49,7 @@ describe('sign-in providers', () => {
     // Turning it off must not reset who it lets in, nor its issuer.
     await hub.call(as(admin), 'save_auth_provider', { id: 'corp', enabled: false });
     await hub.call(as(admin), 'save_auth_provider', { id: 'corp', enabled: true });
-    expect(hub.providers.get('corp')).toMatchObject({ enabled: true, issuer: 'https://idp.example', allowedDomains: ['corp.example'], autoCreate: true });
+    expect(await hub.providers.get('corp')).toMatchObject({ enabled: true, issuer: 'https://idp.example', allowedDomains: ['corp.example'], autoCreate: true });
   });
 
   it('refuses gateway trust lists that cover every address', async () => {
@@ -62,7 +62,7 @@ describe('sign-in providers', () => {
   it('links invited accounts by email only when exactly one active account has it', async () => {
     const { hub, admin } = await server();
     await hub.providers.save({ name: 'Corp', id: 'corp', kind: 'oidc', issuer: 'https://idp.example', clientId: 'c', clientSecret: 's' });
-    const corp = hub.providers.get('corp');
+    const corp = await hub.providers.get('corp');
     await hub.call(as(admin), 'create_user', { username: 'dup1', email: 'dup@corp.example' });
     await hub.call(as(admin), 'create_user', { username: 'dup2', email: 'DUP@corp.example' });
     const profile = { subject: 's-dup', email: 'dup@corp.example', emailVerified: true, name: 'Dup', username: 'dup', groups: [] };
@@ -72,7 +72,7 @@ describe('sign-in providers', () => {
   it('does not hand an account to a second identity at the same provider (reused email addresses)', async () => {
     const { hub, admin } = await server();
     await hub.providers.save({ name: 'Corp', id: 'corp', kind: 'oidc', issuer: 'https://idp.example', clientId: 'c', clientSecret: 's' });
-    const corp = hub.providers.get('corp');
+    const corp = await hub.providers.get('corp');
     const lee = await hub.call<User>(as(admin), 'create_user', { username: 'lee', email: 'lee@corp.example' });
     const first = await hub.sso.admit(corp, { subject: 'employee-1', email: 'lee@corp.example', emailVerified: true, name: 'Lee', username: 'lee', groups: [] }, '');
     expect(first.id).toBe(lee.id);
@@ -83,11 +83,11 @@ describe('sign-in providers', () => {
   it('scopes identities to the server they came from, so repointing a provider cannot take over accounts', async () => {
     const { hub } = await server();
     await hub.providers.save({ name: 'GitHub', id: 'gh', kind: 'github', githubUrl: 'https://github.com', clientId: 'c', clientSecret: 's', autoCreate: true });
-    const before = await hub.sso.admit(hub.providers.get('gh'), { subject: '4242', email: '', emailVerified: false, name: 'Octo', username: 'octo', groups: [] }, '');
+    const before = await hub.sso.admit(await hub.providers.get('gh'), { subject: '4242', email: '', emailVerified: false, name: 'Octo', username: 'octo', groups: [] }, '');
     await hub.providers.save({ id: 'gh', githubUrl: 'https://github.mycompany.example' });
-    const after = await hub.sso.admit(hub.providers.get('gh'), { subject: '4242', email: '', emailVerified: false, name: 'Someone else', username: 'someone', groups: [] }, '');
+    const after = await hub.sso.admit(await hub.providers.get('gh'), { subject: '4242', email: '', emailVerified: false, name: 'Someone else', username: 'someone', groups: [] }, '');
     expect(after.id).not.toBe(before.id);
-    expect(identityKey(hub.providers.get('gh'), '4242')).toBe('https://github.mycompany.example#4242');
+    expect(identityKey(await hub.providers.get('gh'), '4242')).toBe('https://github.mycompany.example#4242');
   });
 
   it('only returns to same-site paths, whatever characters browsers ignore', () => {
@@ -105,8 +105,8 @@ describe('sign-in providers', () => {
     const { hub } = await server();
     await hub.providers.save({ name: 'GitHub', id: 'gh', kind: 'github', githubUrl: 'https://github.com', clientId: 'c', clientSecret: 's' });
     for (let i = 0; i < MAX_PENDING + 50; i++) await hub.sso.start('gh', { redirectUri: 'https://k.example/api/auth/sso/gh/callback' });
-    expect((hub.sso as any).pending.size).toBeLessThanOrEqual(MAX_PENDING);
-  });
+    expect((await hub.db.get('SELECT COUNT(*) AS n FROM sso_pending')).n).toBeLessThanOrEqual(MAX_PENDING);
+  }, 60_000); // a few thousand statements: seconds over a network database
 });
 
 describe('accounts', () => {
@@ -144,7 +144,7 @@ describe('accounts', () => {
   it('gives the configured password to an existing account named as the configured administrator', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kalibra-sec-'));
     dirs.push(dir);
-    const hub = new Hub({ dir, mode: 'server' });
+    const hub = await Hub.open({ dir, mode: 'server' });
     hubs.push(hub);
     await hub.accounts.create({ username: 'root', password: 'someone elses password', role: 'user' }, 'test');
     await hub.ensureAdmin('root', 'the configured one');
@@ -156,9 +156,9 @@ describe('accounts', () => {
   it('refuses setup codes of any length without failing', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kalibra-sec-'));
     dirs.push(dir);
-    const hub = new Hub({ dir, mode: 'server' });
+    const hub = await Hub.open({ dir, mode: 'server' });
     hubs.push(hub);
-    for (const code of ['', 'x', `${hub.setupCode()}x`]) await expect(hub.completeSetup(code, { username: 'a1', password: PW })).rejects.toMatchObject({ code: 'forbidden' });
+    for (const code of ['', 'x', `${await hub.setupCode()}x`]) await expect(hub.completeSetup(code, { username: 'a1', password: PW })).rejects.toMatchObject({ code: 'forbidden' });
   });
 });
 
@@ -168,21 +168,34 @@ describe('lookups by id or name', () => {
     const a = await hub.call<any>(as(admin), 'create_project', { name: 'First' });
     const b = await hub.call<any>(as(admin), 'create_project', { name: 'Second' });
     await hub.call(as(admin), 'update_project', { project: a.id, name: b.id });
-    expect(hub.projects.get(b.id).name).toBe('Second');
+    expect((await hub.projects.get(b.id)).name).toBe('Second');
 
     // A username can't be someone's id.
     await expect(hub.call(as(admin), 'create_user', { username: alice.id, password: PW })).rejects.toThrow(/taken/);
-    expect(hub.accounts.find(alice.id)?.username).toBe('alice');
+    expect((await hub.accounts.find(alice.id))?.username).toBe('alice');
 
     const g1 = await hub.call<any>(as(admin), 'create_group', { name: 'Real' });
     await hub.call(as(admin), 'create_group', { name: g1.id });
-    expect(hub.projects.group(g1.id).name).toBe('Real');
+    expect((await hub.projects.group(g1.id)).name).toBe('Real');
   });
 
   it('does not rename a synced group when refusing to edit its members', async () => {
     const { hub, admin } = await server();
-    const g = hub.projects.createGroup({ name: 'speech', source: 'corp', externalKey: 'speech' });
+    const g = await hub.projects.createGroup({ name: 'speech', source: 'corp', externalKey: 'speech' });
     await expect(hub.call(as(admin), 'update_group', { id: g.id, name: 'renamed', users: ['alice'] })).rejects.toThrow(/come from corp/);
-    expect(hub.projects.group(g.id).name).toBe('speech');
+    expect((await hub.projects.group(g.id)).name).toBe('speech');
+  });
+});
+
+describe('project folders', () => {
+  it("won't open a project whose folder points outside the data folder (a changed hub database)", async () => {
+    const { hub, admin } = await server();
+    const p = await hub.call<any>(as(admin), 'create_project', { name: 'Elsewhere' });
+    // The hub database can come from a bucket or Postgres; a changed row mustn't reach other files.
+    await hub.closeEngine(p.id); // as after a restart
+    await hub.db.run('UPDATE projects SET dir = ? WHERE id = ?', '../../outside', p.id);
+    await expect(hub.engine(p.id)).rejects.toThrow(/outside the data folder/);
+    await hub.db.run('UPDATE projects SET dir = ? WHERE id = ?', '/tmp/outside', p.id);
+    await expect(hub.engine(p.id)).rejects.toThrow(/outside the data folder/);
   });
 });

@@ -1,4 +1,4 @@
-# Releases from a version tag:  git tag v0.1.1-beta.1 && git push origin v0.1.1-beta.1
+# Releases from a version tag:  git tag v0.2.0 && git push origin v0.2.0
 #
 # Kalibra ships as the npm package and the Docker image only (no desktop installers):
 #   npm      the `kalibra` package, STAGED (dist-tag `next` for pre-releases, `latest` otherwise):
@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to release again (e.g. v0.1.1-beta.1)
+        description: Existing tag to release again (e.g. v0.2.0)
         required: true
 
 permissions:

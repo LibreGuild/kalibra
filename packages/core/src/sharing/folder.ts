@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
 import { DEF_KINDS, DatasetSchema, type DefKind } from '../specs.js';
-import { invalid, nowIso, parseJson } from '../util.js';
+import { invalid, mapSeq, nowIso, parseJson } from '../util.js';
 import { checkSyncDir, codeWarning, contentHash, findCode, insertRows, isSafeEntryName, jsonl, settingsSet, stableStringify, uniqueSlugs, type CodeItem, type IncomingRow } from './common.js';
 
 /*
@@ -64,7 +64,7 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
   const index: Record<string, string[]> = {};
 
   for (const kind of ['target', 'suite', 'connection'] as DefKind[]) {
-    const list = engine.repos.defs.list(kind).sort((a, b) => a.name.localeCompare(b.name));
+    const list = (await engine.repos.defs.list(kind)).sort((a, b) => a.name.localeCompare(b.name));
     const slugs = uniqueSlugs(list.map((d) => d.name));
     index[DIRS[kind]] = [];
     for (const d of list) {
@@ -76,14 +76,14 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
   }
 
   const media = new Set<string>();
-  const datasets = engine.repos.datasets.list().sort((a, b) => a.name.localeCompare(b.name));
+  const datasets = (await engine.repos.datasets.list()).sort((a, b) => a.name.localeCompare(b.name));
   const dsSlugs = uniqueSlugs(datasets.map((d) => d.name));
   index.datasets = [];
   for (const d of datasets) {
     const base = `datasets/${dsSlugs.get(d.name)}`;
     files.set(`${base}/schema.json`, stableStringify({ name: d.name, description: d.description, schema: d.schema }, 2) + '\n');
     if (includeRows) {
-      const rows = engine.repos.datasets.listRows(d.id, { limit: 10_000_000 }).rows; // dataset order (seq): stable, and new rows append at the end of the file
+      const rows = (await engine.repos.datasets.listRows(d.id, { limit: 10_000_000 })).rows; // dataset order (seq): stable, and new rows append at the end of the file
       files.set(`${base}/rows.jsonl`, rows.map((r) => stableStringify({ id: r.id, ...rowContent(r) })).join('\n') + (rows.length ? '\n' : ''));
       for (const r of rows) for (const v of Object.values(r.data)) if (fileOf(v)) media.add((v as any).blob);
     }
@@ -94,7 +94,7 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
 
   if (o.includeMedia) {
     for (const hash of [...media].sort()) {
-      if (engine.blobs.has(hash)) files.set(`media/${hash}`, await engine.blobs.get(hash));
+      if (await engine.blobs.has(hash)) files.set(`media/${hash}`, await engine.blobs.get(hash));
     }
   }
 
@@ -121,7 +121,7 @@ export async function exportToFolder(engine: Engine, dirIn: string, o: { include
     await writeFile(full, bytes);
     written++;
   }
-  settingsSet(engine, { folder: dir, lastExportAt: nowIso(), includeRows, includeMedia: !!o.includeMedia });
+  await settingsSet(engine, { folder: dir, lastExportAt: nowIso(), includeRows, includeMedia: !!o.includeMedia });
   return { dir, written, unchanged, removed, files: files.size };
 }
 
@@ -173,7 +173,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
   // Media in the folder (optional) goes in first so rows can point at it.
   if (!dry && existsSync(join(dir, 'media'))) {
     for (const name of await listFiles(dir, 'media')) {
-      if (!/^[a-f0-9]{64}$/.test(name) || engine.blobs.has(name)) continue;
+      if (!/^[a-f0-9]{64}$/.test(name) || await engine.blobs.has(name)) continue;
       const bytes = await readIn(dir, `media/${name}`);
       if (createHash('sha256').update(bytes).digest('hex') !== name) {
         warnings.push(`media/${name} does not match its name and was skipped`);
@@ -193,28 +193,28 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
       seen.add(d.name);
       let existing;
       try {
-        existing = defs.get(kind, d.name);
+        existing = await defs.get(kind, d.name);
       } catch {
         existing = undefined;
       }
       if (!existing) {
         defChanges.push({ kind, name: d.name, change: 'added' });
         incoming.push({ kind, name: d.name, spec: parsed.data });
-        if (!dry) engine.events.emit({ type: 'def.changed', kind, id: defs.create(kind, { name: d.name, description: d.description ?? '', spec: parsed.data }, actor).id, actor });
+        if (!dry) engine.events.emit({ type: 'def.changed', kind, id: (await defs.create(kind, { name: d.name, description: d.description ?? '', spec: parsed.data }, actor)).id, actor });
       } else if (contentHash({ spec: normalizeSpec(kind, existing.spec), description: existing.description }) !== contentHash({ spec: parsed.data, description: d.description ?? '' })) {
         defChanges.push({ kind, name: d.name, change: 'changed' });
         incoming.push({ kind, name: d.name, spec: parsed.data });
         if (!dry) {
-          defs.update(kind, existing.id, { spec: parsed.data, description: d.description ?? '' }, actor);
+          await defs.update(kind, existing.id, { spec: parsed.data, description: d.description ?? '' }, actor);
           engine.events.emit({ type: 'def.changed', kind, id: existing.id, actor });
         }
       } else defChanges.push({ kind, name: d.name, change: 'unchanged' });
     }
     if (o.prune) {
-      for (const d of defs.list(kind)) {
+      for (const d of await defs.list(kind)) {
         if (seen.has(d.name)) continue;
         defChanges.push({ kind, name: d.name, change: 'removed' });
-        if (!dry) defs.delete(kind, d.id);
+        if (!dry) await defs.delete(kind, d.id);
       }
     }
   }
@@ -233,7 +233,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
 
     let ds;
     try {
-      ds = datasets.get(s.name);
+      ds = await datasets.get(s.name);
     } catch {
       ds = undefined;
     }
@@ -241,8 +241,8 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
       ch.change = 'added';
       ch.rows.added = rows.length;
       if (!dry) {
-        const created = datasets.create({ name: s.name, description: s.description ?? '', schema: schema.data }, actor);
-        const res = insertRows(engine, created.id, created.schema.columns, rows, actor, { importedFrom: 'folder' });
+        const created = await datasets.create({ name: s.name, description: s.description ?? '', schema: schema.data }, actor);
+        const res = await insertRows(engine, created.id, created.schema.columns, rows, actor, { importedFrom: 'folder' });
         ch.rows.added = res.added.length;
         ch.rows.invalid = res.rejected.length;
         engine.events.emit({ type: 'dataset.changed', datasetId: created.id, actor });
@@ -253,10 +253,10 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
 
     if (contentHash({ schema: ds.schema, description: ds.description }) !== contentHash({ schema: schema.data, description: s.description ?? '' })) {
       ch.schemaChanged = true;
-      if (!dry) ds = datasets.update(ds.id, { schema: schema.data, description: s.description ?? '' });
+      if (!dry) ds = await datasets.update(ds.id, { schema: schema.data, description: s.description ?? '' });
     }
     if (hasRows) {
-      const current = new Map(datasets.listRows(ds.id, { limit: 10_000_000 }).rows.map((r) => [r.id, r]));
+      const current = new Map((await datasets.listRows(ds.id, { limit: 10_000_000 })).rows.map((r) => [r.id, r]));
       const toInsert: IncomingRow[] = [];
       const seenRows = new Set<string>();
       for (const r of rows) {
@@ -264,11 +264,11 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
         const cur = r.id ? current.get(r.id) : undefined;
         if (!cur) {
           // A soft-deleted row with this id comes back as an edit of that row.
-          const deleted = r.id ? engine.db.get('SELECT id FROM rows WHERE id = ? AND dataset_id = ? AND deleted_at IS NOT NULL', r.id, ds.id) : undefined;
+          const deleted = r.id ? await engine.db.get('SELECT id FROM rows WHERE id = ? AND dataset_id = ? AND deleted_at IS NOT NULL', r.id, ds.id) : undefined;
           if (deleted && !dry) {
-            engine.db.run('UPDATE rows SET deleted_at = NULL WHERE id = ?', r.id);
+            await engine.db.run('UPDATE rows SET deleted_at = NULL WHERE id = ?', r.id);
             try {
-              datasets.updateRow(r.id!, { data: r.data, tags: r.tags ?? [], status: r.status ?? 'approved', split: r.split ?? null }, actor);
+              await datasets.updateRow(r.id!, { data: r.data, tags: r.tags ?? [], status: r.status ?? 'approved', split: r.split ?? null }, actor);
             } catch {
               ch.rows.invalid++;
             }
@@ -284,7 +284,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
         ch.rows.changed++;
         if (!dry) {
           try {
-            datasets.updateRow(cur.id, { data: r.data, tags: r.tags ?? [], status: r.status ?? 'approved', split: r.split ?? null }, actor);
+            await datasets.updateRow(cur.id, { data: r.data, tags: r.tags ?? [], status: r.status ?? 'approved', split: r.split ?? null }, actor);
           } catch (e: any) {
             ch.rows.invalid++;
             ch.rows.changed--;
@@ -295,7 +295,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
       if (toInsert.length) {
         if (dry) ch.rows.added += toInsert.length;
         else {
-          const res = insertRows(engine, ds.id, ds.schema.columns, toInsert, actor, { importedFrom: 'folder' });
+          const res = await insertRows(engine, ds.id, ds.schema.columns, toInsert, actor, { importedFrom: 'folder' });
           ch.rows.added += res.added.length;
           ch.rows.invalid += res.rejected.length;
         }
@@ -303,9 +303,9 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
       if (o.prune) {
         const gone = [...current.keys()].filter((id) => !seenRows.has(id));
         ch.rows.removed = gone.length;
-        if (!dry && gone.length) datasets.deleteRows(ds.id, gone);
+        if (!dry && gone.length) await datasets.deleteRows(ds.id, gone);
       }
-      const missingMedia = rows.flatMap((r) => Object.values(r.data ?? {})).filter((v) => fileOf(v) && !engine.blobs.has((v as any).blob)).length;
+      const missingMedia = (await mapSeq(rows.flatMap((r) => Object.values(r.data ?? {})), async (v) => !!fileOf(v) && !(await engine.blobs.has((v as any).blob)))).filter(Boolean).length;
       if (missingMedia) warnings.push(`"${s.name}": ${missingMedia} files are not in this workspace or the folder's media/ (export with media to share them)`);
     }
     if (ch.schemaChanged || ch.rows.added || ch.rows.changed || ch.rows.removed) ch.change = 'changed';
@@ -313,17 +313,17 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
     dsChanges.push(ch);
   }
   if (o.prune) {
-    for (const d of datasets.list()) {
+    for (const d of await datasets.list()) {
       if (seenDs.has(d.name)) continue;
       dsChanges.push({ name: d.name, change: 'removed', schemaChanged: false, rows: { added: 0, changed: 0, unchanged: 0, removed: d.rowCount, invalid: 0 } });
-      if (!dry) datasets.delete(d.id);
+      if (!dry) await datasets.delete(d.id);
     }
   }
 
   const code: CodeItem[] = findCode(incoming);
   const codeNote = codeWarning('This folder', code);
   if (codeNote) warnings.unshift(codeNote);
-  if (!dry) settingsSet(engine, { folder: dir, lastImportAt: nowIso() });
+  if (!dry) await settingsSet(engine, { folder: dir, lastImportAt: nowIso() });
   const count = (c: string) => defChanges.filter((d) => d.change === c).length + dsChanges.filter((d) => d.change === c).length;
   return {
     dir,
@@ -333,7 +333,7 @@ export async function importFromFolder(engine: Engine, dirIn: string, o: { dryRu
     datasets: dsChanges,
     warnings,
     code,
-    lastExport: parseJson<any>(engine.db.get("SELECT value FROM meta WHERE key = 'sharing'")?.value, {}).lastExportAt ?? null,
+    lastExport: parseJson<any>((await engine.db.get("SELECT value FROM meta WHERE key = 'sharing'"))?.value, {}).lastExportAt ?? null,
   };
 }
 

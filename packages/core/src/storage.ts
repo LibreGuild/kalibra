@@ -22,9 +22,9 @@ export interface BlobStore {
    */
   putStream?(source: AsyncIterable<Uint8Array>, meta: { mime?: string; name?: string }, maxBytes: number): Promise<BlobInfo>;
   get(hash: string): Promise<Buffer>;
-  info(hash: string): BlobInfo | undefined;
+  info(hash: string): Promise<BlobInfo | undefined>;
   stream(hash: string, range?: { start: number; end: number }): NodeJS.ReadableStream;
-  has(hash: string): boolean;
+  has(hash: string): Promise<boolean>;
 }
 
 export class FsBlobStore implements BlobStore {
@@ -46,7 +46,7 @@ export class FsBlobStore implements BlobStore {
       await rename(tmp, file);
     }
     const info: BlobInfo = { hash, size: data.byteLength, mime: meta.mime || sniffMime(data, meta.name), name: meta.name };
-    this.db.run(
+    await this.db.run(
       'INSERT INTO blobs (hash, size, mime, name, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING',
       info.hash, info.size, info.mime, info.name ?? null, nowIso(),
     );
@@ -79,7 +79,7 @@ export class FsBlobStore implements BlobStore {
         await rename(tmp, file);
       }
       const info: BlobInfo = { hash, size, mime: meta.mime || sniffMime(head, meta.name), name: meta.name };
-      this.db.run(
+      await this.db.run(
         'INSERT INTO blobs (hash, size, mime, name, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING',
         info.hash, info.size, info.mime, info.name ?? null, nowIso(),
       );
@@ -101,12 +101,12 @@ export class FsBlobStore implements BlobStore {
     }
   }
 
-  info(hash: string): BlobInfo | undefined {
-    const row = this.db.get('SELECT hash, size, mime, name FROM blobs WHERE hash = ?', hash);
+  async info(hash: string): Promise<BlobInfo | undefined> {
+    const row = await this.db.get('SELECT hash, size, mime, name FROM blobs WHERE hash = ?', hash);
     return row ? { ...row, name: row.name ?? undefined } : undefined;
   }
 
-  has(hash: string) {
+  async has(hash: string) {
     return existsSync(this.path(hash));
   }
 

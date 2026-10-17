@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Engine } from '../src/engine.js';
-import { Db } from '../src/db.js';
+import { openSqlite } from '../src/db.js';
 import { FileSecretStore } from '../src/storage.js';
 import { mcnemarExact } from '../src/ops/runs.js';
 
@@ -16,15 +16,15 @@ describe('engine review fixes', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-review-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     await engine.call('create_dataset', { name: 'Questions', columns: [{ key: 'question' }] });
     await engine.call('add_dataset_rows', { dataset: 'Questions', rows: [{ data: { question: 'a' } }, { data: { question: 'b' } }] });
     await engine.call('create_target', { name: 'Nowhere', spec: { config: { kind: 'http', url: 'http://127.0.0.1:9/x' } } });
     await engine.call('create_suite', { name: 'Empty', spec: { checks: [] } });
   });
 
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -68,11 +68,11 @@ describe('engine review fixes', () => {
     await engine.call('update_dataset', { dataset: 'Other', name: 'Other renamed' });
   });
 
-  it('bounds the prepared statement cache', () => {
-    const db = new Db(join(dir, 'cache.db'));
-    for (let n = 1; n <= 800; n++) db.get(`SELECT ${Array.from({ length: n }, () => '?').join(' + ')} AS s`, ...Array.from({ length: n }, () => 1));
-    expect((db as any).cache.size).toBeLessThanOrEqual(500);
-    db.close();
+  it('bounds the prepared statement cache', async () => {
+    const db = await openSqlite(join(dir, 'cache.db'));
+    for (let n = 1; n <= 800; n++) await db.get(`SELECT ${Array.from({ length: n }, () => '?').join(' + ')} AS s`, ...Array.from({ length: n }, () => 1));
+    expect((db as any).reader.cache.size).toBeLessThanOrEqual(500);
+    await db.close();
   });
 
   it('re-imports a file whose headers are not valid column names without adding duplicate columns', async () => {

@@ -31,14 +31,14 @@ describe('server mode over HTTP', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-srv-'));
-    hub = new Hub({ dir, mode: 'server' });
+    hub = await Hub.open({ dir, mode: 'server' });
     srv = await startServer({ hub });
     origin = srv.url;
   });
 
   afterAll(async () => {
     await srv?.close();
-    hub?.close();
+    await hub?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -47,7 +47,7 @@ describe('server mode over HTTP', () => {
     expect((await b.call('/kalibra/api/auth/status')).body.data).toMatchObject({ mode: 'server', setupRequired: true, user: null });
     expect((await b.call('/kalibra/api/hub/list_projects', {})).status).toBe(401);
     expect((await b.call('/kalibra/api/auth/setup', { code: 'wrong', username: 'admin', password: PW })).status).toBe(403);
-    const ok = await b.call('/kalibra/api/auth/setup', { code: hub.setupCode(), username: 'admin', password: PW });
+    const ok = await b.call('/kalibra/api/auth/setup', { code: await hub.setupCode(), username: 'admin', password: PW });
     expect(ok.status).toBe(200);
     expect(ok.headers.get('set-cookie')).toMatch(/HttpOnly; SameSite=Lax; Path=\/kalibra; /);
     expect(ok.body.data.user.username).toBe('admin');
@@ -106,7 +106,7 @@ describe('server mode over HTTP', () => {
     const up = await fetch(`${srv.url}/kalibra/api/projects/${p.id}/files`, { method: 'POST', headers: { origin, cookie: erin.cookie(), 'x-file-name': 'a.txt' }, body: 'hello' });
     expect(up.status).toBe(403);
     // Each op lists the role it needs.
-    const ops = await fetch(`${srv.url}/kalibra/api/projects/${p.id}/ops`, { headers: { cookie: erin.cookie() } }).then((r) => r.json());
+    const ops = await fetch(`${srv.url}/kalibra/api/projects/${p.id}/ops`, { headers: { cookie: erin.cookie() } }).then((r) => r.json() as Promise<any>);
     expect(ops.find((o: any) => o.name === 'set_secret').access).toBe('owner');
   });
 

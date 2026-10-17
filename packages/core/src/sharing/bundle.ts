@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
 import { DEF_KINDS, DatasetSchema, type DefKind } from '../specs.js';
-import { invalid, newId, nowIso, parseJson } from '../util.js';
+import { invalid, mapSeq, newId, nowIso, parseJson } from '../util.js';
 import {
   APP_VERSION,
   codeWarning,
@@ -68,14 +68,22 @@ const fileValues = (data: Record<string, unknown>) =>
 
 export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ bytes: Uint8Array; manifest: BundleManifest }> {
   const { datasets: dsRepo, defs, runs: runRepo } = engine.repos;
-  const pick = <T,>(ids: string[] | undefined, all: () => T[], get: (id: string) => T) => (o.everything ? all() : (ids ?? []).map(get));
+  const pick = async <T,>(ids: string[] | undefined, all: () => Promise<T[]>, get: (id: string) => Promise<T>) => (o.everything ? all() : mapSeq(ids ?? [], get));
 
-  const runRecords = o.everything && o.includeRuns ? runRepo.list({ limit: 10_000 }).runs : (o.runs ?? []).map((id) => runRepo.get(id));
-  const datasets = new Map(pick(o.datasets, () => dsRepo.list().map((d) => dsRepo.get(d.id)), (id) => dsRepo.get(id)).map((d) => [d.id, d]));
+  const runRecords = o.everything && o.includeRuns ? (await runRepo.list({ limit: 10_000 })).runs : await mapSeq(o.runs ?? [], async (id) => await runRepo.get(id));
+  const datasets = new Map(
+    (
+      await pick(
+        o.datasets,
+        async () => mapSeq(await dsRepo.list(), async (d) => await dsRepo.get(d.id)),
+        async (id) => await dsRepo.get(id),
+      )
+    ).map((d) => [d.id, d]),
+  );
   const defSets: Record<DefKind, Map<string, any>> = {
-    target: new Map(pick(o.targets, () => defs.list('target'), (id) => defs.get('target', id)).map((d) => [d.id, d])),
-    suite: new Map(pick(o.suites, () => defs.list('suite'), (id) => defs.get('suite', id)).map((d) => [d.id, d])),
-    connection: new Map(pick(o.connections, () => defs.list('connection'), (id) => defs.get('connection', id)).map((d) => [d.id, d])),
+    target: new Map((await pick(o.targets, async () => await defs.list('target'), async (id) => await defs.get('target', id))).map((d) => [d.id, d])),
+    suite: new Map((await pick(o.suites, async () => await defs.list('suite'), async (id) => await defs.get('suite', id))).map((d) => [d.id, d])),
+    connection: new Map((await pick(o.connections, async () => await defs.list('connection'), async (id) => await defs.get('connection', id))).map((d) => [d.id, d])),
   };
 
   // Runs need their dataset, target and suite to make sense on the other side.
@@ -83,7 +91,7 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
   for (const r of runRecords) {
     if (r.datasetId && !datasets.has(r.datasetId)) {
       try {
-        const d = dsRepo.get(r.datasetId);
+        const d = await dsRepo.get(r.datasetId);
         datasets.set(d.id, d);
         autoIncluded.push(`dataset "${d.name}"`);
       } catch {
@@ -93,7 +101,7 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
     for (const [kind, id] of [['target', r.targetId], ['suite', r.suiteId]] as const) {
       if (id && !defSets[kind].has(id)) {
         try {
-          const d = defs.get(kind, id);
+          const d = await defs.get(kind, id);
           defSets[kind].set(d.id, d);
           autoIncluded.push(`${kind} "${d.name}"`);
         } catch {
@@ -125,7 +133,7 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
   const dsSlugs = uniqueSlugs(dsList.map((d) => d.name));
   for (const d of dsList) {
     const base = `datasets/${dsSlugs.get(d.name)}`;
-    const { rows } = dsRepo.listRows(d.id, { limit: 10_000_000 });
+    const { rows } = await dsRepo.listRows(d.id, { limit: 10_000_000 });
     entries.set(`${base}/schema.json`, stableStringify({ sourceId: d.id, name: d.name, description: d.description, schema: d.schema }, 2));
     entries.set(`${base}/rows.jsonl`, rows.map((r) => stableStringify({ id: r.id, data: r.data, tags: r.tags, status: r.status, split: r.split, provenance: r.provenance })).join('\n') + (rows.length ? '\n' : ''));
     for (const r of rows) for (const f of fileValues(r.data)) media.add(f.blob);
@@ -134,7 +142,7 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
 
   for (const r of runRecords) {
     const base = `runs/${r.id}`;
-    const results = engine.db.all('SELECT * FROM results WHERE run_id = ? ORDER BY seq', r.id);
+    const results = await engine.db.all('SELECT * FROM results WHERE run_id = ? ORDER BY seq', r.id);
     entries.set(`${base}/run.json`, stableStringify({ ...r, datasetName: datasets.get(r.datasetId ?? '')?.name ?? null, targetName: defSets.target.get(r.targetId ?? '')?.name ?? null, suiteName: defSets.suite.get(r.suiteId ?? '')?.name ?? null }, 2));
     entries.set(`${base}/results.jsonl`, results.map((x) => stableStringify(x)).join('\n') + (results.length ? '\n' : ''));
     for (const x of results) for (const f of fileValues(parseJson(x.input, {}))) media.add(f.blob);
@@ -145,14 +153,14 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
   let missing = 0;
   if (o.includeMedia !== false) {
     for (const hash of [...media].sort()) {
-      if (!engine.blobs.has(hash)) {
+      if (!(await engine.blobs.has(hash))) {
         missing++;
         continue;
       }
       const bytes = await engine.blobs.get(hash);
       const path = `media/${hash}`;
       entries.set(path, bytes);
-      if (STORE_ONLY.test(engine.blobs.info(hash)?.mime ?? '')) storeOnly.add(path);
+      if (STORE_ONLY.test((await engine.blobs.info(hash))?.mime ?? '')) storeOnly.add(path);
       mediaBytes += bytes.byteLength;
     }
   }
@@ -179,7 +187,7 @@ export async function exportBundle(engine: Engine, o: ExportOptions): Promise<{ 
   };
   entries.set('manifest.json', stableStringify(manifest, 2));
   // Blob metadata (names, types) so imported files keep their names.
-  const blobInfo = Object.fromEntries([...media].sort().map((h) => [h, engine.blobs.info(h) ?? null]).filter(([, v]) => v));
+  const blobInfo = Object.fromEntries((await mapSeq([...media].sort(), async (h) => [h, (await engine.blobs.info(h)) ?? null] as const)).filter(([, v]) => v));
   entries.set('media.json', stableStringify(blobInfo, 2));
   return { bytes: writeZip(entries, storeOnly), manifest };
 }
@@ -239,9 +247,9 @@ function readDatasets(files: Map<string, Uint8Array>) {
 export async function inspectBundle(engine: Engine, bytes: Uint8Array) {
   const { files, manifest } = openBundle(bytes);
   const { datasets, defs } = engine.repos;
-  const exists = (kind: DefKind | 'dataset', name: string) => {
+  const exists = async (kind: DefKind | 'dataset', name: string) => {
     try {
-      kind === 'dataset' ? datasets.get(name) : defs.get(kind, name);
+      kind === 'dataset' ? await datasets.get(name) : await defs.get(kind, name);
       return true;
     } catch {
       return false;
@@ -249,8 +257,8 @@ export async function inspectBundle(engine: Engine, bytes: Uint8Array) {
   };
   const defsIn = readDefs(files);
   const items = [
-    ...readDatasets(files).map((d) => ({ kind: 'dataset', name: d.name, rows: d.rows.length, exists: exists('dataset', d.name) })),
-    ...defsIn.map((d) => ({ kind: d.kind, name: d.name, exists: exists(d.kind, d.name) })),
+    ...(await mapSeq(readDatasets(files), async (d) => ({ kind: 'dataset', name: d.name, rows: d.rows.length, exists: await exists('dataset', d.name) }))),
+    ...(await mapSeq(defsIn, async (d) => ({ kind: d.kind, name: d.name, exists: await exists(d.kind, d.name) }))),
     ...[...files.keys()].filter((p) => /^runs\/[^/]+\/run\.json$/.test(p)).map((p) => ({ kind: 'run', name: jsonOf<any>(files.get(p), p).name, exists: false })),
   ];
   const code = findCode(defsIn);
@@ -303,9 +311,9 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
   const rowMap = new Map<string, string>(); // source row id → local row id
   const versionOf = new Map<string, number>();
 
-  const defTaken = (kind: DefKind) => (name: string) => {
+  const defTaken = (kind: DefKind) => async (name: string) => {
     try {
-      defs.get(kind, name);
+      await defs.get(kind, name);
       return true;
     } catch {
       return false;
@@ -314,8 +322,8 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
 
   for (const d of defsIn) {
     const taken = defTaken(d.kind);
-    if (taken(d.name)) {
-      const existing = defs.get(d.kind, d.name);
+    if (await taken(d.name)) {
+      const existing = await defs.get(d.kind, d.name);
       if (onConflict === 'skip') {
         idMap.set(d.sourceId, existing.id);
         versionOf.set(existing.id, existing.version);
@@ -323,7 +331,7 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
         continue;
       }
       if (onConflict === 'new_version') {
-        const u = defs.update(d.kind, existing.id, { spec: d.spec, description: d.description }, actor);
+        const u = await defs.update(d.kind, existing.id, { spec: d.spec, description: d.description }, actor);
         written.push(d);
         idMap.set(d.sourceId, u.id);
         versionOf.set(u.id, u.version);
@@ -331,11 +339,11 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
         engine.events.emit({ type: 'def.changed', kind: d.kind, id: u.id, actor });
         continue;
       }
-      const name = freeName(taken, d.name);
+      const name = await freeName(taken, d.name);
       report.renamed.push({ kind: d.kind, from: d.name, to: name });
       d.name = name;
     }
-    const c = defs.create(d.kind, { name: d.name, description: d.description, spec: d.spec }, actor);
+    const c = await defs.create(d.kind, { name: d.name, description: d.description, spec: d.spec }, actor);
     written.push(d);
     idMap.set(d.sourceId, c.id);
     versionOf.set(c.id, c.version);
@@ -343,9 +351,9 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
     engine.events.emit({ type: 'def.changed', kind: d.kind, id: c.id, actor });
   }
 
-  const dsTaken = (name: string) => {
+  const dsTaken = async (name: string) => {
     try {
-      dsRepo.get(name);
+      await dsRepo.get(name);
       return true;
     } catch {
       return false;
@@ -354,41 +362,41 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
   const dsVersion = new Map<string, string>();
   for (const d of dsIn) {
     let target;
-    const exists = dsTaken(d.name);
+    const exists = await dsTaken(d.name);
     if (exists && onConflict === 'skip') {
-      target = dsRepo.get(d.name);
+      target = await dsRepo.get(d.name);
       idMap.set(d.sourceId, target.id);
       report.skipped.push({ kind: 'dataset', name: d.name, reason: 'already exists' });
       continue;
     }
     if (exists && onConflict === 'new_version') {
-      target = dsRepo.get(d.name);
+      target = await dsRepo.get(d.name);
       const known = new Set(target.schema.columns.map((c) => c.key));
       const columns = [...target.schema.columns, ...d.schema.columns.filter((c) => !known.has(c.key))];
-      if (columns.length !== target.schema.columns.length) target = dsRepo.update(target.id, { schema: { ...target.schema, columns } });
+      if (columns.length !== target.schema.columns.length) target = await dsRepo.update(target.id, { schema: { ...target.schema, columns } });
       // Rows that are already there (same id, or same content) are not duplicated.
-      const existingIds = new Set(dsRepo.listRows(target.id, { limit: 10_000_000 }).rows.map((r) => r.id));
+      const existingIds = new Set((await dsRepo.listRows(target.id, { limit: 10_000_000 })).rows.map((r) => r.id));
       const fresh = d.rows.filter((r) => !(r.id && existingIds.has(r.id)));
       for (const r of d.rows) if (r.id && existingIds.has(r.id)) rowMap.set(r.id, r.id);
-      const res = insertRows(engine, target.id, target.schema.columns, fresh, actor, { importedFrom: 'bundle' });
+      const res = await insertRows(engine, target.id, target.schema.columns, fresh, actor, { importedFrom: 'bundle' });
       for (const a of res.added) if (a.sourceId) rowMap.set(a.sourceId, a.id);
       if (res.rejected.length) report.warnings.push(`${res.rejected.length} rows of "${d.name}" did not match its columns and were skipped`);
       report.updated.push({ kind: 'dataset', id: target.id, name: target.name, rows: res.added.length });
     } else {
       let name = d.name;
       if (exists) {
-        name = freeName(dsTaken, d.name);
+        name = await freeName(dsTaken, d.name);
         report.renamed.push({ kind: 'dataset', from: d.name, to: name });
       }
-      target = dsRepo.create({ name, description: d.description, schema: d.schema }, actor);
-      const res = insertRows(engine, target.id, target.schema.columns, d.rows, actor, { importedFrom: 'bundle' });
+      target = await dsRepo.create({ name, description: d.description, schema: d.schema }, actor);
+      const res = await insertRows(engine, target.id, target.schema.columns, d.rows, actor, { importedFrom: 'bundle' });
       for (const a of res.added) if (a.sourceId) rowMap.set(a.sourceId, a.id);
       if (res.rejected.length) report.warnings.push(`${res.rejected.length} rows of "${d.name}" did not match its columns and were skipped`);
       report.created.push({ kind: 'dataset', id: target.id, name, rows: res.added.length });
     }
     idMap.set(d.sourceId, target.id);
     engine.events.emit({ type: 'rows.changed', datasetId: target.id, count: d.rows.length, actor });
-    const missingMedia = d.rows.flatMap((r) => fileValues(r.data ?? {})).filter((f) => !engine.blobs.has(f.blob)).length;
+    const missingMedia = (await mapSeq(d.rows.flatMap((r) => fileValues(r.data ?? {})), async (f) => !(await engine.blobs.has(f.blob)))).filter(Boolean).length;
     if (missingMedia) report.warnings.push(`"${d.name}": ${missingMedia} files were not included in the bundle`);
   }
 
@@ -399,17 +407,17 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
     const datasetId = idMap.get(r.datasetId) ?? null;
     let datasetVersionId: string | null = null;
     if (datasetId) {
-      if (!dsVersion.has(datasetId)) dsVersion.set(datasetId, dsRepo.createVersion(datasetId, 'Imported from a bundle', actor).id);
+      if (!dsVersion.has(datasetId)) dsVersion.set(datasetId, (await dsRepo.createVersion(datasetId, 'Imported from a bundle', actor)).id);
       datasetVersionId = dsVersion.get(datasetId)!;
     } else report.warnings.push(`Run "${r.name}": its dataset was not in the bundle`);
     const targetId = idMap.get(r.targetId) ?? null;
     const suiteId = idMap.get(r.suiteId) ?? null;
     if (!suiteId) report.warnings.push(`Run "${r.name}": its suite was not in the bundle, so it cannot be resumed`);
     const id = newId('run');
-    const number = ((engine.db.get('SELECT MAX(number) AS n FROM runs')?.n as number) ?? 0) + 1;
+    const number = (((await engine.db.get('SELECT MAX(number) AS n FROM runs'))?.n as number) ?? 0) + 1;
     const status = ['completed', 'cancelled', 'failed', 'interrupted'].includes(r.status) ? r.status : 'interrupted';
-    engine.db.tx(() => {
-      engine.db.run(
+    await engine.db.tx(async () => {
+      await engine.db.run(
         `INSERT INTO runs (id, number, name, kind, status, dataset_id, dataset_version_id, target_id, target_version, suite_id, suite_version, settings, summary, total, done, created_at, started_at, finished_at, created_by, error, variant_label)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, number, String(r.name ?? `Run #${number}`), r.kind === 'imported' ? 'imported' : 'live', status, datasetId, datasetVersionId,
@@ -418,7 +426,7 @@ export async function importBundle(engine: Engine, bytes: Uint8Array, onConflict
         str(r.createdAt) ?? nowIso(), str(r.startedAt), str(r.finishedAt), JSON.stringify(actor), str(r.error), str(r.variantLabel),
       );
       for (const x of results) {
-        engine.db.run(
+        await engine.db.run(
           `INSERT INTO results (id, run_id, row_id, row_rev, rep, seq, status, passed, score, input, request, response, outputs, checks, metrics, error, logs, attempts, started_at, finished_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           newId('res'), id, rowMap.get(x.row_id) ?? str(x.row_id) ?? '', num(x.row_rev), num(x.rep) ?? 0, num(x.seq) ?? 0, ['done', 'error'].includes(x.status) ? x.status : 'pending',

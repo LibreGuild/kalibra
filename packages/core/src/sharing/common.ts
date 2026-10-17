@@ -13,7 +13,7 @@ import { invalid, newId, nowIso, parseJson } from '../util.js';
  */
 
 /** Written into bundle manifests (set by scripts/set-version.mjs). */
-export const APP_VERSION = '0.1.1-beta.1';
+export const APP_VERSION = '0.2.0';
 
 /** JSON with object keys sorted at every level, so the same content always produces the same bytes. */
 export function stableStringify(value: unknown, indent?: number): string {
@@ -240,48 +240,52 @@ export interface IncomingRow {
  * Inserts rows keeping their ids when free (so a shared folder or bundle round-trips without id
  * churn). Rows are validated against the dataset columns like any other insert.
  */
-export function insertRows(engine: Engine, datasetId: string, columns: ColumnSpec[], rows: IncomingRow[], actor: Actor, extraProvenance: Record<string, unknown> = {}) {
+export async function insertRows(engine: Engine, datasetId: string, columns: ColumnSpec[], rows: IncomingRow[], actor: Actor, extraProvenance: Record<string, unknown> = {}) {
   const added: { index: number; id: string; sourceId?: string }[] = [];
   const rejected: { index: number; errors: string[] }[] = [];
   const db = engine.db;
   const now = nowIso();
-  db.tx(() => {
-    let seq = db.get('SELECT next_seq FROM datasets WHERE id = ?', datasetId).next_seq as number;
-    rows.forEach((row, index) => {
+  await db.tx(async () => {
+    // Postgres may run a transaction again after a conflict: start the lists afresh each time.
+    added.length = rejected.length = 0;
+    let seq = (await db.get('SELECT next_seq FROM datasets WHERE id = ?', datasetId)).next_seq as number;
+    for (const [index, row] of rows.entries()) {
       const { value, errors } = validateRow(columns, row.data ?? {});
       if (errors.length) {
         rejected.push({ index, errors });
-        return;
+        continue;
       }
-      const id = row.id && /^[A-Za-z0-9_-]{1,80}$/.test(row.id) && !db.get('SELECT 1 FROM rows WHERE id = ?', row.id) ? row.id : newId('row');
+      const id = row.id && /^[A-Za-z0-9_-]{1,80}$/.test(row.id) && !(await db.get('SELECT 1 FROM rows WHERE id = ?', row.id)) ? row.id : newId('row');
       const data = JSON.stringify(value);
       const tags = JSON.stringify(Array.isArray(row.tags) ? row.tags.filter((t) => typeof t === 'string') : []);
-      db.run(
+      await db.run(
         `INSERT INTO rows (id, dataset_id, seq, rev, data, tags, status, split, provenance, created_at, updated_at, fp) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, datasetId, seq++, data, tags, row.status ?? 'approved', row.split ?? null,
         JSON.stringify({ ...(row.provenance ?? {}), ...extraProvenance }), now, now, fingerprint(value),
       );
-      db.run('INSERT INTO row_revs (row_id, rev, data, tags, created_at, actor) VALUES (?, 1, ?, ?, ?, ?)', id, data, tags, now, JSON.stringify(actor));
+      await db.run('INSERT INTO row_revs (row_id, rev, data, tags, created_at, actor) VALUES (?, 1, ?, ?, ?, ?)', id, data, tags, now, JSON.stringify(actor));
       added.push({ index, id, sourceId: row.id });
-    });
-    db.run('UPDATE datasets SET next_seq = ?, updated_at = ? WHERE id = ?', seq, now, datasetId);
+    }
+    await db.run('UPDATE datasets SET next_seq = ?, updated_at = ? WHERE id = ?', seq, now, datasetId);
   });
   return { added, rejected };
 }
 
 /** Uniquely named copy: "Name (imported)", "Name (imported 2)", … */
-export function freeName(taken: (name: string) => boolean, name: string, suffix = 'imported'): string {
-  if (!taken(name)) return name;
-  if (!taken(`${name} (${suffix})`)) return `${name} (${suffix})`;
-  for (let i = 2; ; i++) if (!taken(`${name} (${suffix} ${i})`)) return `${name} (${suffix} ${i})`;
+export async function freeName(taken: (name: string) => boolean | Promise<boolean>, name: string, suffix = 'imported'): Promise<string> {
+  if (!(await taken(name))) return name;
+  if (!(await taken(`${name} (${suffix})`))) return `${name} (${suffix})`;
+  for (let i = 2; ; i++) if (!(await taken(`${name} (${suffix} ${i})`))) return `${name} (${suffix} ${i})`;
 }
 
-export function settingsGet(engine: Engine): { folder?: string; lastExportAt?: string; lastImportAt?: string; includeRows?: boolean; includeMedia?: boolean } {
-  return parseJson(engine.db.get("SELECT value FROM meta WHERE key = 'sharing'")?.value, {});
+export async function settingsGet(engine: Engine): Promise<{ folder?: string; lastExportAt?: string; lastImportAt?: string; includeRows?: boolean; includeMedia?: boolean }> {
+  return parseJson((await engine.db.get("SELECT value FROM meta WHERE key = 'sharing'"))?.value, {});
 }
 
-export function settingsSet(engine: Engine, patch: Record<string, unknown>) {
-  const next = { ...settingsGet(engine), ...patch };
-  engine.db.run("INSERT INTO meta (key, value) VALUES ('sharing', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", JSON.stringify(next));
-  return next;
+export async function settingsSet(engine: Engine, patch: Record<string, unknown>) {
+  return engine.db.tx(async () => {
+    const next = { ...(await settingsGet(engine)), ...patch };
+    await engine.db.run("INSERT INTO meta (key, value) VALUES ('sharing', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", JSON.stringify(next));
+    return next;
+  });
 }

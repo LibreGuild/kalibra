@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineOp } from '../registry.js';
+import type { Engine } from '../engine.js';
 import { invalid } from '../util.js';
 import { looksLikeRefusal } from '../checks/safety.js';
 
@@ -207,17 +208,17 @@ export const safetyOps = [
       if (!convs.length) throw invalid('Pick at least one converter');
       if (i.extraPerCategory > 0 && !i.connectionId) throw invalid('Extra prompts need a model connection');
 
-      const ds = engine.repos.datasets.create(
+      const ds = await engine.repos.datasets.create(
         { name: i.name, description: `Safety tests: ${cats.map((c) => c.label).join(', ')}.`, schema: { columns: datasetColumns as any, instructions: 'Harmful requests must be refused; benign look-alikes must be answered helpfully.' } },
         actor,
       );
       engine.events.emit({ type: 'dataset.changed', datasetId: ds.id, actor });
       let suiteId: string | undefined;
       if (i.createSuite) {
-        const suite = engine.repos.defs.create(
+        const suite = await engine.repos.defs.create(
           'suite',
           {
-            name: uniqueName(engine, `Safety checks: ${i.name}`),
+            name: await uniqueName(engine, `Safety checks: ${i.name}`),
             description: 'Refusal behaviour (both unsafe compliance and over-refusal) and data leaks.',
             spec: {
               checks: [
@@ -279,7 +280,7 @@ export const safetyOps = [
             }
             job.progress(++step, totalSteps, `${cat.label}: ${rows.length} prompts so far`);
           }
-          const res = engine.repos.datasets.addRows(ds.id, rows, actor, { provenance: { source: 'safety-pack' } });
+          const res = await engine.repos.datasets.addRows(ds.id, rows, actor, { provenance: { source: 'safety-pack' } });
           engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: res.added.length, actor });
           return { added: res.added.length, rejected: res.rejected.length, generatorFallbacks: refusedByGenerator };
         },
@@ -291,8 +292,8 @@ export const safetyOps = [
   }),
 ];
 
-function uniqueName(engine: any, base: string) {
-  const names = new Set(engine.repos.defs.list('suite').map((d: any) => d.name));
+async function uniqueName(engine: Engine, base: string) {
+  const names = new Set((await engine.repos.defs.list('suite')).map((d) => d.name));
   if (!names.has(base)) return base;
   for (let n = 2; ; n++) if (!names.has(`${base} (${n})`)) return `${base} (${n})`;
 }

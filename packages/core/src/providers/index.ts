@@ -201,9 +201,9 @@ function promptOrMessages(req: LlmRequest): { prompt: string } | { messages: Mod
   return { messages: [...history, current] };
 }
 
-export function createLlmClient(getConnection: (id: string) => ConnectionSpec, secrets: SecretStore): LlmClient {
+export function createLlmClient(getConnection: (id: string) => Promise<ConnectionSpec>, secrets: SecretStore): LlmClient {
   async function prepare(connectionId: string, model: string | undefined, kind: ModelKind) {
-    const spec = getConnection(connectionId);
+    const spec = await getConnection(connectionId);
     const modelId =
       model ||
       (kind === 'image' ? spec.imageModel : kind === 'speech' ? spec.speechModel : kind === 'transcription' ? spec.transcriptionModel : '') ||

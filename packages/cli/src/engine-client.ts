@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { BASE_PATH, DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, publicOrigin, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
+import { BASE_PATH, DEFAULT_PROJECT, deployConfigFrom, FileSecretStore, Hub, KalibraError, publicOrigin, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
+import { openDeployment } from './deploy.js';
 
 /*
  * How the CLI and the MCP bridge reach Kalibra, in order of preference:
@@ -43,6 +44,41 @@ export function clearEngineInfo(dir: string) {
   }
 }
 
+const serverFile = (dir: string) => join(dir, '.server.json');
+
+/** A team server marks its data folder while it runs, so `kalibra migrate` won't copy it mid-flight. */
+export function writeServerMarker(dir: string) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(serverFile(dir), JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+}
+
+export function clearServerMarker(dir: string) {
+  try {
+    if (JSON.parse(readFileSync(serverFile(dir), 'utf8')).pid === process.pid) rmSync(serverFile(dir));
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/** The Kalibra (local app or team server) that has this data folder open, if any. */
+export function runningOn(dir: string): { kind: 'app' | 'server'; pid: number } | undefined {
+  const app = readEngineInfo(dir);
+  if (app) return { kind: 'app', pid: app.pid };
+  try {
+    const { pid } = JSON.parse(readFileSync(serverFile(dir), 'utf8'));
+    process.kill(pid, 0); // throws if the process is gone
+    return { kind: 'server', pid };
+  } catch {
+    return undefined;
+  }
+}
+
+/** `kalibra users` next to a running setup-B server (SQLite synced to a bucket) works on its files directly. */
+export function usesLocalFilesOfRunningServer(dir: string, env: Record<string, string | undefined> = process.env) {
+  const cfg = deployConfigFrom(env);
+  return !cfg.databaseUrl && !!cfg.storageUrl && runningOn(dir)?.kind === 'server';
+}
+
 function readEngineInfo(dir: string): EngineInfo | undefined {
   if (!existsSync(infoFile(dir))) return undefined;
   try {
@@ -67,9 +103,9 @@ export function secretsFor(projectDir: string): SecretStore {
   return { get: locked, set: locked, delete: locked, list: locked };
 }
 
-/** The hub for a folder, opened in this process. */
-export function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders'> = {}) {
-  return new Hub({ dir, mode, secretsFor, ...opts });
+/** The hub for a folder, opened in this process (with the deployment's database and storage, when given). */
+export async function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders' | 'databases' | 'storage'> = {}) {
+  return await Hub.open({ dir, mode, secretsFor, ...opts });
 }
 
 /** Uniform way to call operations, whether Kalibra runs in another process or in this one. */
@@ -147,14 +183,16 @@ async function remote(origin: string, token: string | undefined, actor: Actor, w
 }
 
 async function inProcess(dir: string, actor: Actor, wanted?: string): Promise<OpsClient> {
-  const hub = openHub(dir);
+  // Same database and storage as the server would use for this folder (settings from the environment).
+  const deployment = await openDeployment(dir);
+  const hub = await openHub(dir, 'local', deployment.hub);
   const principal = hub.localPrincipal(actor.kind === 'agent' || actor.kind === 'cli' ? actor.kind : 'user', actor.client, actor.model);
   let project = await pickProject((name, input) => hub.call(principal, name, input), wanted);
   return {
     mode: 'local',
     call: (name, input) => hub.callProject(principal, project, name, input),
     hub: (name, input) => hub.call(principal, name, input),
-    describe: async () => [...hub.engine(project).registry.describe(), ...hub.registry.describe().map((o) => ({ ...o, hub: true }))],
+    describe: async () => [...(await hub.engine(project)).registry.describe(), ...hub.registry.describe().map((o) => ({ ...o, hub: true }))],
     project: () => project,
     async useProject(idOrName) {
       const p = await hub.call<any>(principal, 'get_project', { project: idOrName });
@@ -162,10 +200,9 @@ async function inProcess(dir: string, actor: Actor, wanted?: string): Promise<Op
       return p;
     },
     async close() {
-      hub.close();
+      await hub.close();
+      await deployment.close();
     },
-    // exposed for `kalibra run` to wait on local runs
-    ...({ hub } as any),
   };
 }
 

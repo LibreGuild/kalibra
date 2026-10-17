@@ -38,7 +38,7 @@ describe('cosine and cache', () => {
 describe('Embeddings with a connection', () => {
   it('batches at 64, caches repeats and uses the connection embedding model', async () => {
     const calls: number[] = [];
-    const emb = new Embeddings(() => ({ getConnection: () => openai, secrets }), {
+    const emb = new Embeddings(() => ({ getConnection: async () => openai, secrets }), {
       connection: async (_s, model, texts) => {
         expect(model).toBe('text-embedding-3-small');
         calls.push(texts.length);
@@ -56,7 +56,7 @@ describe('Embeddings with a connection', () => {
 
   it('dedupes identical texts within one call and keeps order', async () => {
     let seen = 0;
-    const emb = new Embeddings(() => ({ getConnection: () => openai, secrets }), { connection: async (_s, _m, t) => ((seen += t.length), t.map(fakeVec)) });
+    const emb = new Embeddings(() => ({ getConnection: async () => openai, secrets }), { connection: async (_s, _m, t) => ((seen += t.length), t.map(fakeVec)) });
     const r = await emb.embed(['abc', 'xyz', 'abc'], { connectionId: 'c' });
     expect(seen).toBe(2);
     expect(r.vectors[0]).toEqual(r.vectors[2]);
@@ -85,14 +85,14 @@ describe('Embeddings with a connection', () => {
 
 describe('local model', () => {
   it('reports not downloaded and refuses to embed until it is', async () => {
-    const emb = new Embeddings(() => ({ getConnection: () => openai, secrets }), { dir: '/nonexistent/kalibra-models' });
+    const emb = new Embeddings(() => ({ getConnection: async () => openai, secrets }), { dir: '/nonexistent/kalibra-models' });
     expect((await emb.status()).local).toBe('not_downloaded');
     await expect(emb.embed(['hi'])).rejects.toThrow(/not downloaded/);
   });
 
   const ready = existsSync(join(modelsDir(), 'runtime', 'node_modules', '@huggingface', 'transformers')) && existsSync(join(modelsDir(), 'hub', ...LOCAL_MODEL.split('/'), 'onnx', 'model_quantized.onnx'));
   it.skipIf(!ready)('embeds offline with the downloaded local model', async () => {
-    const emb = new Embeddings(() => ({ getConnection: () => openai, secrets }));
+    const emb = new Embeddings(() => ({ getConnection: async () => openai, secrets }));
     expect((await emb.status()).local).toBe('ready');
     const r = await emb.embed(['The cat sat on the mat', 'A cat was sitting on the rug', 'Stock markets fell sharply today']);
     expect(r.vectors[0]).toHaveLength(384);
@@ -103,7 +103,7 @@ describe('local model', () => {
 });
 
 describe('semantic checks', () => {
-  const embed = new Embeddings(() => ({ getConnection: () => openai, secrets }), { local: async (t) => t.map(fakeVec) });
+  const embed = new Embeddings(() => ({ getConnection: async () => openai, secrets }), { local: async (t) => t.map(fakeVec) });
   const ctx = (scope: Record<string, unknown>, llm: any = {}) => ({ scope, env: {}, llm, embed, log: () => {}, workspaceDir: '.', signal: new AbortController().signal });
   const sim = getCheckType('semantic_similarity')!;
 

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PROJECT_ROLES, roleAtLeast, type Actor, type BaseOpDef, type ProjectRole } from '../registry.js';
-import { invalid, KalibraError, notFound, parseJson } from '../util.js';
+import { invalid, KalibraError, mapSeq, notFound, parseJson } from '../util.js';
 import type { Hub } from './hub.js';
 import { PASSWORD_MAX } from './passwords.js';
 import { AuthProviderConfig } from './providers.js';
@@ -34,27 +34,27 @@ const role = z.enum(PROJECT_ROLES);
 const projectRef = z.string().describe('Project id or name');
 
 /** The caller's role in a project, failing when it is below `needed`. */
-function requireRole({ hub, principal }: HubOpContext, project: string, needed: ProjectRole) {
-  const found = hub.projectFor(principal, project);
+async function requireRole({ hub, principal }: HubOpContext, project: string, needed: ProjectRole) {
+  const found = await hub.projectFor(principal, project);
   if (!roleAtLeast(found.role, needed)) throw new KalibraError('forbidden', `Only project ${needed}s can do this`);
   return found.project;
 }
 
 /** A member reference: one of user (id or username) or group (id or name). */
-function memberRef(hub: Hub, i: { user?: string; group?: string }): { type: 'user' | 'group'; id: string } {
+async function memberRef(hub: Hub, i: { user?: string; group?: string }): Promise<{ type: 'user' | 'group'; id: string }> {
   if (!!i.user === !!i.group) throw invalid('Give either a user or a group');
   if (i.user) {
-    const u = hub.accounts.find(i.user);
+    const u = await hub.accounts.find(i.user);
     if (!u) throw notFound('User', i.user);
     return { type: 'user', id: u.id };
   }
-  return { type: 'group', id: hub.projects.group(i.group!).id };
+  return { type: 'group', id: (await hub.projects.group(i.group!)).id };
 }
 
 /** Linked sign-in methods of a user, with the provider's display name. */
-function identitiesOf(hub: Hub, userId: string) {
-  const names = new Map(hub.providers.list().map((p) => [p.id, p.name]));
-  return hub.accounts.identities(userId).map((i) => ({ ...i, providerName: names.get(i.provider) ?? i.provider }));
+async function identitiesOf(hub: Hub, userId: string) {
+  const names = new Map((await hub.providers.list()).map((p) => [p.id, p.name]));
+  return (await hub.accounts.identities(userId)).map((i) => ({ ...i, providerName: names.get(i.provider) ?? i.provider }));
 }
 
 /** Where providers send people back to; relative when the server's public address is not configured. */
@@ -80,8 +80,8 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'user',
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub, principal }) => {
-      const s = hub.mode === 'server' ? hub.settings() : undefined;
+    handler: async ({ hub, principal }) => {
+      const s = hub.mode === 'server' ? await hub.settings() : undefined;
       const isAdmin = principal.user.role === 'admin';
       return {
         user: principal.user,
@@ -89,9 +89,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
         via: principal.via,
         isAdmin,
         canCreateProjects: hub.mode === 'local' || isAdmin || !!s?.allowProjectCreation,
-        canWriteCode: hub.capsFor(principal).code,
-        groups: hub.mode === 'server' ? hub.projects.userGroups(principal.user.id) : [],
-        identities: hub.mode === 'server' ? identitiesOf(hub, principal.user.id) : [],
+        canWriteCode: (await hub.capsFor(principal)).code,
+        groups: hub.mode === 'server' ? await hub.projects.userGroups(principal.user.id) : [],
+        identities: hub.mode === 'server' ? await identitiesOf(hub, principal.user.id) : [],
       };
     },
   }),
@@ -105,12 +105,12 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     input: z.object({ name: z.string().min(1).max(100).optional(), email: z.string().max(200).optional() }),
-    handler: ({ hub, principal }, i) => {
+    handler: async ({ hub, principal }, i) => {
       // A self-chosen email could claim someone else's invitation when they first sign in with SSO.
       if (i.email !== undefined && i.email.trim().toLowerCase() !== principal.user.email.toLowerCase()) {
         throw new KalibraError('forbidden', 'Ask an administrator to change your email: sign-in providers use it to find your account');
       }
-      return hub.accounts.update(principal.user.id, { name: i.name });
+      return await hub.accounts.update(principal.user.id, { name: i.name });
     },
   }),
 
@@ -125,15 +125,15 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     quiet: true,
     input: z.object({ current: z.string().max(PASSWORD_MAX), next: z.string().max(PASSWORD_MAX) }),
     handler: async ({ hub, principal, actor, ip }, i) => {
-      const user = hub.accounts.get(principal.user.id);
+      const user = await hub.accounts.get(principal.user.id);
       if (!user.hasPassword) throw invalid('This account signs in through a sign-in provider and has no password here');
       await hub.accounts.authenticate(user.username, i.current).catch(() => {
         throw new KalibraError('forbidden', 'The current password is wrong');
       });
       if (i.current === i.next) throw invalid('Pick a password different from the current one');
       await hub.accounts.setPassword(user.id, i.next);
-      hub.accounts.revokeAllSessions(user.id, principal.sessionId);
-      hub.audit(actor, 'password.changed', user.username, {}, ip);
+      await hub.accounts.revokeAllSessions(user.id, principal.sessionId);
+      await hub.audit(actor, 'password.changed', user.username, {}, ip);
       return { changed: true };
     },
   }),
@@ -148,7 +148,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub, principal }) => hub.accounts.listSessions(principal.user.id).map((s) => ({ ...s, current: s.id === principal.sessionId })),
+    handler: async ({ hub, principal }) => (await hub.accounts.listSessions(principal.user.id)).map((s) => ({ ...s, current: s.id === principal.sessionId })),
   }),
 
   defineHubOp({
@@ -160,8 +160,8 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     input: z.object({ id: z.string() }),
-    handler: ({ hub, principal }, i) => {
-      hub.accounts.revokeSession(i.id, principal.user.id);
+    handler: async ({ hub, principal }, i) => {
+      await hub.accounts.revokeSession(i.id, principal.user.id);
       return { revoked: i.id };
     },
   }),
@@ -176,7 +176,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub, principal }) => hub.accounts.listTokens(principal.user.id),
+    handler: async ({ hub, principal }) => await hub.accounts.listTokens(principal.user.id),
   }),
 
   defineHubOp({
@@ -188,9 +188,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     input: z.object({ name: z.string().min(1).max(100), expiresInDays: z.number().int().min(1).max(3650).optional() }),
-    handler: ({ hub, principal, actor, ip }, i) => {
-      const t = hub.accounts.createToken(principal.user.id, i);
-      hub.audit(actor, 'token.created', t.name, { id: t.id, expiresAt: t.expiresAt }, ip);
+    handler: async ({ hub, principal, actor, ip }, i) => {
+      const t = await hub.accounts.createToken(principal.user.id, i);
+      await hub.audit(actor, 'token.created', t.name, { id: t.id, expiresAt: t.expiresAt }, ip);
       return t;
     },
   }),
@@ -205,10 +205,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     destructive: true,
     input: z.object({ id: z.string() }),
-    handler: ({ hub, principal, actor, ip }, i) => {
+    handler: async ({ hub, principal, actor, ip }, i) => {
       // Administrators may revoke anyone's token (e.g. one that leaked).
-      const t = hub.accounts.revokeToken(i.id, principal.user.role === 'admin' ? undefined : principal.user.id);
-      hub.audit(actor, 'token.revoked', t.name, { id: t.id }, ip);
+      const t = await hub.accounts.revokeToken(i.id, principal.user.role === 'admin' ? undefined : principal.user.id);
+      await hub.audit(actor, 'token.revoked', t.name, { id: t.id }, ip);
       return { revoked: t.id };
     },
   }),
@@ -222,8 +222,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'user',
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub, principal }) =>
-      hub.visibleProjects(principal).map((p) => ({ id: p.id, name: p.name, description: p.description, role: p.role, createdAt: p.createdAt, members: hub.mode === 'server' ? hub.projects.memberCount(p.id) : undefined })),
+    handler: async ({ hub, principal }) => {
+      const counts = hub.mode === 'server' ? await hub.projects.memberCounts() : undefined;
+      return (await hub.visibleProjects(principal)).map((p) => ({ id: p.id, name: p.name, description: p.description, role: p.role, createdAt: p.createdAt, members: counts ? (counts.get(p.id) ?? 0) : undefined }));
+    },
   }),
 
   defineHubOp({
@@ -234,10 +236,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'user',
     readOnly: true,
     input: z.object({ project: projectRef }),
-    handler: ({ hub, principal }, i) => {
-      const { project, role: r } = hub.projectFor(principal, i.project);
+    handler: async ({ hub, principal }, i) => {
+      const { project, role: r } = await hub.projectFor(principal, i.project);
       const { dir, ...rest } = project;
-      return { ...rest, role: r, ...(hub.mode === 'local' ? { dir: hub.engine(project.id).dir } : {}) };
+      return { ...rest, role: r, ...(hub.mode === 'local' ? { dir: (await hub.engine(project.id)).dir } : {}) };
     },
   }),
 
@@ -248,13 +250,13 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     category: 'projects',
     access: 'user',
     input: z.object({ name: z.string().min(1).max(80), description: z.string().max(500).default('') }),
-    handler: ({ hub, principal, actor, ip }, i) => {
-      const allowed = hub.mode === 'local' || principal.user.role === 'admin' || hub.settings().allowProjectCreation;
+    handler: async ({ hub, principal, actor, ip }, i) => {
+      const allowed = hub.mode === 'local' || principal.user.role === 'admin' || (await hub.settings()).allowProjectCreation;
       if (!allowed) throw new KalibraError('forbidden', 'Only administrators can create projects on this server');
-      const project = hub.projects.create(i, actor);
-      if (hub.mode === 'server') hub.projects.setMember(project.id, 'user', principal.user.id, 'owner', principal.user.id);
-      hub.engine(project.id);
-      hub.audit(actor, 'project.created', project.name, { id: project.id }, ip);
+      const project = await hub.projects.create(i, actor);
+      if (hub.mode === 'server') await hub.projects.setMember(project.id, 'user', principal.user.id, 'owner', principal.user.id);
+      await hub.engine(project.id);
+      await hub.audit(actor, 'project.created', project.name, { id: project.id }, ip);
       const { dir, ...rest } = project;
       return { ...rest, role: 'owner' };
     },
@@ -267,10 +269,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     category: 'projects',
     access: 'user',
     input: z.object({ project: projectRef, name: z.string().min(1).max(80).optional(), description: z.string().max(500).optional() }),
-    handler: (ctx, i) => {
-      const p = requireRole(ctx, i.project, 'owner');
-      const next = ctx.hub.projects.update(p.id, i);
-      if (next.name !== p.name) ctx.hub.audit(ctx.actor, 'project.renamed', next.name, { id: p.id, from: p.name }, ctx.ip);
+    handler: async (ctx, i) => {
+      const p = await requireRole(ctx, i.project, 'owner');
+      const next = await ctx.hub.projects.update(p.id, i);
+      if (next.name !== p.name) await ctx.hub.audit(ctx.actor, 'project.renamed', next.name, { id: p.id, from: p.name }, ctx.ip);
       const { dir, ...rest } = next;
       return rest;
     },
@@ -284,11 +286,11 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'user',
     destructive: true,
     input: z.object({ project: projectRef }),
-    handler: (ctx, i) => {
-      const p = requireRole(ctx, i.project, 'owner');
-      ctx.hub.projects.trash(p.id);
-      ctx.hub.closeEngine(p.id);
-      ctx.hub.audit(ctx.actor, 'project.deleted', p.name, { id: p.id }, ctx.ip);
+    handler: async (ctx, i) => {
+      const p = await requireRole(ctx, i.project, 'owner');
+      await ctx.hub.projects.trash(p.id);
+      await ctx.hub.closeEngine(p.id);
+      await ctx.hub.audit(ctx.actor, 'project.deleted', p.name, { id: p.id }, ctx.ip);
       return { deleted: p.id };
     },
   }),
@@ -301,7 +303,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'admin',
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub }) => hub.projects.list({ deleted: true }).map(({ dir, ...p }) => p),
+    handler: async ({ hub }) => (await hub.projects.list({ deleted: true })).map(({ dir, ...p }) => p),
   }),
 
   defineHubOp({
@@ -311,9 +313,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     category: 'admin',
     access: 'admin',
     input: z.object({ id: z.string() }),
-    handler: ({ hub, actor, ip }, i) => {
-      const p = hub.projects.restore(i.id);
-      hub.audit(actor, 'project.restored', p.name, { id: p.id }, ip);
+    handler: async ({ hub, actor, ip }, i) => {
+      const p = await hub.projects.restore(i.id);
+      await hub.audit(actor, 'project.restored', p.name, { id: p.id }, ip);
       return p;
     },
   }),
@@ -328,7 +330,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     readOnly: true,
     input: z.object({ project: projectRef }),
-    handler: (ctx, i) => ctx.hub.projects.members(requireRole(ctx, i.project, 'viewer').id),
+    handler: async (ctx, i) => await ctx.hub.projects.members((await requireRole(ctx, i.project, 'viewer')).id),
   }),
 
   defineHubOp({
@@ -340,12 +342,12 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     input: z.object({ project: projectRef, user: z.string().optional().describe('User id or username'), group: z.string().optional().describe('Group id or name'), role }),
-    handler: (ctx, i) => {
-      const p = requireRole(ctx, i.project, 'owner');
-      const m = memberRef(ctx.hub, i);
-      ctx.hub.projects.setMember(p.id, m.type, m.id, i.role, ctx.principal.user.id);
-      ctx.hub.audit(ctx.actor, 'member.set', p.name, { [m.type]: m.id, role: i.role }, ctx.ip);
-      return ctx.hub.projects.members(p.id);
+    handler: async (ctx, i) => {
+      const p = await requireRole(ctx, i.project, 'owner');
+      const m = await memberRef(ctx.hub, i);
+      await ctx.hub.projects.setMember(p.id, m.type, m.id, i.role, ctx.principal.user.id);
+      await ctx.hub.audit(ctx.actor, 'member.set', p.name, { [m.type]: m.id, role: i.role }, ctx.ip);
+      return await ctx.hub.projects.members(p.id);
     },
   }),
 
@@ -359,12 +361,12 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     destructive: true,
     input: z.object({ project: projectRef, user: z.string().optional(), group: z.string().optional() }),
-    handler: (ctx, i) => {
-      const p = requireRole(ctx, i.project, 'owner');
-      const m = memberRef(ctx.hub, i);
-      ctx.hub.projects.removeMember(p.id, m.type, m.id);
-      ctx.hub.audit(ctx.actor, 'member.removed', p.name, { [m.type]: m.id }, ctx.ip);
-      return ctx.hub.projects.members(p.id);
+    handler: async (ctx, i) => {
+      const p = await requireRole(ctx, i.project, 'owner');
+      const m = await memberRef(ctx.hub, i);
+      await ctx.hub.projects.removeMember(p.id, m.type, m.id);
+      await ctx.hub.audit(ctx.actor, 'member.removed', p.name, { [m.type]: m.id }, ctx.ip);
+      return await ctx.hub.projects.members(p.id);
     },
   }),
 
@@ -377,9 +379,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub }) => ({
-      users: hub.accounts.list().filter((u) => !u.disabled).map(publicUser),
-      groups: hub.projects.groups().map((g) => ({ id: g.id, name: g.name, members: g.members })),
+    handler: async ({ hub }) => ({
+      users: (await hub.accounts.list()).filter((u) => !u.disabled).map(publicUser),
+      groups: (await hub.projects.groups()).map((g) => ({ id: g.id, name: g.name, members: g.members })),
     }),
   }),
 
@@ -394,8 +396,8 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub }) =>
-      hub.accounts.list().map((u) => ({ ...u, groups: hub.projects.userGroups(u.id), projects: hub.projects.rolesOf(u.id).size, identities: hub.accounts.identities(u.id).map((i) => i.provider) })),
+    handler: async ({ hub }) =>
+      mapSeq(await hub.accounts.list(), async (u) => ({ ...u, groups: await hub.projects.userGroups(u.id), projects: (await hub.projects.rolesOf(u.id)).size, identities: (await hub.accounts.identities(u.id)).map((i) => i.provider) })),
   }),
 
   defineHubOp({
@@ -416,7 +418,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     }),
     handler: async ({ hub, actor, ip, principal }, i) => {
       const user = await hub.accounts.create({ ...i, mustChangePassword: i.password ? i.mustChangePassword : false }, principal.user.id);
-      hub.audit(actor, 'user.created', user.username, { id: user.id, role: user.role }, ip);
+      await hub.audit(actor, 'user.created', user.username, { id: user.id, role: user.role }, ip);
       return user;
     },
   }),
@@ -436,13 +438,13 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
       role: z.enum(['admin', 'user']).optional(),
       disabled: z.boolean().optional(),
     }),
-    handler: ({ hub, actor, ip, principal }, i) => {
-      const cur = hub.accounts.find(i.id);
+    handler: async ({ hub, actor, ip, principal }, i) => {
+      const cur = await hub.accounts.find(i.id);
       if (!cur) throw notFound('User', i.id);
       if (cur.id === principal.user.id && i.disabled) throw invalid('You cannot disable your own account');
-      const next = hub.accounts.update(cur.id, i);
+      const next = await hub.accounts.update(cur.id, i);
       const changes = Object.fromEntries((['role', 'disabled', 'name', 'email'] as const).filter((k) => i[k] !== undefined && i[k] !== cur[k]).map((k) => [k, i[k]]));
-      if (Object.keys(changes).length) hub.audit(actor, 'user.updated', next.username, changes, ip);
+      if (Object.keys(changes).length) await hub.audit(actor, 'user.updated', next.username, changes, ip);
       return next;
     },
   }),
@@ -463,13 +465,13 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
       revokeTokens: z.boolean().default(true).describe('Also stop their access tokens (agents, scripts)'),
     }),
     handler: async ({ hub, actor, ip }, i) => {
-      const user = hub.accounts.find(i.id);
+      const user = await hub.accounts.find(i.id);
       if (!user) throw notFound('User', i.id);
       await hub.accounts.setPassword(user.id, i.password, { mustChange: i.mustChangePassword });
-      hub.accounts.revokeAllSessions(user.id);
-      const tokens = i.revokeTokens ? hub.accounts.listTokens(user.id) : [];
-      for (const t of tokens) hub.accounts.revokeToken(t.id);
-      hub.audit(actor, 'password.reset', user.username, { tokensRevoked: tokens.length }, ip);
+      await hub.accounts.revokeAllSessions(user.id);
+      const tokens = i.revokeTokens ? await hub.accounts.listTokens(user.id) : [];
+      for (const t of tokens) await hub.accounts.revokeToken(t.id);
+      await hub.audit(actor, 'password.reset', user.username, { tokensRevoked: tokens.length }, ip);
       return { reset: user.id };
     },
   }),
@@ -484,7 +486,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub }) => hub.projects.groups().map((g) => ({ ...g, users: hub.projects.groupMembers(g.id) })),
+    handler: async ({ hub }) => mapSeq(await hub.projects.groups(), async (g) => ({ ...g, users: await hub.projects.groupMembers(g.id) })),
   }),
 
   defineHubOp({
@@ -496,11 +498,11 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     input: z.object({ name: z.string().min(1).max(80), description: z.string().max(500).default(''), users: z.array(z.string()).default([]) }),
-    handler: ({ hub, actor, ip }, i) => {
-      const g = hub.projects.createGroup(i);
-      if (i.users.length) hub.projects.setGroupMembers(g.id, i.users.map((u) => hub.accounts.find(u)?.id ?? u));
-      hub.audit(actor, 'group.created', g.name, { id: g.id }, ip);
-      return hub.projects.group(g.id);
+    handler: async ({ hub, actor, ip }, i) => {
+      const g = await hub.projects.createGroup(i);
+      if (i.users.length) await hub.projects.setGroupMembers(g.id, await mapSeq(i.users, async (u) => (await hub.accounts.find(u))?.id ?? u));
+      await hub.audit(actor, 'group.created', g.name, { id: g.id }, ip);
+      return await hub.projects.group(g.id);
     },
   }),
 
@@ -513,13 +515,13 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     input: z.object({ id: z.string(), name: z.string().min(1).max(80).optional(), description: z.string().max(500).optional(), users: z.array(z.string()).optional() }),
-    handler: ({ hub, actor, ip }, i) => {
-      const cur = hub.projects.group(i.id);
+    handler: async ({ hub, actor, ip }, i) => {
+      const cur = await hub.projects.group(i.id);
       if (i.users && cur.source !== 'local') throw invalid(`Members of "${cur.name}" come from ${cur.source} at sign-in and cannot be edited here`);
-      const g = hub.projects.updateGroup(cur.id, i);
-      if (i.users) hub.projects.setGroupMembers(g.id, i.users.map((u: string) => hub.accounts.find(u)?.id ?? u));
-      hub.audit(actor, 'group.updated', g.name, { id: g.id, members: i.users?.length }, ip);
-      return { ...hub.projects.group(g.id), users: hub.projects.groupMembers(g.id) };
+      const g = await hub.projects.updateGroup(cur.id, i);
+      if (i.users) await hub.projects.setGroupMembers(g.id, await mapSeq(i.users, async (u: string) => (await hub.accounts.find(u))?.id ?? u));
+      await hub.audit(actor, 'group.updated', g.name, { id: g.id, members: i.users?.length }, ip);
+      return { ...(await hub.projects.group(g.id)), users: await hub.projects.groupMembers(g.id) };
     },
   }),
 
@@ -533,9 +535,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     destructive: true,
     input: z.object({ id: z.string() }),
-    handler: ({ hub, actor, ip }, i) => {
-      const g = hub.projects.deleteGroup(i.id);
-      hub.audit(actor, 'group.deleted', g.name, { id: g.id }, ip);
+    handler: async ({ hub, actor, ip }, i) => {
+      const g = await hub.projects.deleteGroup(i.id);
+      await hub.audit(actor, 'group.deleted', g.name, { id: g.id }, ip);
       return { deleted: g.id };
     },
   }),
@@ -550,7 +552,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({}),
-    handler: ({ hub }) => hub.settings(),
+    handler: async ({ hub }) => await hub.settings(),
   }),
 
   defineHubOp({
@@ -567,9 +569,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
       sessionDays: z.number().int().min(1).max(365).optional(),
       passwordLogin: z.boolean().optional(),
     }),
-    handler: ({ hub, actor, ip }, i) => {
-      const next = hub.updateSettings(i);
-      hub.audit(actor, 'settings.updated', 'server', i, ip);
+    handler: async ({ hub, actor, ip }, i) => {
+      const next = await hub.updateSettings(i);
+      await hub.audit(actor, 'settings.updated', 'server', i, ip);
       return next;
     },
   }),
@@ -585,7 +587,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     readOnly: true,
     input: z.object({}),
     handler: async ({ hub }) => ({
-      providers: await Promise.all(hub.providers.list().map((p) => hub.providers.view(p, callbackBase(hub)))),
+      providers: await Promise.all((await hub.providers.list()).map((p) => hub.providers.view(p, callbackBase(hub)))),
       callbackBase: callbackBase(hub),
     }),
   }),
@@ -602,7 +604,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     input: z.intersection(ProviderPatch, z.object({ id: z.string().optional(), clientSecret: z.string().max(2000).optional() })),
     handler: async ({ hub, actor, ip }, i) => {
       const saved = await hub.providers.save(i);
-      hub.audit(actor, 'provider.saved', saved.name, { id: saved.id, kind: saved.kind, enabled: saved.enabled, secretChanged: !!i.clientSecret }, ip);
+      await hub.audit(actor, 'provider.saved', saved.name, { id: saved.id, kind: saved.kind, enabled: saved.enabled, secretChanged: !!i.clientSecret }, ip);
       return hub.providers.view(saved, callbackBase(hub));
     },
   }),
@@ -618,9 +620,9 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     destructive: true,
     input: z.object({ id: z.string() }),
     handler: async ({ hub, actor, ip }, i) => {
-      const p = hub.providers.get(i.id);
+      const p = await hub.providers.get(i.id);
       await hub.providers.delete(i.id);
-      hub.audit(actor, 'provider.deleted', p.name, { id: p.id }, ip);
+      await hub.audit(actor, 'provider.deleted', p.name, { id: p.id }, ip);
       return { deleted: p.id };
     },
   }),
@@ -635,9 +637,8 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({ limit: z.number().int().min(1).max(1000).default(200), action: z.string().optional().describe('Only actions starting with this, e.g. "login"') }),
-    handler: ({ hub }, i) =>
-      hub.db
-        .all(i.action ? 'SELECT * FROM audit WHERE action LIKE ? ORDER BY id DESC LIMIT ?' : 'SELECT * FROM audit ORDER BY id DESC LIMIT ?', ...(i.action ? [`${i.action}%`, i.limit] : [i.limit]))
+    handler: async ({ hub }, i) =>
+      (await hub.db.all(i.action ? 'SELECT * FROM audit WHERE action LIKE ? ORDER BY id DESC LIMIT ?' : 'SELECT * FROM audit ORDER BY id DESC LIMIT ?', ...(i.action ? [`${i.action}%`, i.limit] : [i.limit])))
         .map((a) => ({ id: a.id, at: a.at, actor: parseJson(a.actor, {}), action: a.action, subject: a.subject, details: parseJson(a.details, {}), ip: a.ip })),
   }),
 
@@ -651,7 +652,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     readOnly: true,
     input: z.object({ project: projectRef }),
-    handler: (ctx, i) => ctx.hub.ingestKeys.list(requireRole(ctx, i.project, 'editor').id),
+    handler: async (ctx, i) => await ctx.hub.ingestKeys.list((await requireRole(ctx, i.project, 'editor')).id),
   }),
 
   defineHubOp({
@@ -662,10 +663,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     access: 'user',
     mcp: false,
     input: z.object({ project: projectRef, name: z.string().min(1).max(100) }),
-    handler: (ctx, i) => {
-      const p = requireRole(ctx, i.project, 'editor');
-      const key = ctx.hub.ingestKeys.create(p.id, i.name, ctx.principal.user.id);
-      ctx.hub.audit(ctx.actor, 'ingest_key.created', p.name, { id: key.id, name: key.name }, ctx.ip);
+    handler: async (ctx, i) => {
+      const p = await requireRole(ctx, i.project, 'editor');
+      const key = await ctx.hub.ingestKeys.create(p.id, i.name, ctx.principal.user.id);
+      await ctx.hub.audit(ctx.actor, 'ingest_key.created', p.name, { id: key.id, name: key.name }, ctx.ip);
       return key;
     },
   }),
@@ -679,10 +680,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     destructive: true,
     input: z.object({ project: projectRef, id: z.string() }),
-    handler: (ctx, i) => {
-      const p = requireRole(ctx, i.project, 'editor');
-      const key = ctx.hub.ingestKeys.revoke(p.id, i.id);
-      ctx.hub.audit(ctx.actor, 'ingest_key.revoked', p.name, { id: key.id, name: key.name }, ctx.ip);
+    handler: async (ctx, i) => {
+      const p = await requireRole(ctx, i.project, 'editor');
+      const key = await ctx.hub.ingestKeys.revoke(p.id, i.id);
+      await ctx.hub.audit(ctx.actor, 'ingest_key.revoked', p.name, { id: key.id, name: key.name }, ctx.ip);
       return { revoked: key.id };
     },
   }),

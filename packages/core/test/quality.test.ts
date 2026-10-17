@@ -121,8 +121,8 @@ describe('quality operations', () => {
   let dir: string;
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-quality-'));
-    engine = new Engine({ dir });
-    (engine as any).embeddings = new Embeddings(() => ({ getConnection: () => ({}) as any, secrets: engine.secrets }), {
+    engine = await Engine.open({ dir });
+    (engine as any).embeddings = new Embeddings(() => ({ getConnection: async () => ({}) as any, secrets: engine.secrets }), {
       local: async (texts) => texts.map((t) => (t.includes('block') ? [1, 0] : [0, 1])),
     });
     await engine.call('create_dataset', {
@@ -142,8 +142,8 @@ describe('quality operations', () => {
       ],
     });
   });
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

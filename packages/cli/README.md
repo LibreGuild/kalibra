@@ -3,7 +3,7 @@
 Local-first, open-source evaluation for AI applications.
 
 ```bash
-npx kalibra@next     # current beta
+npx kalibra
 ```
 
 That starts Kalibra on your machine and opens it in your browser. No account, no server, no installer. Needs Node.js 22.13 or newer.
@@ -17,15 +17,15 @@ That starts Kalibra on your machine and opens it in your browser. No account, no
 ## Commands
 
 ```bash
-npx kalibra@next                        # start and open the UI
-npx kalibra@next serve --port 4317      # start without opening a browser
-npx kalibra@next server                 # team server: sign-in, users, project members
-npx kalibra@next run --dataset D --target T --suite S --min-pass 0.9   # CI: exits non-zero below 90%
-npx kalibra@next mcp                    # MCP server for Claude Code, Codex, Cursor, Gemini CLI…
-npx kalibra@next backup ./backup        # consistent copy of all data, safe while running
+npx kalibra                        # start and open the UI
+npx kalibra serve --port 4317      # start without opening a browser
+npx kalibra server                 # team server: sign-in, users, project members
+npx kalibra run --dataset D --target T --suite S --min-pass 0.9   # CI: exits non-zero below 90%
+npx kalibra mcp                    # MCP server for Claude Code, Codex, Cursor, Gemini CLI…
+npx kalibra backup ./backup        # consistent copy of all data, safe while running
 ```
 
-Data lives in `~/Kalibra/default` (change it with `--dir` or `KALIBRA_DIR`). A team server also ships as a Docker image: `ghcr.io/libreguild/kalibra:next`.
+Data lives in `~/Kalibra/default` (change it with `--dir` or `KALIBRA_DIR`). A team server also ships as a Docker image: `ghcr.io/libreguild/kalibra:latest`.
 
 Docs: https://github.com/LibreGuild/kalibra/tree/main/docs
 

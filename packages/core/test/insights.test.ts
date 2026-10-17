@@ -27,7 +27,7 @@ describe('insights ops', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-insights-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     await engine.call('create_dataset', {
       name: 'Voice',
       columns: [
@@ -41,23 +41,23 @@ describe('insights ops', () => {
       rows: ROWS.map((r, i) => ({ data: { reference: `ref ${i}`, accent: r.accent, audio: `clip${i}` }, tags: r.tags })),
     });
     suiteId = (await engine.call('create_suite', { name: 'STT', spec: { checks: [] } })).id;
-    const ds = engine.repos.datasets.get('Voice');
-    const version = engine.repos.datasets.createVersion(ds.id, '', { kind: 'user', id: 'local' });
-    const rows = engine.repos.datasets.versionRows(version.id);
+    const ds = await engine.repos.datasets.get('Voice');
+    const version = await engine.repos.datasets.createVersion(ds.id, '', { kind: 'user', id: 'local' });
+    const rows = await engine.repos.datasets.versionRows(version.id);
 
     // Two completed runs; the second is better on en_IN.
     for (const improve of [false, true]) {
-      const run = engine.repos.runs.create(
+      const run = await engine.repos.runs.create(
         { kind: 'imported', datasetId: ds.id, datasetVersionId: version.id, suiteId, suiteVersion: 1, settings: RunSettings.parse({}) },
         { kind: 'user', id: 'local' },
       );
-      engine.repos.runs.addPending(run.id, rows.map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
-      const pending = engine.repos.runs.pending(run.id);
-      pending.forEach((p, i) => {
+      await engine.repos.runs.addPending(run.id, rows.map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
+      const pending = await engine.repos.runs.pending(run.id);
+      for (const [i, p] of pending.entries()) {
         const spec = ROWS[i];
         const pass = improve ? true : spec.pass;
         const errors = improve ? 0 : spec.errors;
-        engine.repos.runs.saveResult(run.id, p.id, {
+        await engine.repos.runs.saveResult(run.id, p.id, {
           status: 'done',
           passed: pass,
           score: pass ? 1 : 0.5,
@@ -69,14 +69,14 @@ describe('insights ops', () => {
           metrics: { latency_ms: spec.lat, final_latency_ms: spec.lat / 2 },
           attempts: 1,
         });
-      });
-      engine.repos.runs.setStatus(run.id, 'completed', { summary: summarize(engine.repos.runs.allLite(run.id), rows.length) });
+      }
+      await engine.repos.runs.setStatus(run.id, 'completed', { summary: summarize(await engine.repos.runs.allLite(run.id), rows.length) });
       runIds.push(run.id);
     }
   });
 
-  afterAll(() => {
-    engine?.close();
+  afterAll(async () => {
+    await engine?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { defineOp, type OpDef } from '../registry.js';
 import { RunOverrides, RunSettings, TargetSpec } from '../specs.js';
 import { applyOverrides } from '../runner/overrides.js';
-import { invalid } from '../util.js';
+import { invalid, mapSeq } from '../util.js';
 import { assertCodeChange } from '../policy.js';
 import type { Engine } from '../engine.js';
 import type { RunRecord } from '../repo/runs.js';
@@ -24,13 +24,13 @@ const BaseSettings = RunSettings.omit({ overrides: true });
 
 const ACTIVE = new Set(['queued', 'running']);
 
-function variantSummary(engine: Engine, run: RunRecord) {
+async function variantSummary(engine: Engine, run: RunRecord) {
   const s = run.summary ?? {};
   const lat = s.metrics?.latency_ms;
   const out = s.metrics?.output_tokens;
   let targetName: string | null = null;
   try {
-    targetName = run.targetId ? engine.repos.defs.get('target', run.targetId).name : null;
+    targetName = run.targetId ? (await engine.repos.defs.get('target', run.targetId)).name : null;
   } catch {
     targetName = null;
   }
@@ -42,7 +42,7 @@ function variantSummary(engine: Engine, run: RunRecord) {
     targetName,
     overrides: run.settings.overrides ?? null,
     status: run.status,
-    active: engine.runner.isActive(run.id),
+    active: await engine.runner.isActive(run.id),
     done: run.done,
     total: run.total,
     passRate: s.passRate ?? null,
@@ -63,8 +63,8 @@ function groupStatus(vs: { active: boolean; status: string }[]) {
   return vs.some((v) => v.status === 'failed') ? 'failed' : 'stopped';
 }
 
-function outcomes(engine: Engine, runId: string) {
-  return new Map(engine.repos.runs.allLite(runId).filter((r) => r.passed !== null).map((r) => [`${r.rowId}#${r.rep}`, r.passed as boolean]));
+async function outcomes(engine: Engine, runId: string) {
+  return new Map((await engine.repos.runs.allLite(runId)).filter((r) => r.passed !== null).map((r) => [`${r.rowId}#${r.rep}`, r.passed as boolean]));
 }
 
 type Rankable = { passRate: number | null; meanScore: number | null; latencyP50: number | null };
@@ -91,13 +91,13 @@ export const groupsOps: OpDef<any, any>[] = [
       variants: z.array(Variant).min(2).max(8),
       settings: BaseSettings.prefault({}),
     }),
-    handler: ({ engine, actor }, i) => {
+    handler: async ({ engine, actor }, i) => {
       const { datasets, defs, runs } = engine.repos;
-      const ds = datasets.get(i.dataset);
-      const suite = defs.get('suite', i.suite);
+      const ds = await datasets.get(i.dataset);
+      const suite = await defs.get('suite', i.suite);
       // Validate every variant before creating anything.
-      const prepared = i.variants.map((v, n) => {
-        const target = defs.get('target', v.target);
+      const prepared = await mapSeq(i.variants, async (v, n) => {
+        const target = await defs.get('target', v.target);
         let saved;
         try {
           saved = TargetSpec.parse(target.spec);
@@ -116,19 +116,19 @@ export const groupsOps: OpDef<any, any>[] = [
         labels.add(l);
       }
       // One transaction: if a variant cannot be set up (e.g. no rows match), no half-made comparison is left behind.
-      const { group, created } = engine.db.tx(() => {
-        const group = runs.createGroup({ name: i.name, datasetId: ds.id, suiteId: suite.id, settings: { ...i.settings, variants: prepared.map((p) => ({ target: p.target.id, label: p.label, overrides: p.overrides ?? null })) } }, actor);
-        const created = prepared.map((p) => {
+      const { group, created } = await engine.db.tx(async () => {
+        const group = await runs.createGroup({ name: i.name, datasetId: ds.id, suiteId: suite.id, settings: { ...i.settings, variants: prepared.map((p) => ({ target: p.target.id, label: p.label, overrides: p.overrides ?? null })) } }, actor);
+        const created = await mapSeq(prepared, async (p) => {
           const settings = RunSettings.parse({ ...i.settings, overrides: p.overrides });
-          const { run, rows } = prepareRun(engine, actor, { dataset: ds.id, suite: suite.id, target: p.target.id, name: `${group.name} · ${p.label}`, settings, kind: 'live', groupId: group.id, variantLabel: p.label });
+          const { run, rows } = await prepareRun(engine, actor, { dataset: ds.id, suite: suite.id, target: p.target.id, name: `${group.name} · ${p.label}`, settings, kind: 'live', groupId: group.id, variantLabel: p.label });
           const items = rows.flatMap((r) => Array.from({ length: settings.repetitions }, (_, rep) => ({ rowId: r.id, rowRev: r.rev, rep, input: r.data })));
-          runs.addPending(run.id, items);
+          await runs.addPending(run.id, items);
           return run;
         });
         return { group, created };
       });
       for (const r of created) engine.runner.start(r.id);
-      const warnings = prepared.flatMap((p) => runPreflight(engine, ds.id, p.target.id, { ...i.settings, overrides: p.overrides } as any).map((w) => ({ ...w, variant: p.label })));
+      const warnings = (await mapSeq(prepared, async (p) => (await runPreflight(engine, ds.id, p.target.id, { ...i.settings, overrides: p.overrides } as any)).map((w) => ({ ...w, variant: p.label })))).flat();
       return { id: group.id, number: group.number, name: group.name, runs: created.map((r) => ({ id: r.id, label: r.variantLabel })), warnings };
     },
   }),
@@ -141,18 +141,18 @@ export const groupsOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ id: z.string() }),
-    handler: ({ engine }, i) => {
-      const group = engine.repos.runs.getGroup(i.id);
-      const runsOf = engine.repos.runs.groupRuns(group.id);
-      const variants = runsOf.map((r) => variantSummary(engine, r));
+    handler: async ({ engine }, i) => {
+      const group = await engine.repos.runs.getGroup(i.id);
+      const runsOf = await engine.repos.runs.groupRuns(group.id);
+      const variants = await mapSeq(runsOf, async (r) => await variantSummary(engine, r));
       const status = groupStatus(variants);
       const best = pickBest(variants);
-      const bestOut = best ? outcomes(engine, best.runId) : new Map<string, boolean>();
-      const ranked = [...variants]
-        .sort((a, b) => (best && a.runId === best.runId ? -1 : best && b.runId === best.runId ? 1 : byRank(a, b)))
-        .map((v, rank) => {
+      const bestOut = best ? await outcomes(engine, best.runId) : new Map<string, boolean>();
+      const ranked = await mapSeq(
+        [...variants].sort((a, b) => (best && a.runId === best.runId ? -1 : best && b.runId === best.runId ? 1 : byRank(a, b))),
+        async (v, rank) => {
           if (!best || v.runId === best.runId) return { ...v, rank: rank + 1, isBest: !!best && v.runId === best.runId, vsBest: null };
-          const mine = outcomes(engine, v.runId);
+          const mine = await outcomes(engine, v.runId);
           let bestOnly = 0;
           let mineOnly = 0;
           let paired = 0;
@@ -166,14 +166,15 @@ export const groupsOps: OpDef<any, any>[] = [
           const p = mcnemarExact(bestOnly, mineOnly);
           const verdict = v.passRate === best.passRate ? 'tied' : p === null ? 'no difference' : p < 0.05 ? 'clearly worse' : 'could be noise';
           return { ...v, rank: rank + 1, isBest: false, vsBest: { paired, bestOnly, thisOnly: mineOnly, pValue: p, verdict } };
-        });
+        },
+      );
       let datasetName: string | null = null;
       let suiteName: string | null = null;
       try {
-        datasetName = engine.repos.datasets.get(group.datasetId).name;
+        datasetName = (await engine.repos.datasets.get(group.datasetId)).name;
       } catch {}
       try {
-        suiteName = engine.repos.defs.get('suite', group.suiteId).name;
+        suiteName = (await engine.repos.defs.get('suite', group.suiteId)).name;
       } catch {}
       const done = variants.reduce((n, v) => n + v.done, 0);
       const total = variants.reduce((n, v) => n + v.total, 0);
@@ -194,12 +195,12 @@ export const groupsOps: OpDef<any, any>[] = [
       offset: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(500).default(100),
     }),
-    handler: ({ engine }, i) => {
-      const group = engine.repos.runs.getGroup(i.id);
-      const runsOf = engine.repos.runs.groupRuns(group.id);
+    handler: async ({ engine }, i) => {
+      const group = await engine.repos.runs.getGroup(i.id);
+      const runsOf = await engine.repos.runs.groupRuns(group.id);
       const rows = new Map<string, { key: string; rowId: string; rep: number; seq: number; input: Record<string, unknown>; variants: Record<string, any> }>();
       for (const run of runsOf) {
-        for (const r of engine.repos.runs.allLite(run.id)) {
+        for (const r of await engine.repos.runs.allLite(run.id)) {
           const key = `${r.rowId}#${r.rep}`;
           let row = rows.get(key);
           if (!row) {
@@ -249,12 +250,12 @@ export const groupsOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ limit: z.number().int().min(1).max(200).default(50), offset: z.number().int().min(0).default(0) }),
-    handler: ({ engine }, i) => {
-      const { total, groups } = engine.repos.runs.listGroups(i.limit, i.offset);
+    handler: async ({ engine }, i) => {
+      const { total, groups } = await engine.repos.runs.listGroups(i.limit, i.offset);
       return {
         total,
-        comparisons: groups.map((g) => {
-          const vs = engine.repos.runs.groupRuns(g.id).map((r) => variantSummary(engine, r));
+        comparisons: await mapSeq(groups, async (g) => {
+          const vs = await mapSeq(await engine.repos.runs.groupRuns(g.id), async (r) => await variantSummary(engine, r));
           const best = pickBest(vs);
           return {
             ...g,
@@ -275,10 +276,10 @@ export const groupsOps: OpDef<any, any>[] = [
     description: 'Stops every running variant of a comparison. Finished rows are kept.',
     category: 'runs',
     input: z.object({ id: z.string() }),
-    handler: ({ engine }, i) => {
-      const g = engine.repos.runs.getGroup(i.id);
-      const runsOf = engine.repos.runs.groupRuns(g.id);
-      for (const r of runsOf) engine.runner.cancel(r.id);
+    handler: async ({ engine }, i) => {
+      const g = await engine.repos.runs.getGroup(i.id);
+      const runsOf = await engine.repos.runs.groupRuns(g.id);
+      for (const r of runsOf) await engine.runner.cancel(r.id);
       return { cancelling: runsOf.map((r) => r.id) };
     },
   }),
@@ -290,10 +291,10 @@ export const groupsOps: OpDef<any, any>[] = [
     category: 'runs',
     destructive: true,
     input: z.object({ id: z.string() }),
-    handler: ({ engine }, i) => {
-      const g = engine.repos.runs.getGroup(i.id);
-      for (const r of engine.repos.runs.groupRuns(g.id)) engine.runner.cancel(r.id);
-      engine.repos.runs.deleteGroup(g.id);
+    handler: async ({ engine }, i) => {
+      const g = await engine.repos.runs.getGroup(i.id);
+      for (const r of await engine.repos.runs.groupRuns(g.id)) await engine.runner.cancel(r.id);
+      await engine.repos.runs.deleteGroup(g.id);
       return { deleted: g.id };
     },
   }),

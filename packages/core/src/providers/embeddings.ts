@@ -237,7 +237,7 @@ export async function resolveEmbeddingModel(spec: ConnectionSpec, model: string,
 // ── The embedder ────────────────────────────────────────────────────────────
 
 export interface EmbeddingsDeps {
-  getConnection(id: string): ConnectionSpec;
+  getConnection(id: string): Promise<ConnectionSpec>;
   secrets: SecretStore;
 }
 
@@ -282,7 +282,7 @@ export class Embeddings implements Embedder {
     let model = LOCAL_MODEL;
     let spec: ConnectionSpec | undefined;
     if (source === 'connection') {
-      spec = this.deps().getConnection(opts.connectionId!);
+      spec = await this.deps().getConnection(opts.connectionId!);
       model = opts.model || spec.embeddingModel || DEFAULT_EMBED_MODEL[spec.provider] || '';
       if (!model) throw invalid('This connection has no embedding model set');
     }
@@ -370,7 +370,9 @@ export class Embeddings implements Embedder {
           await new Promise<void>((resolve, reject) => {
             const child = spawn(npm.cmd, [...npm.args, 'install', '--omit=optional', '--no-audit', '--no-fund', '--loglevel=error'], {
               cwd: runtimeDir(root),
-              env: npm.env,
+              // onnxruntime-node would also download ~200 MB of GPU (CUDA) libraries on Linux x64; the
+              // model runs on the CPU, so skip them.
+              env: { ...npm.env, ONNXRUNTIME_NODE_INSTALL_CUDA: 'skip' },
               shell: process.platform === 'win32' && /\.cmd"?$/.test(npm.cmd),
             });
             let err = '';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Db } from '../db.js';
+import { forUpdate, type Db } from '../db.js';
 import type { Actor } from '../registry.js';
 import { RunSettings } from '../specs.js';
 import { newId, notFound, nowIso, parseJson } from '../util.js';
@@ -157,7 +157,7 @@ const toResult = (r: any): ResultRecord => ({
 export class RunRepo {
   constructor(private db: Db) {}
 
-  create(input: {
+  async create(input: {
     name?: string;
     kind: RunKind;
     datasetId: string;
@@ -169,62 +169,68 @@ export class RunRepo {
     settings: RunSettings;
     groupId?: string | null;
     variantLabel?: string | null;
-  }, actor: Actor): RunRecord {
-    const id = newId('run');
-    const number = ((this.db.get('SELECT MAX(number) AS n FROM runs')?.n as number) ?? 0) + 1;
-    this.db.run(
-      `INSERT INTO runs (id, number, name, kind, status, dataset_id, dataset_version_id, target_id, target_version, suite_id, suite_version, settings, created_at, created_by, group_id, variant_label)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, number, input.name || `Run #${number}`, input.kind, input.datasetId, input.datasetVersionId,
-      input.targetId ?? null, input.targetVersion ?? null, input.suiteId, input.suiteVersion,
-      JSON.stringify(input.settings), nowIso(), JSON.stringify(actor), input.groupId ?? null, input.variantLabel ?? null,
-    );
-    return this.get(id);
+  }, actor: Actor): Promise<RunRecord> {
+    return this.db.tx(async () => {
+      const id = newId('run');
+      const number = (((await this.db.get('SELECT MAX(number) AS n FROM runs'))?.n as number) ?? 0) + 1;
+      await this.db.run(
+        `INSERT INTO runs (id, number, name, kind, status, dataset_id, dataset_version_id, target_id, target_version, suite_id, suite_version, settings, created_at, created_by, group_id, variant_label)
+         VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, number, input.name || `Run #${number}`, input.kind, input.datasetId, input.datasetVersionId,
+        input.targetId ?? null, input.targetVersion ?? null, input.suiteId, input.suiteVersion,
+        JSON.stringify(input.settings), nowIso(), JSON.stringify(actor), input.groupId ?? null, input.variantLabel ?? null,
+      );
+      return await this.get(id);
+    });
   }
 
-  createGroup(input: { name?: string; datasetId: string; suiteId: string; settings: Record<string, unknown> }, actor: Actor): RunGroupRecord {
-    const id = newId('cmp');
-    const number = ((this.db.get('SELECT MAX(number) AS n FROM run_groups')?.n as number) ?? 0) + 1;
-    this.db.run(
-      'INSERT INTO run_groups (id, number, name, dataset_id, suite_id, settings, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      id, number, input.name || `Comparison #${number}`, input.datasetId, input.suiteId, JSON.stringify(input.settings), nowIso(), JSON.stringify(actor),
-    );
-    return this.getGroup(id);
+  async createGroup(input: { name?: string; datasetId: string; suiteId: string; settings: Record<string, unknown> }, actor: Actor): Promise<RunGroupRecord> {
+    return this.db.tx(async () => {
+      const id = newId('cmp');
+      const number = (((await this.db.get('SELECT MAX(number) AS n FROM run_groups'))?.n as number) ?? 0) + 1;
+      await this.db.run(
+        'INSERT INTO run_groups (id, number, name, dataset_id, suite_id, settings, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        id, number, input.name || `Comparison #${number}`, input.datasetId, input.suiteId, JSON.stringify(input.settings), nowIso(), JSON.stringify(actor),
+      );
+      return await this.getGroup(id);
+    });
   }
 
-  getGroup(id: string): RunGroupRecord {
-    const r = this.db.get('SELECT * FROM run_groups WHERE (id = ? OR CAST(number AS TEXT) = ?) AND deleted_at IS NULL', id, id);
+  async getGroup(id: string): Promise<RunGroupRecord> {
+    const r = await this.db.get('SELECT * FROM run_groups WHERE (id = ? OR CAST(number AS TEXT) = ?) AND deleted_at IS NULL', id, id);
     if (!r) throw notFound('Comparison', id);
     return toGroup(r);
   }
 
-  listGroups(limit = 50, offset = 0) {
-    const total = this.db.get('SELECT COUNT(*) AS n FROM run_groups WHERE deleted_at IS NULL').n as number;
-    const groups = this.db.all('SELECT * FROM run_groups WHERE deleted_at IS NULL ORDER BY number DESC LIMIT ? OFFSET ?', limit, offset).map(toGroup);
+  async listGroups(limit = 50, offset = 0) {
+    const total = (await this.db.get('SELECT COUNT(*) AS n FROM run_groups WHERE deleted_at IS NULL')).n as number;
+    const groups = (await this.db.all('SELECT * FROM run_groups WHERE deleted_at IS NULL ORDER BY number DESC LIMIT ? OFFSET ?', limit, offset)).map(toGroup);
     return { total, groups };
   }
 
-  groupRuns(groupId: string): RunRecord[] {
-    return this.db.all('SELECT * FROM runs WHERE group_id = ? AND deleted_at IS NULL ORDER BY number', groupId).map(toRun);
+  async groupRuns(groupId: string): Promise<RunRecord[]> {
+    return (await this.db.all('SELECT * FROM runs WHERE group_id = ? AND deleted_at IS NULL ORDER BY number', groupId)).map(toRun);
   }
 
-  deleteGroup(id: string) {
-    const g = this.getGroup(id);
-    const now = nowIso();
-    this.db.tx(() => {
-      this.db.run('UPDATE run_groups SET deleted_at = ? WHERE id = ?', now, g.id);
-      this.db.run('UPDATE runs SET deleted_at = ? WHERE group_id = ? AND deleted_at IS NULL', now, g.id);
+  async deleteGroup(id: string) {
+    return this.db.tx(async () => {
+      const g = await this.getGroup(id);
+      const now = nowIso();
+      await this.db.tx(async () => {
+        await this.db.run('UPDATE run_groups SET deleted_at = ? WHERE id = ?', now, g.id);
+        await this.db.run('UPDATE runs SET deleted_at = ? WHERE group_id = ? AND deleted_at IS NULL', now, g.id);
+      });
+      return g;
     });
-    return g;
   }
 
-  get(id: string): RunRecord {
-    const r = this.db.get('SELECT * FROM runs WHERE (id = ? OR CAST(number AS TEXT) = ?) AND deleted_at IS NULL', id, id);
+  async get(id: string): Promise<RunRecord> {
+    const r = await this.db.get('SELECT * FROM runs WHERE (id = ? OR CAST(number AS TEXT) = ?) AND deleted_at IS NULL', id, id);
     if (!r) throw notFound('Run', id);
     return toRun(r);
   }
 
-  list(q: { datasetId?: string; targetId?: string; suiteId?: string; groupId?: string; excludeGrouped?: boolean; limit?: number; offset?: number } = {}) {
+  async list(q: { datasetId?: string; targetId?: string; suiteId?: string; groupId?: string; excludeGrouped?: boolean; limit?: number; offset?: number } = {}) {
     const where = ['deleted_at IS NULL'];
     const params: unknown[] = [];
     if (q.groupId) (where.push('group_id = ?'), params.push(q.groupId));
@@ -233,58 +239,63 @@ export class RunRepo {
     if (q.targetId) (where.push('target_id = ?'), params.push(q.targetId));
     if (q.suiteId) (where.push('suite_id = ?'), params.push(q.suiteId));
     const clause = where.join(' AND ');
-    const total = this.db.get(`SELECT COUNT(*) AS n FROM runs WHERE ${clause}`, ...params).n as number;
-    const runs = this.db.all(`SELECT * FROM runs WHERE ${clause} ORDER BY number DESC LIMIT ? OFFSET ?`, ...params, q.limit ?? 50, q.offset ?? 0).map(toRun);
+    const total = (await this.db.get(`SELECT COUNT(*) AS n FROM runs WHERE ${clause}`, ...params)).n as number;
+    const runs = (await this.db.all(`SELECT * FROM runs WHERE ${clause} ORDER BY number DESC LIMIT ? OFFSET ?`, ...params, q.limit ?? 50, q.offset ?? 0)).map(toRun);
     return { total, runs };
   }
 
-  setStatus(id: string, status: RunStatus, extra: { error?: string | null; summary?: unknown } = {}) {
-    const now = nowIso();
-    this.db.run(
-      `UPDATE runs SET status = ?,
-        started_at = CASE WHEN ? = 'running' AND started_at IS NULL THEN ? ELSE started_at END,
-        finished_at = CASE WHEN ? IN ('completed','cancelled','failed','interrupted') THEN ? ELSE NULL END,
-        error = CASE WHEN ? = 'running' THEN NULL ELSE COALESCE(?, error) END,
-        summary = COALESCE(?, summary)
-       WHERE id = ?`,
-      status, status, now, status, now, status, extra.error ?? null, extra.summary !== undefined ? JSON.stringify(extra.summary) : null, id,
-    );
-  }
-
-  setSummary(id: string, summary: unknown) {
-    this.db.run('UPDATE runs SET summary = ? WHERE id = ?', JSON.stringify(summary), id);
-  }
-
-  delete(id: string) {
-    const run = this.get(id);
-    this.db.run('UPDATE runs SET deleted_at = ? WHERE id = ?', nowIso(), run.id);
-  }
-
-  addPending(runId: string, items: { rowId: string; rowRev: number | null; rep: number; input: unknown; outputs?: unknown; metrics?: unknown; error?: string | null }[]) {
-    this.db.tx(() => {
-      let seq = 0;
-      for (const it of items) {
-        this.db.run(
-          `INSERT INTO results (id, run_id, row_id, row_rev, rep, seq, status, input, outputs, metrics, error) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-          newId('res'), runId, it.rowId, it.rowRev, it.rep, seq++, JSON.stringify(it.input),
-          it.outputs ? JSON.stringify(it.outputs) : null, it.metrics ? JSON.stringify(it.metrics) : null, it.error ?? null,
-        );
-      }
-      this.db.run('UPDATE runs SET total = ? WHERE id = ?', items.length, runId);
+  async setStatus(id: string, status: RunStatus, extra: { error?: string | null; summary?: unknown } = {}) {
+    return this.db.tx(async () => {
+      const now = nowIso();
+      await this.db.run(
+        `UPDATE runs SET status = ?,
+          started_at = CASE WHEN ? = 'running' AND started_at IS NULL THEN ? ELSE started_at END,
+          finished_at = CASE WHEN ? IN ('completed','cancelled','failed','interrupted') THEN ? ELSE NULL END,
+          error = CASE WHEN ? = 'running' THEN NULL ELSE COALESCE(?, error) END,
+          summary = COALESCE(?, summary)
+         WHERE id = ?`,
+        status, status, now, status, now, status, extra.error ?? null, extra.summary !== undefined ? JSON.stringify(extra.summary) : null, id,
+      );
     });
   }
 
-  pending(runId: string) {
-    return this.db
-      .all("SELECT * FROM results WHERE run_id = ? AND status IN ('pending','running') ORDER BY seq", runId)
+  async setSummary(id: string, summary: unknown) {
+    await this.db.run('UPDATE runs SET summary = ? WHERE id = ?', JSON.stringify(summary), id);
+  }
+
+  async delete(id: string) {
+    return this.db.tx(async () => {
+      const run = await this.get(id);
+      await this.db.run('UPDATE runs SET deleted_at = ? WHERE id = ?', nowIso(), run.id);
+    });
+  }
+
+  async addPending(runId: string, items: { rowId: string; rowRev: number | null; rep: number; input: unknown; outputs?: unknown; metrics?: unknown; error?: string | null }[]) {
+    return this.db.tx(async () => {
+      await this.db.tx(async () => {
+        let seq = 0;
+        for (const it of items) {
+          await this.db.run(
+            `INSERT INTO results (id, run_id, row_id, row_rev, rep, seq, status, input, outputs, metrics, error) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+            newId('res'), runId, it.rowId, it.rowRev, it.rep, seq++, JSON.stringify(it.input),
+            it.outputs ? JSON.stringify(it.outputs) : null, it.metrics ? JSON.stringify(it.metrics) : null, it.error ?? null,
+          );
+        }
+        await this.db.run('UPDATE runs SET total = ? WHERE id = ?', items.length, runId);
+      });
+    });
+  }
+
+  async pending(runId: string) {
+    return (await this.db.all("SELECT * FROM results WHERE run_id = ? AND status IN ('pending','running') ORDER BY seq", runId))
       .map(toResult);
   }
 
-  markRunning(resultId: string) {
-    this.db.run("UPDATE results SET status = 'running', started_at = ? WHERE id = ?", nowIso(), resultId);
+  async markRunning(resultId: string) {
+    await this.db.run("UPDATE results SET status = 'running', started_at = ? WHERE id = ?", nowIso(), resultId);
   }
 
-  saveResult(runId: string, resultId: string, r: {
+  async saveResult(runId: string, resultId: string, r: {
     status: ResultStatus;
     passed: boolean | null;
     score: number | null;
@@ -299,31 +310,85 @@ export class RunRepo {
     steps?: unknown[] | null;
   }) {
     const final = (s: unknown) => s === 'done' || s === 'error';
-    this.db.tx(() => {
-      const before = this.db.get('SELECT status FROM results WHERE id = ?', resultId)?.status;
-      this.db.run(
-        `UPDATE results SET status = ?, passed = ?, score = ?, request = ?, response = ?, outputs = ?, checks = ?, metrics = ?, error = ?, logs = ?, attempts = ?, steps = ?, finished_at = ? WHERE id = ?`,
-        r.status, r.passed === null ? null : r.passed ? 1 : 0, r.score, JSON.stringify(r.request ?? null), JSON.stringify(r.response ?? null),
-        JSON.stringify(r.outputs ?? {}), JSON.stringify(r.checks ?? []), JSON.stringify(r.metrics ?? {}), r.error ?? null,
-        JSON.stringify(r.logs ?? []), r.attempts, r.steps?.length ? JSON.stringify(r.steps) : null, nowIso(), resultId,
-      );
-      // Keep the finished count by increments: recounting the run's results on every save made big runs
-      // quadratic (seconds per thousand rows at 50k).
-      const delta = Number(final(r.status)) - Number(final(before));
-      if (delta) this.db.run('UPDATE runs SET done = done + ? WHERE id = ?', delta, runId);
-    });
+    // Every worker of a run bumps the same `done` counter: on Postgres, SERIALIZABLE made most of
+    // those saves conflict and retry. Row locks are all this needs: the result row is locked before
+    // its status is read (a second save of the same row waits and sees the first), and the
+    // increment is atomic.
+    await this.db.tx(
+      async () => {
+        const before = (await this.db.get(`SELECT status FROM results WHERE id = ?${forUpdate(this.db)}`, resultId))?.status;
+        await this.db.run(
+          `UPDATE results SET status = ?, passed = ?, score = ?, request = ?, response = ?, outputs = ?, checks = ?, metrics = ?, error = ?, logs = ?, attempts = ?, steps = ?, finished_at = ? WHERE id = ?`,
+          r.status, r.passed === null ? null : r.passed ? 1 : 0, r.score, JSON.stringify(r.request ?? null), JSON.stringify(r.response ?? null),
+          JSON.stringify(r.outputs ?? {}), JSON.stringify(r.checks ?? []), JSON.stringify(r.metrics ?? {}), r.error ?? null,
+          JSON.stringify(r.logs ?? []), r.attempts, r.steps?.length ? JSON.stringify(r.steps) : null, nowIso(), resultId,
+        );
+        // Keep the finished count by increments: recounting the run's results on every save made big runs
+        // quadratic (seconds per thousand rows at 50k).
+        const delta = Number(final(r.status)) - Number(final(before));
+        if (delta) await this.db.run('UPDATE runs SET done = done + ? WHERE id = ?', delta, runId);
+      },
+      { isolation: 'read committed' },
+    );
   }
 
-  progress(runId: string) {
-    return this.db.get('SELECT status, done, total FROM runs WHERE id = ?', runId) as { status: RunStatus; done: number; total: number };
+  async progress(runId: string) {
+    return await this.db.get('SELECT status, done, total FROM runs WHERE id = ?', runId) as { status: RunStatus; done: number; total: number };
   }
 
-  resetRunning(runId: string) {
-    this.db.run("UPDATE results SET status = 'pending' WHERE run_id = ? AND status = 'running'", runId);
+  async resetRunning(runId: string) {
+    await this.db.run("UPDATE results SET status = 'pending' WHERE run_id = ? AND status = 'running'", runId);
+  }
+
+  // ── Leases: which instance executes a run (several instances share runs) ───
+
+  /** Takes the run for `owner` until `until` unless another owner's lease is still valid. */
+  async acquireLease(runId: string, owner: string, until: string): Promise<boolean> {
+    const r = await this.db.run(
+      `UPDATE runs SET lease_owner = ?, lease_until = ?
+        WHERE id = ? AND deleted_at IS NULL AND (lease_owner IS NULL OR lease_owner = ? OR lease_until IS NULL OR lease_until < ?)`,
+      owner, until, runId, owner, nowIso(),
+    );
+    return r.changes === 1;
+  }
+
+  /** Extends `owner`'s lease. False when it was lost (expired and taken); also says whether a cancel was asked for. */
+  async renewLease(runId: string, owner: string, until: string): Promise<{ held: boolean; cancel: boolean }> {
+    const r = await this.db.run('UPDATE runs SET lease_until = ? WHERE id = ? AND lease_owner = ?', until, runId, owner);
+    const row = await this.db.get('SELECT cancel_requested FROM runs WHERE id = ?', runId);
+    return { held: r.changes === 1, cancel: !!row?.cancel_requested };
+  }
+
+  async releaseLease(runId: string, owner: string) {
+    await this.db.run('UPDATE runs SET lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ?', runId, owner);
+  }
+
+  /** Whether some instance is executing the run right now (its lease is still valid). */
+  async leaseActive(runId: string): Promise<boolean> {
+    const row = await this.db.get('SELECT lease_until FROM runs WHERE id = ?', runId);
+    return !!row?.lease_until && row.lease_until > nowIso();
+  }
+
+  /** Asks whichever instance executes the run to cancel it (checked when it renews its lease). */
+  async requestCancel(runId: string, cancel = true) {
+    await this.db.run('UPDATE runs SET cancel_requested = ? WHERE id = ?', cancel ? 1 : 0, runId);
+  }
+
+  /** Runs that should be executing but whose instance stopped renewing (or never started them). */
+  async orphaned(queuedBefore: string): Promise<{ id: string; kind: string; status: string; cancelRequested: boolean }[]> {
+    return (
+      await this.db.all(
+        `SELECT id, kind, status, cancel_requested FROM runs
+          WHERE deleted_at IS NULL AND (lease_until IS NULL OR lease_until < ?)
+            AND (status = 'running' OR (status = 'queued' AND kind != 'code' AND created_at < ?))
+          ORDER BY created_at`,
+        nowIso(), queuedBefore,
+      )
+    ).map((r) => ({ id: r.id, kind: r.kind, status: r.status, cancelRequested: !!r.cancel_requested }));
   }
 
   /** Paged results for grids. Filters: passed/failed/error, a failing check id, free-text search. */
-  query(runId: string, q: { filter?: 'all' | 'passed' | 'failed' | 'errors'; checkId?: string; search?: string; ids?: string[]; offset?: number; limit?: number; sort?: 'seq' | 'score' | 'latency' } = {}) {
+  async query(runId: string, q: { filter?: 'all' | 'passed' | 'failed' | 'errors'; checkId?: string; search?: string; ids?: string[]; offset?: number; limit?: number; sort?: 'seq' | 'score' | 'latency' } = {}) {
     const where = ['run_id = ?'];
     const params: unknown[] = [runId];
     if (q.ids) {
@@ -335,30 +400,34 @@ export class RunRepo {
     if (q.filter === 'failed') where.push('passed = 0');
     if (q.filter === 'errors') where.push("(status = 'error' OR error IS NOT NULL)");
     if (q.checkId) {
-      where.push("EXISTS (SELECT 1 FROM json_each(results.checks) j WHERE json_extract(j.value, '$.id') = ? AND json_extract(j.value, '$.status') IN ('fail','error'))");
+      where.push(
+        this.db.dialect === 'postgres'
+          ? "EXISTS (SELECT 1 FROM jsonb_array_elements(results.checks::jsonb) j WHERE j ->> 'id' = ? AND j ->> 'status' IN ('fail','error'))"
+          : "EXISTS (SELECT 1 FROM json_each(results.checks) j WHERE json_extract(j.value, '$.id') = ? AND json_extract(j.value, '$.status') IN ('fail','error'))",
+      );
       params.push(q.checkId);
     }
     if (q.search) {
       where.push('(input LIKE ? OR outputs LIKE ? OR row_id = ?)');
       params.push(`%${q.search}%`, `%${q.search}%`, q.search);
     }
-    const order = q.sort === 'score' ? 'score ASC NULLS FIRST, seq' : q.sort === 'latency' ? "json_extract(metrics, '$.latency_ms') DESC, seq" : 'seq';
+    const latency = this.db.dialect === 'postgres' ? "(metrics::jsonb ->> 'latency_ms')::double precision DESC NULLS LAST" : "json_extract(metrics, '$.latency_ms') DESC";
+    const order = q.sort === 'score' ? 'score ASC NULLS FIRST, seq' : q.sort === 'latency' ? `${latency}, seq` : 'seq';
     const clause = where.join(' AND ');
-    const total = this.db.get(`SELECT COUNT(*) AS n FROM results WHERE ${clause}`, ...params).n as number;
-    const results = this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, q.limit ?? 100, q.offset ?? 0).map(toResultLite);
+    const total = (await this.db.get(`SELECT COUNT(*) AS n FROM results WHERE ${clause}`, ...params)).n as number;
+    const results = (await this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, q.limit ?? 100, q.offset ?? 0)).map(toResultLite);
     return { total, results };
   }
 
-  getResult(id: string): ResultRecord {
-    const r = this.db.get('SELECT * FROM results WHERE id = ?', id);
+  async getResult(id: string): Promise<ResultRecord> {
+    const r = await this.db.get('SELECT * FROM results WHERE id = ?', id);
     if (!r) throw notFound('Result', id);
     return toResult(r);
   }
 
   /** Just what summarize() reads, for live and final run summaries (no inputs or outputs to parse). */
-  summaryRows(runId: string) {
-    return this.db
-      .all('SELECT status, passed, score, error, checks, metrics FROM results WHERE run_id = ? ORDER BY seq', runId)
+  async summaryRows(runId: string) {
+    return (await this.db.all('SELECT status, passed, score, error, checks, metrics FROM results WHERE run_id = ? ORDER BY seq', runId))
       .map((r) => ({
         status: r.status as ResultStatus,
         passed: r.passed === null ? null : !!r.passed,
@@ -371,8 +440,8 @@ export class RunRepo {
 
   // ── Code runs and git metadata (ops/coderuns.ts) ───────────────────────────
 
-  setGit(runId: string, git: GitInfo | null) {
-    this.db.run('UPDATE runs SET git = ? WHERE id = ?', git && Object.keys(git).length ? JSON.stringify(git) : null, runId);
+  async setGit(runId: string, git: GitInfo | null) {
+    await this.db.run('UPDATE runs SET git = ? WHERE id = ?', git && Object.keys(git).length ? JSON.stringify(git) : null, runId);
   }
 
   /**
@@ -380,35 +449,39 @@ export class RunRepo {
    * the same row again replaces the earlier submission. Returns false when the row is not part of
    * the run or was already scored.
    */
-  submitCodeOutput(runId: string, rowId: string, r: { outputs: unknown; metrics?: unknown; error?: string | null }): boolean {
-    const res = this.db.run(
-      "UPDATE results SET outputs = ?, metrics = ?, error = ? WHERE run_id = ? AND row_id = ? AND status = 'pending'",
-      JSON.stringify(r.outputs ?? {}), JSON.stringify(r.metrics ?? {}), r.error ?? null, runId, rowId,
-    );
-    return Number(res.changes) > 0;
+  async submitCodeOutput(runId: string, rowId: string, r: { outputs: unknown; metrics?: unknown; error?: string | null }): Promise<boolean> {
+    return this.db.tx(async () => {
+      const res = await this.db.run(
+        "UPDATE results SET outputs = ?, metrics = ?, error = ? WHERE run_id = ? AND row_id = ? AND status = 'pending'",
+        JSON.stringify(r.outputs ?? {}), JSON.stringify(r.metrics ?? {}), r.error ?? null, runId, rowId,
+      );
+      return Number(res.changes) > 0;
+    });
   }
 
   /** Rows of a code run nothing was submitted for (outputs still NULL) get an error instead. */
-  markUnsubmitted(runId: string, message: string): number {
-    const res = this.db.run("UPDATE results SET outputs = '{}', error = ? WHERE run_id = ? AND status = 'pending' AND outputs IS NULL", message, runId);
-    return Number(res.changes);
+  async markUnsubmitted(runId: string, message: string): Promise<number> {
+    return this.db.tx(async () => {
+      const res = await this.db.run("UPDATE results SET outputs = '{}', error = ? WHERE run_id = ? AND status = 'pending' AND outputs IS NULL", message, runId);
+      return Number(res.changes);
+    });
   }
 
   /** How many rows of a code run have outputs submitted. */
-  submittedCount(runId: string): number {
-    return this.db.get('SELECT COUNT(*) AS n FROM results WHERE run_id = ? AND outputs IS NOT NULL', runId).n as number;
+  async submittedCount(runId: string): Promise<number> {
+    return (await this.db.get('SELECT COUNT(*) AS n FROM results WHERE run_id = ? AND outputs IS NOT NULL', runId)).n as number;
   }
 
   /**
    * The run to compare a CI run with: the latest completed run on `branch` with the same dataset
    * and suite (and target, when the run has one), started before `beforeNumber`.
    */
-  findBaseline(q: { datasetId: string | null; suiteId: string | null; targetId: string | null; branch: string; beforeNumber: number }): RunRecord | undefined {
-    const r = this.db.get(
+  async findBaseline(q: { datasetId: string | null; suiteId: string | null; targetId: string | null; branch: string; beforeNumber: number }): Promise<RunRecord | undefined> {
+    const r = await this.db.get(
       `SELECT * FROM runs
         WHERE deleted_at IS NULL AND status = 'completed' AND number < ?
-          AND dataset_id IS ? AND suite_id IS ? AND target_id IS ?
-          AND json_extract(git, '$.branch') = ?
+          AND dataset_id IS NOT DISTINCT FROM ? AND suite_id IS NOT DISTINCT FROM ? AND target_id IS NOT DISTINCT FROM ?
+          AND ${this.db.dialect === 'postgres' ? "git::jsonb ->> 'branch'" : "json_extract(git, '$.branch')"} = ?
         ORDER BY number DESC LIMIT 1`,
       q.beforeNumber, q.datasetId, q.suiteId, q.targetId, q.branch,
     );
@@ -416,8 +489,8 @@ export class RunRepo {
   }
 
   /** All finished results of a run, light shape, for summaries and comparisons. */
-  allLite(runId: string) {
-    return this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE run_id = ? ORDER BY seq`, runId).map((r) => ({
+  async allLite(runId: string) {
+    return (await this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE run_id = ? ORDER BY seq`, runId)).map((r) => ({
       ...toResultLite(r),
       checks: parseJson<any[]>(r.checks, []),
     }));

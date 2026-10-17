@@ -59,24 +59,24 @@ describe('label ops on an engine', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-labels-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     const ds = await engine.call('create_dataset', { name: 'L', columns: [{ key: 'q', type: 'text' }] });
     await engine.call('add_dataset_rows', { dataset: ds.id, rows: Array.from({ length: 6 }, (_, k) => ({ data: { q: `q${k}` } })) });
     const suite = await engine.call('create_suite', { name: 'S', spec: { checks: [{ id: 'judge', type: 'expression', config: { expression: 'true' } }] } });
     suiteId = suite.id;
-    const version = engine.repos.datasets.createVersion(ds.id, '', { kind: 'user', id: 'local' });
-    const rows = engine.repos.datasets.versionRows(version.id);
+    const version = await engine.repos.datasets.createVersion(ds.id, '', { kind: 'user', id: 'local' });
+    const rows = await engine.repos.datasets.versionRows(version.id);
     // Two runs; the check passes on even rows and fails on odd rows (one odd row errors).
     for (let n = 0; n < 2; n++) {
-      const run = engine.repos.runs.create(
+      const run = await engine.repos.runs.create(
         { kind: 'imported', datasetId: ds.id, datasetVersionId: version.id, suiteId: suite.id, suiteVersion: suite.version, settings: { concurrency: 1, retries: 0, repetitions: 1, includeStatuses: ['approved'], delayMs: 0 } },
         { kind: 'user', id: 'local' },
       );
-      engine.repos.runs.addPending(run.id, rows.map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
+      await engine.repos.runs.addPending(run.id, rows.map((r) => ({ rowId: r.id, rowRev: r.rev, rep: 0, input: r.data })));
       const ids: string[] = [];
-      for (const [k, p] of engine.repos.runs.pending(run.id).entries()) {
+      for (const [k, p] of (await engine.repos.runs.pending(run.id)).entries()) {
         const status = k % 2 === 0 ? 'pass' : k === 3 ? 'error' : 'fail';
-        engine.repos.runs.saveResult(run.id, p.id, { status: 'done', passed: status === 'pass', score: null, outputs: {}, metrics: {}, attempts: 1, checks: [{ id: 'judge', name: 'Judge', type: 'expression', layer: 5, gate: false, weight: 1, status }] });
+        await engine.repos.runs.saveResult(run.id, p.id, { status: 'done', passed: status === 'pass', score: null, outputs: {}, metrics: {}, attempts: 1, checks: [{ id: 'judge', name: 'Judge', type: 'expression', layer: 5, gate: false, weight: 1, status }] });
         ids.push(p.id);
       }
       runIds.push(run.id);
@@ -84,8 +84,8 @@ describe('label ops on an engine', () => {
     }
   });
 
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

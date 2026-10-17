@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { defineOp } from '../registry.js';
 import { invalid, parseJson } from '../util.js';
-import { fileSize } from '../storage.js';
-import { join } from 'node:path';
 
 export const workspaceOps = [
   defineOp({
@@ -13,18 +11,18 @@ export const workspaceOps = [
     readOnly: true,
     input: z.object({}),
     handler: async ({ engine, caps }) => {
-      const count = (sql: string) => engine.db.get(sql).n as number;
-      const blobs = engine.db.get('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM blobs');
+      const count = async (sql: string) => (await engine.db.get(sql)).n as number;
+      const blobs = await engine.db.get('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM blobs');
       return {
         dir: caps.showPaths ? engine.dir : undefined,
-        datasets: count('SELECT COUNT(*) AS n FROM datasets WHERE deleted_at IS NULL'),
-        rows: count('SELECT COUNT(*) AS n FROM rows WHERE deleted_at IS NULL'),
-        targets: count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'target' AND deleted_at IS NULL"),
-        suites: count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'suite' AND deleted_at IS NULL"),
-        connections: count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'connection' AND deleted_at IS NULL"),
-        runs: count('SELECT COUNT(*) AS n FROM runs WHERE deleted_at IS NULL'),
+        datasets: await count('SELECT COUNT(*) AS n FROM datasets WHERE deleted_at IS NULL'),
+        rows: await count('SELECT COUNT(*) AS n FROM rows WHERE deleted_at IS NULL'),
+        targets: await count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'target' AND deleted_at IS NULL"),
+        suites: await count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'suite' AND deleted_at IS NULL"),
+        connections: await count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'connection' AND deleted_at IS NULL"),
+        runs: await count('SELECT COUNT(*) AS n FROM runs WHERE deleted_at IS NULL'),
         storage: {
-          databaseBytes: (await fileSize(join(engine.dir, 'kalibra.db'))) + (await fileSize(join(engine.dir, 'kalibra.db-wal'))),
+          databaseBytes: await engine.db.sizeBytes(),
           blobCount: blobs.n,
           blobBytes: blobs.bytes,
         },
@@ -49,9 +47,8 @@ export const workspaceOps = [
     category: 'workspace',
     readOnly: true,
     input: z.object({ limit: z.number().int().min(1).max(500).default(50), actorKind: z.enum(['user', 'agent', 'cli', 'system']).optional() }),
-    handler: ({ engine }, i) =>
-      engine.db
-        .all('SELECT * FROM activity ORDER BY id DESC LIMIT ?', i.actorKind ? 500 : i.limit)
+    handler: async ({ engine }, i) =>
+      (await engine.db.all('SELECT * FROM activity ORDER BY id DESC LIMIT ?', i.actorKind ? 500 : i.limit))
         .map((a) => ({ id: a.id, at: a.at, op: a.op, summary: a.summary, actor: parseJson<any>(a.actor, {}) }))
         .filter((a) => !i.actorKind || a.actor.kind === i.actorKind)
         .slice(0, i.limit),
@@ -79,6 +76,6 @@ export const workspaceOps = [
     category: 'workspace',
     readOnly: true,
     input: z.object({ hash: z.string() }),
-    handler: ({ engine }, i) => engine.blobs.info(i.hash) ?? null,
+    handler: async ({ engine }, i) => (await engine.blobs.info(i.hash)) ?? null,
   }),
 ];

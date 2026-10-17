@@ -31,7 +31,7 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       category,
       readOnly: true,
       input: z.object({}),
-      handler: ({ engine }) => engine.repos.defs.list(kind),
+      handler: async ({ engine }) => await engine.repos.defs.list(kind),
     }),
     defineOp({
       name: `get_${L.one}`,
@@ -40,7 +40,7 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       category,
       readOnly: true,
       input: z.object({ id: ref, version: z.number().int().optional() }),
-      handler: ({ engine }, i) => (i.version ? engine.repos.defs.getVersion(kind, i.id, i.version) : engine.repos.defs.get(kind, i.id)),
+      handler: async ({ engine }, i) => (i.version ? await engine.repos.defs.getVersion(kind, i.id, i.version) : await engine.repos.defs.get(kind, i.id)),
     }),
     defineOp({
       name: `create_${L.one}`,
@@ -49,8 +49,8 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       category,
       access: writeAccess,
       input: z.object({ name: z.string().min(1), description: z.string().default(''), spec: z.record(z.string(), z.unknown()) }),
-      handler: ({ engine, actor }, i) => {
-        const d = engine.repos.defs.create(kind, i, actor);
+      handler: async ({ engine, actor }, i) => {
+        const d = await engine.repos.defs.create(kind, i, actor);
         changed(engine, d.id, actor);
         return d;
       },
@@ -68,8 +68,8 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
         spec: z.record(z.string(), z.unknown()).optional(),
         baseVersion: z.number().int().optional(),
       }),
-      handler: ({ engine, actor }, i) => {
-        const d = engine.repos.defs.update(kind, i.id, i, actor, i.baseVersion);
+      handler: async ({ engine, actor }, i) => {
+        const d = await engine.repos.defs.update(kind, i.id, i, actor, i.baseVersion);
         changed(engine, d.id, actor);
         return d;
       },
@@ -82,9 +82,9 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       access: writeAccess,
       destructive: true,
       input: z.object({ id: ref }),
-      handler: ({ engine, actor }, i) => {
-        const d = engine.repos.defs.get(kind, i.id);
-        engine.repos.defs.delete(kind, d.id);
+      handler: async ({ engine, actor }, i) => {
+        const d = await engine.repos.defs.get(kind, i.id);
+        await engine.repos.defs.delete(kind, d.id);
         changed(engine, d.id, actor);
         return { deleted: d.id };
       },
@@ -96,7 +96,7 @@ function defOps(kind: DefKind): OpDef<any, any>[] {
       category,
       readOnly: true,
       input: z.object({ id: ref }),
-      handler: ({ engine }, i) => engine.repos.defs.versions(kind, i.id),
+      handler: async ({ engine }, i) => await engine.repos.defs.versions(kind, i.id),
     }),
   ];
 }
@@ -123,15 +123,15 @@ export const defOpsAll = [
       values: z.record(z.string(), z.unknown()).optional().describe('Row values to use instead of a dataset row'),
     }),
     handler: async ({ engine }, i) => {
-      const saved = i.target ? engine.repos.defs.get('target', i.target).spec : undefined;
+      const saved = i.target ? (await engine.repos.defs.get('target', i.target)).spec : undefined;
       const spec = TargetSpec.parse(i.spec ?? saved);
       if (i.spec) assertCodeChange(saved ?? {}, spec, 'This target');
       let row: Record<string, unknown> = i.values ?? {};
       let rowId = 'manual';
       if (!i.values && (i.rowId || i.dataset)) {
         const r = i.rowId
-          ? engine.repos.datasets.getRow(i.rowId)
-          : engine.repos.datasets.listRows(engine.repos.datasets.get(i.dataset!).id, { limit: 1 }).rows[0];
+          ? await engine.repos.datasets.getRow(i.rowId)
+          : (await engine.repos.datasets.listRows((await engine.repos.datasets.get(i.dataset!)).id, { limit: 1 })).rows[0];
         if (!r) throw invalid('The dataset has no rows yet');
         row = r.data;
         rowId = r.id;
@@ -207,8 +207,8 @@ export const defOpsAll = [
       kind: z.enum(['auto', 'text', 'image', 'speech', 'transcription']).default('auto'),
     }),
     handler: async ({ engine }, i) => {
-      const spec = ConnectionSpec.parse(i.spec ?? engine.repos.defs.get('connection', i.id ?? '').spec);
-      const client = createLlmClient(() => spec, engine.secrets);
+      const spec = ConnectionSpec.parse(i.spec ?? (await engine.repos.defs.get('connection', i.id ?? '')).spec);
+      const client = createLlmClient(async () => spec, engine.secrets);
       const kind =
         i.kind !== 'auto'
           ? i.kind
@@ -249,7 +249,7 @@ export const defOpsAll = [
     readOnly: true,
     input: z.object({ id: z.string().optional(), spec: z.record(z.string(), z.unknown()).optional() }),
     handler: async ({ engine }, i) => {
-      const spec = ConnectionSpec.parse(i.spec ?? engine.repos.defs.get('connection', i.id ?? '').spec);
+      const spec = ConnectionSpec.parse(i.spec ?? (await engine.repos.defs.get('connection', i.id ?? '')).spec);
       return listModels(spec, engine.secrets);
     },
   }),

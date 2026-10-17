@@ -17,14 +17,14 @@ describe('runs from code', () => {
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-code-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     await engine.call('create_dataset', { name: 'Capitals', columns: [{ key: 'q' }, { key: 'expected' }] });
     await engine.call('add_dataset_rows', { dataset: 'Capitals', rows: rows.map((data) => ({ data })) });
     await engine.call('create_suite', { name: 'Exact', spec: { checks: [{ id: 'eq', type: 'equals', name: 'Matches', config: { actual: '{{output}}', expected: '{{expected}}' } }] } });
   });
 
-  afterAll(() => {
-    engine?.close();
+  afterAll(async () => {
+    await engine?.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -106,7 +106,7 @@ describe('runs from code', () => {
     engine.traces.ingestBody({ traces: [{ id: 'code-trace-1', name: 'answer' }] });
     expect(engine.traces.pending()).toBe(1);
     await engine.call('submit_code_results', { runId: started.runId, results: [{ rowId: row.id, outputs: { output: row.data.expected }, traceId: 'code-trace-1' }] });
-    expect(engine.traces.repo.get('code-trace-1')).toMatchObject({ runId: started.runId, resultId: row.resultId });
+    expect(await engine.traces.repo.get('code-trace-1')).toMatchObject({ runId: started.runId, resultId: row.resultId });
     await engine.call('finish_code_run', { runId: started.runId });
   });
 

@@ -53,7 +53,7 @@ export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Pr
       const audio = await renderValue(cfg.audio || '{{audio}}', scope, ctx.env);
       if (!isFileValue(audio)) return failure(`"${cfg.audio}" did not resolve to an audio file`, logs, { metrics: { latency_ms: 0 } });
       const bytes = await ctx.blobs.get(audio.blob);
-      const mime = audio.mime || ctx.blobs.info(audio.blob)?.mime || 'audio/wav';
+      const mime = audio.mime || (await ctx.blobs.info(audio.blob))?.mime || 'audio/wav';
       const res = await ctx.llm.transcribe({ ...base, audio: { data: bytes, mime } });
       const metrics: Record<string, number> = { latency_ms: Math.round(now() - started) };
       if (res.durationSeconds) {

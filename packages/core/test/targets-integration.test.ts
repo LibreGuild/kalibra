@@ -19,10 +19,10 @@ class MemoryBlobs implements BlobStore {
   async get(hash: string) {
     return this.files.get(hash)!.data;
   }
-  info(hash: string) {
+  async info(hash: string) {
     return this.files.get(hash)?.info;
   }
-  has(hash: string) {
+  async has(hash: string) {
     return this.files.has(hash);
   }
   stream(hash: string) {

@@ -71,7 +71,7 @@ async function nameCluster(engine: Engine, o: ThemeOptions, members: FailureLite
 /** Embeddings path: cluster summaries, then name each cluster. */
 async function viaEmbeddings(engine: Engine, o: ThemeOptions, failures: FailureLite[], summaries: string[], total: number, job: JobHandle) {
   // The local model when installed, else the connection's embedding model.
-  const how = await pickEmbeddings(engine.embeddings, o.connectionId, engine.repos.defs.get('connection', o.connectionId).spec as { embeddingModel?: string });
+  const how = await pickEmbeddings(engine.embeddings, o.connectionId, (await engine.repos.defs.get('connection', o.connectionId)).spec as { embeddingModel?: string });
   if (!how) throw new Error('No embedding model: download the local model or set one on the connection');
   const { vectors } = await engine.embeddings.embed(summaries, { ...how, signal: job.signal });
   if (vectors.length !== failures.length) throw new Error('Embedding count does not match the failures');
@@ -183,7 +183,7 @@ async function findThemes(engine: Engine, runId: string, o: ThemeOptions, failur
     embeddingNote: result.method === 'llm' && embeddingError ? `Embeddings unavailable (${embeddingError}); themes were assigned by the model.` : undefined,
     themes,
   };
-  const saved = saveInsight(engine.db, 'failure_themes', runId, data, actor);
+  const saved = await saveInsight(engine.db, 'failure_themes', runId, data, actor);
   return { insightId: saved.id, method: result.method, themes: themes.length, analyzed: failures.length };
 }
 
@@ -196,10 +196,10 @@ export const themesOps: OpDef<any, any>[] = [
     category: 'runs',
     readOnly: true,
     input: z.object({ runId: z.string() }),
-    handler: ({ engine }, i) => {
-      const run = engine.repos.runs.get(i.runId);
-      const free = freeGroups(engine.repos.runs.allLite(run.id) as FailureLite[]);
-      const latest = latestInsight(engine.db, 'failure_themes', run.id);
+    handler: async ({ engine }, i) => {
+      const run = await engine.repos.runs.get(i.runId);
+      const free = freeGroups(await engine.repos.runs.allLite(run.id) as FailureLite[]);
+      const latest = await latestInsight(engine.db, 'failure_themes', run.id);
       return { runId: run.id, totalFailures: free.total, groups: free.groups, ai: latest ? { id: latest.id, createdAt: latest.createdAt, ...latest.data } : null };
     },
   }),
@@ -218,10 +218,10 @@ export const themesOps: OpDef<any, any>[] = [
       maxFailures: z.number().int().min(1).max(1000).default(300).describe('Analyse at most this many failures (the first ones in row order)'),
       useEmbeddings: z.boolean().default(true).describe('Cluster with text embeddings when available; otherwise the model assigns failures to themes'),
     }),
-    handler: ({ engine, actor }, i) => {
-      const run = engine.repos.runs.get(i.runId);
-      engine.repos.defs.get('connection', i.connectionId);
-      const all = (engine.repos.runs.allLite(run.id) as FailureLite[]).filter(isFailure);
+    handler: async ({ engine, actor }, i) => {
+      const run = await engine.repos.runs.get(i.runId);
+      await engine.repos.defs.get('connection', i.connectionId);
+      const all = (await engine.repos.runs.allLite(run.id) as FailureLite[]).filter(isFailure);
       if (!all.length) throw invalid('This run has no failures to group');
       const failures = all.slice(0, i.maxFailures);
       const job = engine.jobs.start(

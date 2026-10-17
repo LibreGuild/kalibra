@@ -83,15 +83,15 @@ describe('cluster_failures / get_failure_themes', () => {
   let mode: 'ok' | 'bad-ids' | 'error' | 'no-themes' = 'ok';
 
   async function makeRun(failures: { checkId: string; reason: string }[], passes = 0) {
-    const ds = engine.repos.datasets.get('Q');
-    const v = engine.repos.datasets.createVersion(ds.id, '', user);
-    const rows = engine.repos.datasets.versionRows(v.id);
-    const run = engine.repos.runs.create({ kind: 'imported', datasetId: ds.id, datasetVersionId: v.id, suiteId: 'ste_x', suiteVersion: 1, settings: RunSettings.parse({}) }, user);
+    const ds = await engine.repos.datasets.get('Q');
+    const v = await engine.repos.datasets.createVersion(ds.id, '', user);
+    const rows = await engine.repos.datasets.versionRows(v.id);
+    const run = await engine.repos.runs.create({ kind: 'imported', datasetId: ds.id, datasetVersionId: v.id, suiteId: 'ste_x', suiteVersion: 1, settings: RunSettings.parse({}) }, user);
     const items = [...failures.map(() => false), ...Array.from({ length: passes }, () => true)];
-    engine.repos.runs.addPending(run.id, items.map((_, i) => ({ rowId: rows[i % rows.length].id, rowRev: 1, rep: i, input: rows[i % rows.length].data })));
-    engine.repos.runs.pending(run.id).forEach((p, i) => {
+    await engine.repos.runs.addPending(run.id, items.map((_, i) => ({ rowId: rows[i % rows.length].id, rowRev: 1, rep: i, input: rows[i % rows.length].data })));
+    for (const [i, p] of (await engine.repos.runs.pending(run.id)).entries()) {
       const f = failures[i];
-      engine.repos.runs.saveResult(run.id, p.id, {
+      await engine.repos.runs.saveResult(run.id, p.id, {
         status: 'done',
         passed: !f,
         score: f ? 0 : 1,
@@ -100,13 +100,13 @@ describe('cluster_failures / get_failure_themes', () => {
         metrics: {},
         attempts: 1,
       });
-    });
+    }
     return run.id;
   }
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-themes-'));
-    engine = new Engine({ dir });
+    engine = await Engine.open({ dir });
     await engine.call('create_dataset', { name: 'Q', columns: [{ key: 'question', type: 'text' }] });
     await engine.call('add_dataset_rows', { dataset: 'Q', rows: Array.from({ length: 6 }, (_, i) => ({ data: { question: `question ${i}` } })) });
     await engine.call('create_connection', { name: 'Stub', spec: { provider: 'openai_compatible', baseUrl: 'http://127.0.0.1:1/v1', defaultModel: 'stub' } });
@@ -137,8 +137,8 @@ describe('cluster_failures / get_failure_themes', () => {
     };
   });
 
-  afterAll(() => {
-    engine.close();
+  afterAll(async () => {
+    await engine.close();
     rmSync(dir, { recursive: true, force: true });
   });
 

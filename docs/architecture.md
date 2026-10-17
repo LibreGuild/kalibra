@@ -45,7 +45,7 @@ An npm-workspaces monorepo, TypeScript everywhere.
 | Mode | Processes |
 |---|---|
 | `npx kalibra` / `kalibra` | One Node process (bundled CLI) runs engine + server and opens the browser at `http://127.0.0.1:<port>/kalibra/?token=…` |
-| Team server (`kalibra server`, Docker) | One Node process with sign-in; see [deploy.md](deploy.md) |
+| Team server (`kalibra server`, Docker) | One Node process with sign-in; see [self-hosting.md](self-hosting.md) |
 | Dev (`npm run dev`) | Engine on :4317 (tsx watch) + Vite UI on http://localhost:5173/kalibra/ (proxy `/kalibra/api`) + demo apps on :4400 |
 | CI | `kalibra run …` opens the workspace directly, exits non-zero on failure |
 
@@ -80,7 +80,7 @@ Each package has a README with its code map: [core](../packages/core/README.md) 
 | **how a run executes** | `packages/core/src/runner/runner.ts` (+ `evaluate.ts`, `summary.ts`, `conversation.ts`) |
 | **model providers** | `packages/core/src/providers/index.ts` |
 | **the MCP bridge** | `packages/cli/src/mcp.ts`; how it reaches Kalibra in `engine-client.ts` |
-| **the release pipeline** | `.github/workflows/release.yml` (tags `v*`), `ci.yml` (pull requests), `Dockerfile`, `scripts/set-version.mjs`; how to release in [deploy.md](deploy.md) |
+| **the release pipeline** | `.github/workflows/release.yml` (tags `v*`), `ci.yml` (pull requests), `Dockerfile`, `scripts/set-version.mjs`; how to release in [releasing.md](releasing.md) |
 | **in-app docs** | `packages/web/src/docs/content.ts`, illustrations in `packages/web/public/docs/` |
 
 ## Projects and the team server
@@ -94,6 +94,7 @@ A **hub** sits above projects (`src/hub/`): `hub.db` holds accounts, sessions, t
 - Every record carries an **actor** (user / agent / CLI).
 - Files always go through the blob store (never local paths).
 - Storage, blobs, secrets and jobs sit behind interfaces (SQLite → Postgres, folder → S3/GCS, secret file → Vault/KMS, in-process jobs → workers).
+- The data layer is asynchronous (`Db` in `packages/core/src/db.ts`): stores only use `run`/`get`/`all`/`exec`/`tx`, so a networked database can replace SQLite without touching them. Transactions follow the async flow (`AsyncLocalStorage`): calls inside `db.tx()` join it; anything else waits for it (writes) or reads the last committed state. Repository methods that read and then write run in one `tx()`, as they did when the layer was synchronous. With `KALIBRA_DATABASE_URL` the same stores run on Postgres (`db-postgres.ts`): the hub and each project are schemas of one database, the SQLite-flavoured SQL is translated (placeholders, LIKE, DDL), and transactions are SERIALIZABLE and retried on conflicts, so a `tx()` callback may run more than once. The whole test suite runs on both (`KALIBRA_TEST_DATABASE_URL`, a CI job).
 - Saves carry the version they edited (optimistic concurrency).
 - Teams can also share without a server: `.kalibra` bundles and a Git-synced folder (`src/sharing/`).
 
