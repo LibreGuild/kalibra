@@ -58,15 +58,18 @@ const save = (engine: Engine, runId: string, id: string, status: 'done' | 'error
 describe('saving results', () => {
   it('costs the same per row at the end of a big run as at the start', async () => {
     const { engine, run, pending } = await runWith(20_000);
-    const chunk = 5000;
+    const chunk = 1000;
     const times: number[] = [];
     for (let c = 0; c < pending.length / chunk; c++) {
       const start = performance.now();
       for (const p of pending.slice(c * chunk, (c + 1) * chunk)) save(engine, run.id, p.id);
       times.push(performance.now() - start);
     }
-    // Recounting finished results on every save made the last chunk ~3× slower than the first at 20k rows.
-    expect(times[times.length - 1] / times[0]).toBeLessThan(1.8);
+    // Recounting finished results on every save made the last chunks ~3× slower than the first at 20k rows.
+    // Fastest of the first five against fastest of the last five, so a GC pause or a busy CI machine
+    // during one chunk doesn't decide the result.
+    const best = (xs: number[]) => Math.min(...xs);
+    expect(best(times.slice(-5)) / best(times.slice(0, 5))).toBeLessThan(1.8);
     expect(engine.repos.runs.get(run.id).done).toBe(20_000);
   }, 60_000);
 

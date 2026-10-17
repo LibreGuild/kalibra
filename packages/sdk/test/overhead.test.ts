@@ -46,13 +46,15 @@ describe('overhead', () => {
       return step('llm', () => `${docs.length} docs for ${q}`, { kind: 'llm' });
     });
     // Like a real app: work arrives over time, so the background sender gets turns in between.
-    // (A single synchronous burst of more than 10 000 spans drops the oldest; see exporter tests.)
+    // Every third chunk waits for the sender, so at most 4 500 spans are queued however slow the
+    // machine is (more than 10 000 queued spans drops the oldest by design; see exporter tests).
     let ms = 0;
     for (let chunk = 0; chunk < 20; chunk++) {
       ms += time(() => {
         for (let i = 0; i < 500; i++) answer(`question ${chunk * 500 + i}`);
       });
       await new Promise((r) => setImmediate(r));
+      if (chunk % 3 === 2) await flush();
     }
     process.stdout.write(`[overhead] on: 10k traces (3 spans each) ${ms.toFixed(0)} ms → ${((ms / 10_000) * 1000).toFixed(1)} µs per trace\n`);
     expect(ms).toBeLessThan(1500);
