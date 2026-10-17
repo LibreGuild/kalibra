@@ -31,6 +31,11 @@ export async function openDeployment(dir: string, flags: Record<string, unknown>
       console.error(`Kalibra is stopping: ${why}.`);
       process.exit(1);
     },
+    onHandoverAbandoned: () => {
+      // The instance that asked for the bucket never took it: exit so the platform starts this one again.
+      console.error('Kalibra is stopping: it handed the bucket over, but no new instance took it. Restart Kalibra to serve again.');
+      process.exit(1);
+    },
   });
   let databases: Databases | undefined = storage.databases;
   if (!databases && cfg.databaseUrl) databases = await postgresDatabases({ url: cfg.databaseUrl, max: cfg.databasePool, schema: cfg.databaseSchema });

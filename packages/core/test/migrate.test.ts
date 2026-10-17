@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { leaseIsFree } from '../src/deploy/lease.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -68,7 +69,7 @@ describe('moving a data folder to a bucket (SQLite synced there)', () => {
     expect(r.files).toMatchObject({ total: 1, uploaded: 1, existing: 0, missing: [] });
     expect(r.secrets).toMatchObject({ hub: 1, projects: 2, fromFiles: 3 });
     expect(r.databases.map((d) => d.name)).toEqual(expect.arrayContaining(['hub', 'Speech']));
-    expect(await objects.get('lease.json')).toBeUndefined(); // released
+    expect(leaseIsFree((await objects.get('lease.json'))?.data)).toBe(true); // released
 
     // The source is unchanged: secrets still in plain files, the session still there.
     expect(JSON.parse(readFileSync(join(src.dir, 'projects', src.project.id, 'secrets.json'), 'utf8')).openai).toBe('sk-project-secret');

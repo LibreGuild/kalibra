@@ -391,11 +391,12 @@ export class Hub {
     return this.engines.size;
   }
 
-  async close() {
+  /** `handOff`: another instance takes over; runs in progress stay resumable (see Engine.close). */
+  async close(opts: { handOff?: boolean } = {}) {
     for (const stop of this.stopListening.splice(0)) stop();
     const open = [...this.engines.values()];
     this.engines.clear();
-    for (const e of open) await e.close();
+    for (const e of open) await e.close(opts);
     if (this.ownsCoordinator) await this.coordinator.close();
     await this.db.close();
     await this.opts.databases?.close();

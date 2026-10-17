@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openSqlite, PROJECT_MIGRATIONS, sqliteControl, type Db } from '../src/db.js';
 import { BucketBlobStore, FileCache } from '../src/deploy/bucket-blobs.js';
 import { deployConfigFrom } from '../src/deploy/config.js';
-import { BucketLease } from '../src/deploy/lease.js';
+import { BucketLease, leaseIsFree } from '../src/deploy/lease.js';
 import { MemoryObjects, openObjectStore, PreconditionFailed, type ObjectStore } from '../src/deploy/objects.js';
 import { DbSecretStore, SecretKey } from '../src/deploy/secrets.js';
 import { decodeDelta, encodeDelta, readWal, SqliteSync, syncedClose } from '../src/deploy/sqlite-sync.js';
@@ -317,7 +317,7 @@ describe('one instance per bucket', () => {
     await expect(b.acquire()).rejects.toThrow(/Another Kalibra .* --takeover/s);
     // --takeover waits until the holder stops renewing.
     const slept: number[] = [];
-    const c = new BucketLease(objects, { onLost: () => {}, renewMs: 3_600_000, staleMs: 200, sleep: async (ms) => {
+    const c = new BucketLease(objects, { onLost: () => {}, renewMs: 3_600_000, staleMs: 200, handoverWaitMs: 50, sleep: async (ms) => {
         slept.push(ms);
         await new Promise((r) => setTimeout(r, ms));
       } });
@@ -326,7 +326,7 @@ describe('one instance per bucket', () => {
     await a.renew(); // the old holder finds out and stops
     expect(lost).toEqual([expect.stringMatching(/another instance took over/)]);
     await c.release();
-    expect(await objects.get('lease.json')).toBeUndefined();
+    expect(leaseIsFree((await objects.get('lease.json'))?.data)).toBe(true);
     await b.acquire(); // free again
     await b.release();
   });
@@ -396,7 +396,7 @@ describe('a hub whose data folder disappears', () => {
     expect(first.storage.status()).toMatchObject({ files: 'memory://test', secrets: 'database (encrypted)' });
     await first.hub.close();
     await first.storage.close();
-    expect(await objects.get('lease.json')).toBeUndefined(); // released
+    expect(leaseIsFree((await objects.get('lease.json'))?.data)).toBe(true); // released
 
     const second = await start(tmp(), objects);
     const again = second.hub.localPrincipal('user');

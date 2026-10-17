@@ -55,7 +55,7 @@ Every flag has an environment variable; flags win.
 | `KALIBRA_STORAGE_URL` (`--storage`) | the data folder | A bucket, see [Buckets](#buckets) |
 | `KALIBRA_SQLITE_SYNC_SECONDS` | `10` | Setup B: how often changed databases sync to the bucket |
 | `KALIBRA_CACHE_MAX_MB` | `1024` | Local cache for files read from the bucket |
-| `KALIBRA_TAKEOVER=1` (`--takeover`) | off | Setup B: wait for another machine's lease on the bucket to expire instead of refusing to start |
+| `KALIBRA_TAKEOVER=1` (`--takeover`) | off | Setup B: instead of refusing to start while another instance holds the bucket, ask it to hand over (or wait for its lease to expire if it stopped). Set it wherever a new instance starts before the old one stops (Cloud Run, Kubernetes) |
 | `KALIBRA_REDIS_URL` (`--redis-url`) | none | Setup D, see [Several instances](#several-instances) |
 | `KALIBRA_SECRET_KEY` | none | Required with Postgres or a bucket. Encrypts provider keys stored in the database. Create with `openssl rand -base64 32` and keep it safe: without it, stored provider keys can't be read and must be entered again. |
 
@@ -98,7 +98,8 @@ Use a private bucket in the same region as Kalibra (traffic between them is then
 - Every 10 s, each database that changed uploads its new pages as one object; an idle Kalibra uploads nothing. Now and then a fresh full copy is written and older ones are removed.
 - On start, a database that is missing locally (a new machine) or older than the bucket is restored before Kalibra opens it, and checked for integrity.
 - On a normal stop Kalibra syncs once more. After a crash, at most the last 10 s are lost; runs that were in progress show as "interrupted" and can be resumed.
-- Only one machine may use a bucket prefix at a time. Kalibra holds a lease in the bucket and a second instance refuses to start (`--takeover` waits until the first one's lease expires, about 90 s after it stopped).
+- Only one machine may use a bucket prefix at a time. Kalibra holds a lease in the bucket and a second instance refuses to start.
+- **Rolling deploys** (a new Cloud Run revision, a Kubernetes update, a new VM before the old one is gone) start the new instance while the old one still runs. Start Kalibra with `KALIBRA_TAKEOVER=1`: the new instance asks the old one to hand over. Within a few seconds the old one stops serving data, lets requests in progress finish, syncs one last time and gives the lease back; the new one restores and starts serving. Kalibra opens its port only after that, so the platform keeps sending people to the old instance until the new one is ready (Cloud Run's default startup check, which waits for the port, is enough; allow it a minute). Meanwhile the old instance answers `503` with `Retry-After: 5` ("Kalibra is moving to a new instance. Try again in a few seconds."), which people see for those few seconds, and runs in progress show as interrupted and can be resumed. If the old instance doesn't answer (it crashed, or runs an older Kalibra), the new one waits until its lease expires, about 90 s after its last check-in. If no new instance takes over within 2 minutes, the old one exits so the platform starts it again.
 - Cost: about one upload per changed database per sync (GCS/S3 charge about $0.005 per 1,000) plus storage, typically a few dollars a month or less. Raise `KALIBRA_SQLITE_SYNC_SECONDS` to upload less often.
 
 ## Postgres

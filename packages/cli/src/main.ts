@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { newToken, startServer } from '@kalibra/server';
+import { handOverOnRequest, newToken, startServer } from '@kalibra/server';
 import { BASE_PATH, deployConfigFrom, postgresDatabases, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
 import { clearEngineInfo, clearServerMarker, connect, defaultDir, openHub, runningOn, writeEngineInfo, writeServerMarker } from './engine-client.js';
@@ -62,7 +62,8 @@ Where data lives (serve and server; see docs/self-hosting.md):
                        schemas <$KALIBRA_DATABASE_SCHEMA or kalibra>_hub and _p_<project>; pool $KALIBRA_DATABASE_POOL, 10)
   --storage <url>      Files (and, with SQLite, the databases) in a bucket: gs://, s3:// or az://
                        ($KALIBRA_STORAGE_URL; SQLite syncs every $KALIBRA_SQLITE_SYNC_SECONDS, default 10)
-  --takeover           Wait for another instance's lease on that bucket to expire instead of refusing
+  --takeover           Ask the instance holding that bucket to hand over (rolling deploys; $KALIBRA_TAKEOVER=1),
+                       or wait for its lease to expire if it stopped, instead of refusing to start
   KALIBRA_SECRET_KEY   Required with a bucket or Postgres: encrypts provider keys stored in the database
   --redis-url <url>    Several instances behind a load balancer (with Postgres and a bucket): live events,
                        cancels, sign-in limits and the lookup cache are shared ($KALIBRA_REDIS_URL)
@@ -216,6 +217,7 @@ async function serveLocal(dir: string, values: Flags) {
     storageStatus: () => deployment.storage.status(),
   });
   writeEngineInfo(dir, { url: srv.url, token, pid: process.pid });
+  const closeHub = handOverOnRequest(deployment.storage, srv, hub);
   const openUrl = `${srv.url}${BASE_PATH}/${token ? `?token=${token}` : ''}`;
   console.log(`Kalibra running\n  data: ${dir}\n  url:  ${openUrl}${staticDir ? '' : `\n  (UI not built — use the Vite dev server on http://localhost:5173${BASE_PATH}/)`}`);
   if (deployment.storage.objects || deployment.cfg.databaseUrl) console.log(`  ${deployment.describe}`);
@@ -226,7 +228,7 @@ async function serveLocal(dir: string, values: Flags) {
   onStop(async () => {
     clearEngineInfo(dir);
     await srv.close();
-    await hub.close();
+    await closeHub();
     await deployment.close();
   });
 }
@@ -254,6 +256,7 @@ async function serveTeam(dir: string, values: Flags) {
     storageStatus: () => deployment.storage.status(),
   });
   writeServerMarker(dir);
+  const closeHub = handOverOnRequest(deployment.storage, srv, hub);
   const base = `${publicOrigin(publicUrl) ?? srv.url}${BASE_PATH}`;
   console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/\n  ${deployment.describe}`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
@@ -266,10 +269,11 @@ async function serveTeam(dir: string, values: Flags) {
   onStop(async () => {
     clearServerMarker(dir);
     await srv.close();
-    await hub.close();
+    await closeHub();
     await deployment.close();
   });
 }
+
 
 function onStop(fn: () => Promise<void>) {
   const stop = async () => {

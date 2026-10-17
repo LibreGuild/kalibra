@@ -51,7 +51,7 @@ export function send(res: ServerResponse, status: number, body: unknown, headers
 
 export const sendData = (res: ServerResponse, data: unknown, headers?: Record<string, string | string[]>) => send(res, 200, { data: data ?? null }, headers);
 
-export const fail = (res: ServerResponse, status: number, code: string, message: string) => send(res, status, { error: { code, message } });
+export const fail = (res: ServerResponse, status: number, code: string, message: string, headers?: Record<string, string>) => send(res, status, { error: { code, message } }, headers);
 
 export function sendError(res: ServerResponse, e: unknown) {
   if (e instanceof KalibraError) return send(res, STATUS[e.code] ?? 500, { error: { code: e.code, message: e.message, details: e.details } });

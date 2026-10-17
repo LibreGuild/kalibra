@@ -224,6 +224,8 @@ function walHeader(walFile: string): { salt1: number; ckpt: number } | undefined
 /** Checks a database file (read-only) and throws unless SQLite finds it intact. */
 function verify(file: string, quick = false) {
   const { DatabaseSync: Sqlite } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
+  // Opening a WAL-mode copy creates -wal/-shm files a read-only connection can't remove: we do.
+  const sidecars = ['-wal', '-shm'].map((ext) => file + ext).filter((f) => !existsSync(f));
   const db = new Sqlite(file, { readOnly: true });
   try {
     const r = db.prepare(quick ? 'PRAGMA quick_check' : 'PRAGMA integrity_check').all() as any[];
@@ -231,6 +233,7 @@ function verify(file: string, quick = false) {
     if (msg !== 'ok') throw new Error(`database check failed: ${msg.slice(0, 300)}`);
   } finally {
     db.close();
+    for (const f of sidecars) rmSync(f, { force: true });
   }
 }
 

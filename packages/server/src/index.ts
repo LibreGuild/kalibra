@@ -58,8 +58,17 @@ export interface RunningServer {
   url: string;
   port: number;
   token?: string;
+  /**
+   * Stops serving data (another instance is taking over): API requests get 503 with Retry-After,
+   * live event streams end, the health check reports `handingOver`. The UI's static files still load.
+   */
+  setUnavailable(message: string): void;
+  /** Waits (up to `timeoutMs`) for requests already in progress to finish. */
+  drain(timeoutMs: number): Promise<void>;
   close(): Promise<void>;
 }
+
+export { handOverOnRequest } from './handover.js';
 
 export const newToken = () => randomBytes(32).toString('base64url');
 
@@ -83,15 +92,28 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000, hub.coordinator);
   const ingest = ingestRoutes(hub, cfg);
 
+  /** Set while another instance takes over: the message API callers get with a 503. */
+  let unavailable: string | undefined;
+  /** Requests in progress (live event streams are tracked separately: they never end on their own). */
+  let inFlight = 0;
+  const streams = new Set<ServerResponse>();
+
   const server = createServer(async (req, res) => {
+    inFlight++;
+    let counted = true;
+    const done = () => {
+      if (counted) inFlight--;
+      counted = false;
+    };
+    res.once('close', done);
     try {
-      await handle(req, res);
+      await handle(req, res, done);
     } catch (e) {
       sendError(res, e);
     }
   });
 
-  async function handle(req: IncomingMessage, res: ServerResponse) {
+  async function handle(req: IncomingMessage, res: ServerResponse, notInFlight: () => void) {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (hub.mode === 'local' ? !checkLocalOrigin(req, port, cfg) : !originAllowed(req, cfg)) return fail(res, 403, 'forbidden', 'Host or origin not allowed');
 
@@ -107,7 +129,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
 
     if (!url.pathname.startsWith('/api/')) return serveStatic(opts.staticDir, req, res, url);
-    if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra' });
+    if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra', ...(unavailable ? { handingOver: true } : {}) });
+    if (unavailable) return fail(res, 503, 'unavailable', unavailable, { 'retry-after': '5' });
     if (url.pathname.startsWith('/api/auth/')) return authRoutes(req, res, url);
     // Apps sending traces authenticate with an ingest key (or a normal sign-in): see ingest.ts.
     if (isIngestRoute(url.pathname)) return ingest(req, res, url);
@@ -123,7 +146,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (p.user.mustChangePassword && auth.via === 'session' && !['/api/hub/change_password', '/api/hub/get_me', '/api/meta'].includes(url.pathname)) {
       return fail(res, 403, 'password_change_required', 'Choose a new password to continue');
     }
-    return api(req, res, url, p);
+    return api(req, res, url, p, notInFlight);
   }
 
   // ── Sign-in ───────────────────────────────────────────────────────────────
@@ -265,7 +288,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   // ── API ───────────────────────────────────────────────────────────────────
 
-  async function api(req: IncomingMessage, res: ServerResponse, url: URL, p: Principal) {
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL, p: Principal, notInFlight: () => void) {
     const path = url.pathname;
     const ip = clientIp(req, cfg.trustProxy);
 
@@ -307,7 +330,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const op = /^\/ops\/([a-z0-9_]+)$/.exec(rest);
     if (op && req.method === 'POST') return sendData(res, await hub.callProject(p, projectId, op[1], await readJson(req)));
 
-    if (rest === '/events' && req.method === 'GET') return await events(req, res, p, projectId);
+    if (rest === '/events' && req.method === 'GET') return await events(req, res, p, projectId, notInFlight);
 
     if (rest === '/files' && req.method === 'POST') {
       const { project, role } = await hub.projectFor(p, projectId);
@@ -336,13 +359,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   }
 
   /** Live events of one project, for as long as the caller may see it. */
-  async function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string) {
+  async function events(req: IncomingMessage, res: ServerResponse, p: Principal, projectId: string, notInFlight: () => void) {
     const { project } = await hub.projectFor(p, projectId);
     const engine = await hub.engine(project.id);
     // The browser may have gone while the project opened: 'close' already fired, so don't subscribe.
     if (req.destroyed || res.destroyed || req.socket.destroyed) return;
     res.writeHead(200, { ...BASE_HEADERS, 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
     res.write(': connected\n\n');
+    notInFlight();
+    streams.add(res);
+    res.once('close', () => streams.delete(res));
     const unsubscribe = engine.events.subscribe((e: EngineEvent) => res.write(`data: ${JSON.stringify(e)}\n\n`));
     const stillAllowed = async () => {
       try {
@@ -374,6 +400,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`,
     port,
     token: opts.token,
+    setUnavailable(message: string) {
+      unavailable = message;
+      // Browsers reconnect, get a 503 and retry until the new instance answers.
+      for (const s of streams) s.end();
+      streams.clear();
+    },
+    async drain(timeoutMs: number) {
+      const until = Date.now() + timeoutMs;
+      while (inFlight > 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    },
     close: () =>
       new Promise((r) => {
         server.close(() => r());

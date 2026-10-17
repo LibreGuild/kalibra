@@ -92,7 +92,31 @@ const pick = <T>(mod: any, name: string): T => (mod[name] ?? mod.default?.[name]
 
 async function gcs(url: string, bucketName: string, prefix: string): Promise<ObjectStore> {
   const Storage = pick<any>(await import('@google-cloud/storage'), 'Storage');
-  const bucket = new Storage().bucket(bucketName);
+  const storage = new Storage();
+  const bucket = storage.bucket(bucketName);
+  const api = String(storage.apiEndpoint ?? 'https://storage.googleapis.com').replace(/\/+$/, '');
+  // Reads go through fetch with the SDK's credentials: its own download streams stack 11 listeners
+  // on an internal stream per request, so every read printed a MaxListenersExceededWarning.
+  const media = async (key: string, o: { generation?: string; range?: { start: number; end: number } } = {}) => {
+    const token = await storage.authClient.getAccessToken();
+    const q = new URLSearchParams({ alt: 'media', ...(o.generation ? { generation: o.generation } : {}) });
+    const res = await fetch(`${api}/storage/v1/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(join(prefix, key))}?${q}`, {
+      headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        'accept-encoding': 'identity',
+        ...(o.range ? { range: `bytes=${o.range.start}-${o.range.end}` } : {}),
+      },
+    });
+    if (res.status === 404) {
+      await res.body?.cancel();
+      throw new ObjectNotFound(key);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Reading ${key} from ${url} failed: HTTP ${res.status} ${text.slice(0, 200)}`);
+    }
+    return res;
+  };
   const info = (m: any): ObjectInfo => ({ size: Number(m.size ?? 0), version: String(m.generation), updated: new Date(m.updated ?? Date.now()) });
   const pre = (opts?: PutOptions) =>
     opts?.ifAbsent ? { preconditionOpts: { ifGenerationMatch: 0 } } : opts?.ifVersion ? { preconditionOpts: { ifGenerationMatch: Number(opts.ifVersion) } } : {};
@@ -123,22 +147,20 @@ async function gcs(url: string, bucketName: string, prefix: string): Promise<Obj
     async get(key) {
       // The metadata first, then exactly that generation, so data and version always belong together.
       for (let attempt = 0; attempt < 5; attempt++) {
+        const m = await store.head(key);
+        if (!m) return undefined;
         try {
-          const [m] = await bucket.file(join(prefix, key)).getMetadata();
-          const [data] = await bucket.file(join(prefix, key), { generation: Number(m.generation) }).download();
-          return { data, info: info(m) };
-        } catch (e: any) {
-          if (e?.code !== 404) throw e;
-          if (!(await store.head(key))) return undefined; // gone, or replaced between the two calls: look again
+          const res = await media(key, { generation: m.version });
+          return { data: Buffer.from(await res.arrayBuffer()), info: m };
+        } catch (e) {
+          if (!(e instanceof ObjectNotFound)) throw e; // replaced between the two calls: look again
         }
       }
       throw new Error(`${key} keeps changing; try again`);
     },
     async stream(key, range) {
-      const file = bucket.file(join(prefix, key));
-      // createReadStream only fails once read; check first so a missing object is a clean NotFound.
-      if (!(await store.head(key))) throw new ObjectNotFound(key);
-      return file.createReadStream(range ? { start: range.start, end: range.end, validation: false } : {});
+      const res = await media(key, { range });
+      return Readable.fromWeb(res.body as any);
     },
     async head(key) {
       try {

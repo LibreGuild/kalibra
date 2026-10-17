@@ -146,11 +146,12 @@ export class Engine {
     };
   }
 
-  async close() {
+  /** `handOff`: another instance takes over (handover of a bucket): runs stay resumable instead of being cancelled. */
+  async close(opts: { handOff?: boolean } = {}) {
     this.jobs.cancelAll();
     this.runner.stopSweeping();
-    if (this.coordinator.kind !== 'local') {
-      // Several instances: running runs go back to the others instead of being cancelled.
+    if (this.coordinator.kind !== 'local' || opts.handOff) {
+      // Several instances, or a handover: running runs go back to the others instead of being cancelled.
       await this.runner.handOff();
     } else {
       for (const r of await this.db.all("SELECT id FROM runs WHERE status = 'running'")) await this.runner.cancel(r.id);

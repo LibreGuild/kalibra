@@ -21,7 +21,7 @@ Rules checked at start (clear errors, no silent fallbacks):
 - Redis requires Postgres (SQLite means one instance; Redis would add nothing).
 - More than one instance (Redis set) requires bucket storage (files must be shared).
 - A bucket or Postgres requires `KALIBRA_SECRET_KEY` (secrets must survive the machine and are stored encrypted in the database, not in a local file).
-- Mode B takes a **lease** in the bucket; a second instance on the same bucket refuses to start (or with `--takeover` waits for the lease to expire).
+- Mode B takes a **lease** in the bucket; a second instance on the same bucket refuses to start. With `--takeover` it asks the holder to hand over (rolling deploys), or waits for the lease to expire if the holder doesn't answer.
 
 ## Data layer
 
@@ -50,7 +50,8 @@ Rules checked at start (clear errors, no silent fallbacks):
 - On shutdown: a final sync. A crash loses at most the last interval; runs that were in progress come back as "interrupted" and can be resumed.
 - `<file>.sync.json` next to each database records the generation and page set the local file matches (and its size/mtime at a clean close). On start: a clean, untouched file continues its generation; a file ahead of the bucket (crash, changes made while not syncing) starts a new snapshot; a file behind the bucket or never synced with it is moved aside (`*.behind-bucket-<time>.bak`) and restored.
 - A failed upload or a WAL reset by another process falls back to a new snapshot, retried with back-off while the bucket keeps failing.
-- Lease: renewed every 30 s, stale after 90 s; `--takeover` waits for staleness. A holder that finds its lease taken exits. At start Kalibra checks the bucket honours conditional writes and warns if not (GCS's S3-compatible API ignores them; S3, GCS, Azure and MinIO honour them).
+- Lease: renewed every 30 s, stale after 90 s. A holder that finds its lease taken exits.
+- Handover (`--takeover`): the new instance writes `lease-handover.json` addressed to the holder; the holder checks every 3 s, answers 503 to API requests, lets requests in progress finish, closes the hub (each database syncs one last time; runs stay resumable), and marks the lease released with a conditional write. The new instance takes it and restores; it opens its port only then. No answer within 60 s (crashed or older holder): wait for staleness. A newer holder is never asked to step aside (two racing new instances: one wins). A holder that handed over but sees nobody take the lease within 2 minutes exits so the platform restarts it. At start Kalibra checks the bucket honours conditional writes and warns if not (GCS's S3-compatible API ignores them; S3, GCS, Azure and MinIO honour them).
 
 ## What stays in the local data folder
 
