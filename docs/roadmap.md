@@ -3,6 +3,9 @@
 Prioritized by user value and by how many competitors already have it (see [competitors.md](competitors.md)). One line each.
 
 ## Shipped (October 2026)
+- ✅ **Projects, users and permissions**: projects everywhere (one database each), viewer/editor/owner roles, groups, team server mode with sign-in, access tokens for agents, audit log, recovery CLI.
+- ✅ **Sign-in providers**: any OIDC provider (Google, Microsoft, Okta, Keycloak, company SSO), GitHub and GitHub Enterprise, login gateways (IAP, Cloudflare Access, oauth2-proxy); invite-only or automatic accounts, domain/group rules, admin and mirrored groups.
+- ✅ **Desktop ↔ team servers**: connect the desktop app to servers, each in its own window.
 - ✅ **Multi-turn conversations & simulated users**: scripted turns or a model playing a persona with a goal; goal / mentions / turn-count checks.
 - ✅ **Comparisons**: 2–8 targets or model variants on one dataset version, leaderboard with significance against the best.
 - ✅ **Embedding similarity**: free local model (offline) or any connection's embedding model.
@@ -28,7 +31,7 @@ Prioritized by user value and by how many competitors already have it (see [comp
 - **OpenTelemetry trace ingestion & online evals**: score real production traffic with the same suites.
 
 ## Later
-- **Self-hosted server mode**: users, SSO, roles, Postgres, object storage; same engine (seams already in place).
+- **Server scale-out**: Postgres and object storage (S3/GCS) behind the existing storage interfaces, shared session store for several server instances, LDAP and SAML (today via Keycloak/Dex), per-secret allowed hosts.
 - **Voice-agent simulation** (phone / WebRTC callers, barge-in and turn-taking metrics).
 - **Diarization metrics** (DER, JER, cpWER) for multi-speaker STT.
 - **Image metrics plugin** (CLIPScore, ImageReward, VQAScore) for image generation apps.

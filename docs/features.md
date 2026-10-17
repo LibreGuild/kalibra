@@ -71,6 +71,15 @@
 - ✅ Local embedding model (all-MiniLM-L6-v2): one-time ~110 MB download into `~/Kalibra/models`, then free and offline
 - ✅ Secret store (OS keychain in the desktop app), `{{secret.name}}` references
 
+## Projects, users and team servers
+- ✅ Projects on the desktop and on servers, each with its own datasets, targets, suites, runs, connections and secrets
+- ✅ Team server mode: sign-in, users, groups, project members with viewer / editor / owner roles, administrators
+- ✅ Passwords (scrypt, strength rules, lockout, forced change), one-time setup link, recovery CLI, audit log
+- ✅ Sign-in with any OIDC provider, GitHub or GitHub Enterprise, or a login gateway; invite-only or automatic accounts; domain, group, org rules; admin and mirrored groups
+- ✅ Access tokens for agents and scripts; account management needs a signed-in person
+- ✅ Server policies: who may add code, folder sync off or confined, no server paths shown
+- 🧪 Desktop app connects to team servers (Servers menu)
+
 ## Sharing (no server)
 - ✅ `.kalibra` bundles: datasets with audio/images, targets, suites, connections, optional runs; secret names only, never values; on conflict keep both, skip or update mine
 - ✅ Folder sync for Git: byte-stable text files, "Check for changes" preview, apply as new versions, optional prune

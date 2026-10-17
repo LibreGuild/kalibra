@@ -30,6 +30,7 @@ The demo apps are a bank support chatbot (JSON, SSE and a multi-turn session end
 - **Pick the best:** compare several targets or models on one dataset with a leaderboard; try prompts side by side in the playground; failure themes say what broke and why.
 - **Trust your judge:** blind human labelling, kappa, corrected pass rates.
 - **Agents welcome:** an MCP server so Claude Code, Codex, Cursor or Gemini CLI can fill datasets, set up targets and run evals. You drive your own agent; Kalibra never launches one.
+- **Projects and teams:** projects on your desktop; or run `kalibra server` for a team with sign-in (passwords, any OIDC/SSO, GitHub and GitHub Enterprise, login gateways), viewer/editor/owner roles, groups and access tokens for agents. See [docs/users-and-projects.md](docs/users-and-projects.md).
 - **Team sharing without a server:** `.kalibra` bundles, a Git-synced folder, and importers for promptfoo, OpenAI Evals, LangSmith and Langfuse.
 - **Never blocked:** every structured option has a script escape hatch.
 

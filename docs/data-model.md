@@ -38,13 +38,16 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 - `SecretStore` interface. Desktop: encrypted file with an OS-keychain key (Electron `safeStorage`). CLI/dev: `secrets.json` with 0600 permissions.
 - Definitions only contain names. Values never appear in exports, logs (masked as `••••`) or MCP.
 
-## Workspace folder
+## Data folder
 
 ```
-kalibra.db  kalibra.db-wal  kalibra.db-shm
-blobs/
-secrets.json (or secrets.enc)
-.engine.json   (only while an engine is running)
+hub.db                       accounts, sessions, tokens, projects, members, groups, settings, audit (src/hub/schema.ts)
+hub-secrets.json             client secrets of sign-in providers made in the app (servers)
+kalibra.db  blobs/  secrets.json (or secrets.enc)     the default project
+projects/<id>/kalibra.db  blobs/  secrets.*           every other project
+.engine.json                 only while a local engine is running
 ```
+
+The tables above live in each project's `kalibra.db`; the hub's tables are listed in [users-and-projects.md](users-and-projects.md).
 
 Back it up like any folder. To share with a teammate, export a `.kalibra` bundle or sync a Git folder (Settings → Share with your team); see [engine.md](engine.md#sharing-srcsharing).

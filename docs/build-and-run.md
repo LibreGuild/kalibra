@@ -51,7 +51,9 @@ node packages/cli/dist/kalibra.mjs run --dataset D --target T --suite S --min-pa
 npm run start -w @kalibra/desktop               # desktop app (after npm run build)
 ```
 
-Workspace: `~/Kalibra/default`, or `--dir` / `KALIBRA_DIR`.
+Data folder: `~/Kalibra/default`, or `--dir` / `KALIBRA_DIR`. Pick a project with `--project` (`kalibra projects` lists them).
+
+Team server (sign-in, users, roles): `node packages/cli/dist/kalibra.mjs server --public-url https://kalibra.example.com`. Setup, sign-in providers and recovery (`kalibra users …`) are in [users-and-projects.md](users-and-projects.md).
 
 ## Publish to npm (maintainer)
 

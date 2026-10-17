@@ -60,15 +60,18 @@ An npm-workspaces monorepo, TypeScript everywhere.
 ~/Kalibra/models/       shared by all workspaces, only after "Download": local embedding runtime + model
 ```
 
-## Seams for a future server mode
+## Projects and the team server
 
-Built in now so a self-hosted, multi-user server is mostly packaging later:
+A **hub** sits above projects (`src/hub/`): `hub.db` holds accounts, sessions, tokens, projects, members and settings; every project is its own folder with its own `kalibra.db`, opened as an ordinary `Engine`. Every call goes through `Hub.callProject`, which resolves the caller's role and passes it, with the host's capabilities, to `Engine.call`. Local mode (desktop, npx) has one implicit user; server mode (`kalibra server`) adds sign-in. See [users-and-projects.md](users-and-projects.md).
+
+## Seams for scaling the server
+
 
 - UI talks only to the HTTP API (no Electron IPC for data).
 - Every record carries an **actor** (user / agent / CLI).
 - Files always go through the blob store (never local paths).
 - Storage, blobs, secrets and jobs sit behind interfaces (SQLite → Postgres, folder → S3/GCS, keychain → Vault/KMS, in-process jobs → workers).
 - Saves carry the version they edited (optimistic concurrency).
-- Until then, teams share without a server: `.kalibra` bundles and a Git-synced folder (`src/sharing/`).
+- Teams can also share without a server: `.kalibra` bundles and a Git-synced folder (`src/sharing/`).
 
 See [research §11.6](research/market-and-product-analysis.md) for the full plan.

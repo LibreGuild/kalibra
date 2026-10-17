@@ -65,6 +65,62 @@ The current operation's context travels with the async call (`policy.ts`, `Async
 - Recovery from the server's machine: `kalibra users list | create | reset-password | make-admin`.
 - The audit log (`list_audit`) records sign-ins, failures, and changes to accounts, members and settings.
 
+## Sign-in providers
+
+Besides passwords, a server can let people sign in through:
+
+| Kind | Covers | The Kalibra server must reach |
+|---|---|---|
+| `oidc` | Google, Microsoft Entra, Okta, Auth0, Keycloak, GitLab, Dex, Authentik, most company SSO | the provider's issuer URL |
+| `github` | github.com and GitHub Enterprise Server (`githubUrl`) | the GitHub server |
+| `proxy` | a login gateway in front of Kalibra (Google IAP, Cloudflare Access, oauth2-proxy) | the JWKS URL (JWT mode) |
+
+During sign-in the browser goes to the provider and back. The Kalibra server then calls the provider directly to exchange the code. An internal GitHub Enterprise that is only reachable inside an office therefore works when Kalibra also runs inside that network (or reaches it over VPN/interconnect).
+
+**Who gets in**, set per provider:
+- allowed email domains (verified emails only);
+- allowed groups (an OIDC groups claim, or GitHub organisations and `org/team`);
+- **invite-only by default**: an administrator creates the account with the person's email, and their first sign-in links to it;
+- or automatic account creation for people who pass the rules;
+- admin groups (members become administrators);
+- mirrored groups (provider groups become Kalibra groups you can add to projects).
+
+Configure providers in the app (Administration → Sign-in), or with environment variables. The app keeps client secrets write-only.
+
+```sh
+# Google, limited to one domain (accounts are created automatically because a domain is set)
+KALIBRA_GOOGLE_CLIENT_ID=… KALIBRA_GOOGLE_CLIENT_SECRET=… KALIBRA_GOOGLE_DOMAINS=example.com
+# GitHub Enterprise, limited to organisations
+KALIBRA_GITHUB_URL=https://github.mycompany.com KALIBRA_GITHUB_CLIENT_ID=… KALIBRA_GITHUB_CLIENT_SECRET=… KALIBRA_GITHUB_ORGS=evals
+# Any OIDC provider (company SSO, Keycloak, Okta…)
+KALIBRA_OIDC_ISSUER=https://sso.example.com KALIBRA_OIDC_CLIENT_ID=… KALIBRA_OIDC_CLIENT_SECRET=… KALIBRA_OIDC_NAME="Company sign-in" KALIBRA_OIDC_GROUPS_CLAIM=groups
+# Microsoft Entra (tenant id required)
+KALIBRA_MICROSOFT_TENANT=… KALIBRA_MICROSOFT_CLIENT_ID=… KALIBRA_MICROSOFT_CLIENT_SECRET=…
+# A login gateway passing a signed JWT (e.g. Google IAP)
+KALIBRA_PROXY_JWT_HEADER=X-Goog-IAP-JWT-Assertion KALIBRA_PROXY_JWKS_URL=https://www.gstatic.com/iap/verify/public_key-jwk KALIBRA_PROXY_AUDIENCE=/projects/…/global/backendServices/…
+# Several providers or every option: a JSON file, secrets as "env:NAME" or "file:/path"
+KALIBRA_AUTH_CONFIG=/etc/kalibra/auth.json
+```
+
+Register the callback URL `https://<your server>/api/auth/sso/<provider id>/callback` at the provider. Kalibra needs no account with Google, GitHub or anyone else: each deployment registers its own OAuth client.
+
+If a provider breaks, administrators can still sign in with a password even when password sign-in is turned off for everyone else. As a last resort, use `kalibra users reset-password` on the server.
+
+## Running a team server
+
+```sh
+npm run build                      # or use the published package
+KALIBRA_DIR=/srv/kalibra \
+KALIBRA_PUBLIC_URL=https://kalibra.example.com \
+  node packages/cli/dist/kalibra.mjs server --host 127.0.0.1 --port 4317 --trust-proxy
+```
+
+- Put a TLS reverse proxy (nginx, Caddy, a cloud load balancer) in front and pass `--trust-proxy`, so client addresses and HTTPS are known. Sessions use `__Host-` cookies over HTTPS.
+- The first start prints a one-time link to create the administrator. Alternatively, set `KALIBRA_ADMIN_USERNAME` / `KALIBRA_ADMIN_PASSWORD`.
+- Back up the data folder (`hub.db`, each project's `kalibra.db`, `blobs/`, secret files). It is the whole state.
+- Run as an unprivileged user, ideally in a container: script targets and checks run JavaScript with the server's permissions.
+- The desktop app connects to servers from **Servers → Connect to a team server…**. Each server opens in its own window and signs in on its own page.
+
 ## Agents (MCP)
 
 - Local: the bridge finds the running app through `<data>/.engine.json`.

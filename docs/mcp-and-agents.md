@@ -14,6 +14,7 @@ agent ──stdio──► kalibra mcp ──HTTP + token──► running engin
 - Annotations: `readOnlyHint` and `destructiveHint` come from the operation, so clients ask before deleting.
 - Calls carry an **agent actor** (MCP client name). Rows agents add start as `needs_review`, with provenance.
 - Results are JSON text, truncated at 60k characters with a "use offset/limit" note.
+- Projects: the bridge works in one project at a time (`--project`, else the default one). Hub tools such as `list_projects` and `create_project` are included, plus `use_project` to switch. Account management (users, tokens, passwords) and secret values are never exposed.
 
 ## Setup
 
@@ -31,6 +32,14 @@ args = ["-y", "kalibra", "mcp", "--dir", "/Users/me/Kalibra/default"]
 ```
 
 Cursor / Gemini CLI / VS Code use the same command in their JSON config (`mcpServers` or `servers`). The desktop app launches the bridge with Electron's Node (`ELECTRON_RUN_AS_NODE=1`).
+
+On a team server, create an access token (Account → Access tokens) and point the bridge at the server:
+
+```bash
+claude mcp add kalibra --env KALIBRA_TOKEN=kal_… -- npx -y kalibra mcp --server https://kalibra.example.com --project "Team evals"
+```
+
+The agent then acts as you, with your role in each project; activity shows it as "claude-code via <your name>".
 
 ## Prompts
 
