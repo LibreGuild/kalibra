@@ -1,7 +1,7 @@
 # Kalibra team server image.
 #
 #   docker run -d -p 4317:4317 -v kalibra-data:/data \
-#     -e KALIBRA_PUBLIC_URL=https://kalibra.example.com ghcr.io/libreguild/kalibra:next
+#     -e KALIBRA_PUBLIC_URL=https://kalibra.example.com ghcr.io/libreguild/kalibra:latest
 #
 # Kalibra answers under /kalibra (UI https://kalibra.example.com/kalibra/, API …/kalibra/api/…).
 # The first start prints a one-time link to create the administrator (docker logs <container>).

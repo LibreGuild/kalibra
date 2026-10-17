@@ -8,7 +8,7 @@
 
 Build test data, point Kalibra at your real app, score every answer with checks you can trust, and see what got better or worse.
 
-[![npm](https://img.shields.io/npm/v/kalibra/next?label=npm%20%40next&color=5b4bdb)](https://www.npmjs.com/package/kalibra)
+[![npm](https://img.shields.io/npm/v/kalibra?label=npm&color=5b4bdb)](https://www.npmjs.com/package/kalibra)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5b4bdb)](LICENSE)
 [![Node 22.13+](https://img.shields.io/badge/node-22.13%2B-5b4bdb)](https://nodejs.org)
 
@@ -21,15 +21,15 @@ Build test data, point Kalibra at your real app, score every answer with checks 
 ## Quick start
 
 ```bash
-npx kalibra@next
+npx kalibra
 ```
 
 That starts Kalibra on your machine and opens it in the browser. No account, nothing to host. Your data stays in `~/Kalibra/default`.
 
 | Prefer… | Use |
 |---|---|
-| A command you keep | `npm i -g kalibra@next`, then `kalibra` (same data folder as npx) |
-| A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next`, then open `http://localhost:4317/kalibra/` ([self-hosting guide](docs/self-hosting.md)) |
+| A command you keep | `npm i -g kalibra`, then `kalibra` (same data folder as npx) |
+| A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:latest`, then open `http://localhost:4317/kalibra/` ([self-hosting guide](docs/self-hosting.md)) |
 
 ## What it does
 
@@ -87,7 +87,7 @@ More: [packages/sdk](packages/sdk/README.md) · [sdks/python](sdks/python/README
 Kalibra speaks MCP, so Claude Code, Codex, Cursor or Gemini CLI can fill datasets, set up targets and run evals for you, with the same operations as the UI. You drive your own agent; Kalibra never starts one.
 
 ```bash
-claude mcp add kalibra -- npx -y kalibra@next mcp
+claude mcp add kalibra -- npx -y kalibra mcp
 ```
 
 ## Teams

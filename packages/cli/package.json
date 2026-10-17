@@ -1,6 +1,6 @@
 {
   "name": "kalibra",
-  "version": "0.1.1-beta.1",
+  "version": "0.2.0",
   "description": "Local-first, open-source evaluation for AI applications: datasets, HTTP/WebSocket targets, layered checks (WER, LLM judge, …), runs and comparisons. Run with `npx kalibra`.",
   "license": "MIT",
   "author": "LibreGuild",
@@ -43,8 +43,8 @@
     "prepack": "node build.mjs"
   },
   "devDependencies": {
-    "@kalibra/core": "0.1.1-beta.1",
-    "@kalibra/server": "0.1.1-beta.1",
+    "@kalibra/core": "0.2.0",
+    "@kalibra/server": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.32.1"
   }
 }

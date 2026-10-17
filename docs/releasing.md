@@ -4,7 +4,7 @@ How a version gets to npm, GHCR and GitHub Releases. Running Kalibra yourself is
 
 1. Push a version tag; the tag is the version:
    ```sh
-   git tag v0.1.1-beta.1 && git push origin v0.1.1-beta.1
+   git tag v0.2.0 && git push origin v0.2.0
    ```
 2. `.github/workflows/release.yml` then:
    - **stages** `kalibra` on npm (dist-tag `next` for pre-releases, `latest` otherwise);
@@ -26,4 +26,4 @@ How a version gets to npm, GHCR and GitHub Releases. Running Kalibra yourself is
 |---|---|
 | Image | `docker build -t kalibra:local .` |
 | npm package contents | `npm pack -w kalibra --dry-run` |
-| Set a version everywhere | `node scripts/set-version.mjs 0.1.1-beta.1` (CI does this from the tag; also sets the Python SDK's `0.1.1b1`) |
+| Set a version everywhere | `node scripts/set-version.mjs 0.2.0` (CI does this from the tag; also sets the Python SDK; pre-releases like `0.3.0-beta.1` become `0.3.0b1` there) |

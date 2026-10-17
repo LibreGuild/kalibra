@@ -61,7 +61,7 @@ The `packages/cli` package is the public `kalibra` package. It bundles everythin
 ```bash
 cd packages/cli
 npm pack                    # inspect the tarball (prepack builds it)
-npx -y --package="$PWD/kalibra-0.1.1-beta.1.tgz" kalibra --help   # try it like a user
+npx -y --package="$PWD/kalibra-0.2.0.tgz" kalibra --help   # try it like a user
 ```
 
 Releases are staged from a version tag by GitHub Actions and approved on npmjs.com; see [releasing.md](releasing.md). Users then run `npx kalibra` (or `npm i -g kalibra`). Kalibra ships as npm and Docker only: no installers, no code-signing prompts.

@@ -60,7 +60,7 @@ inputs:
   kalibra-version:
     description: npm version or dist-tag of the kalibra CLI
     required: false
-    default: next
+    default: latest
 
 outputs:
   report:

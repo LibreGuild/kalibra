@@ -8,7 +8,7 @@
 # then copy it off the machine:  docker compose cp kalibra:/backups ./backups
 services:
   kalibra:
-    image: ghcr.io/libreguild/kalibra:next
+    image: ghcr.io/libreguild/kalibra:latest
     restart: unless-stopped
     environment:
       KALIBRA_PUBLIC_URL: https://kalibra.example.com

@@ -848,7 +848,7 @@ export const SECTIONS: Section[] = [
         syntax: 'bash',
         code: both(src`
           # Save the run id from your test (e.g. to .kalibra-run), then:
-          npx kalibra@next eval-report "$(cat .kalibra-run)" --format markdown > report.md
+          npx kalibra eval-report "$(cat .kalibra-run)" --format markdown > report.md
           gh pr comment "$PR_NUMBER" --body-file report.md
         `),
       },
