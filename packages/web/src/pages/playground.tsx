@@ -94,7 +94,8 @@ export function PlaygroundPage() {
   const ready = !!d.prompt.trim() && d.variants.every((v) => v.connectionId) && (d.source === 'dataset' ? !!d.dataset : d.values.length > 0);
 
   const run = async () => {
-    if (!ready || running) return;
+    // Also guards ⌘↵: running calls models with the project's keys (editor role).
+    if (!ready || running || !canEdit) return;
     setStarting(true);
     setError(null);
     setResult(null);

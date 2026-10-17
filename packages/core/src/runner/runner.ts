@@ -35,6 +35,10 @@ export class Runner {
     return this.active.has(runId);
   }
 
+  activeCount() {
+    return this.active.size;
+  }
+
   start(runId: string) {
     if (this.active.has(runId)) return;
     const ac = new AbortController();
@@ -76,6 +80,9 @@ export class Runner {
       let next = 0;
       let lastEmit = 0;
       let lastSummary = Date.now();
+      // The live summary re-reads every result; on big runs it gets slower, so it runs less often
+      // (at most ~10% of the time) instead of every 2 s regardless.
+      let summaryEvery = 2000;
 
       const worker = async () => {
         while (!signal.aborted) {
@@ -93,9 +100,11 @@ export class Runner {
             this.emitProgress(run.id);
           }
           // Live summary so pass rates and latency fill in while the run is still going.
-          if (Date.now() - lastSummary > 2000) {
+          if (Date.now() - lastSummary > summaryEvery) {
+            const started = Date.now();
+            runs.setSummary(run.id, summarize(runs.summaryRows(run.id), run.total || queue.length));
             lastSummary = Date.now();
-            runs.setSummary(run.id, summarize(runs.allLite(run.id), run.total || queue.length));
+            summaryEvery = Math.max(2000, (lastSummary - started) * 10);
           }
           if (run.settings.delayMs) await sleep(run.settings.delayMs, signal).catch(() => {});
         }
@@ -104,11 +113,11 @@ export class Runner {
       await Promise.all(Array.from({ length: workers }, worker));
 
       if (signal.aborted) runs.resetRunning(run.id);
-      const summary = summarize(runs.allLite(run.id), runs.get(run.id).total);
+      const summary = summarize(runs.summaryRows(run.id), runs.get(run.id).total);
       runs.setStatus(run.id, signal.aborted ? 'cancelled' : 'completed', { summary });
     } catch (e: any) {
       runs.resetRunning(run.id);
-      const summary = summarize(runs.allLite(run.id), runs.get(run.id).total);
+      const summary = summarize(runs.summaryRows(run.id), runs.get(run.id).total);
       runs.setStatus(run.id, 'failed', { error: e?.message ?? String(e), summary });
     }
     this.emitProgress(run.id);

@@ -56,6 +56,8 @@ export const newToken = () => randomBytes(32).toString('base64url');
 
 /** Failed sign-in attempts per IP address in 10 minutes (each account also locks after repeated wrong passwords). */
 const LOGIN_LIMIT = 20;
+/** Largest file upload. */
+const MAX_UPLOAD = 2 * 1024 * 1024 * 1024;
 /** How often live event streams re-check that the caller may still see the project. */
 const RECHECK_MS = 30_000;
 
@@ -279,7 +281,6 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (rest === '/files' && req.method === 'POST') {
       const { project, role } = hub.projectFor(p, projectId);
       if (!roleAtLeast(role, 'editor')) throw new KalibraError('forbidden', 'Uploading files needs the editor role in this project');
-      const data = await readBody(req, 2 * 1024 * 1024 * 1024);
       let name: string | undefined;
       try {
         name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')) || undefined;
@@ -287,7 +288,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         throw new KalibraError('invalid', 'Bad x-file-name header');
       }
       const type = String(req.headers['content-type'] ?? '');
-      return sendData(res, await hub.engine(project.id).blobs.put(data, { name, mime: type && type !== 'application/octet-stream' ? type : undefined }));
+      const meta = { name, mime: type && type !== 'application/octet-stream' ? type : undefined };
+      const blobs = hub.engine(project.id).blobs;
+      // Streamed to disk while hashing: a 2 GB upload must not need 2–4 GB of memory.
+      if (blobs.putStream) return sendData(res, await blobs.putStream(req, meta, MAX_UPLOAD));
+      return sendData(res, await blobs.put(await readBody(req, MAX_UPLOAD), meta));
     }
 
     const file = /^\/files\/([a-f0-9]{64})$/.exec(rest);

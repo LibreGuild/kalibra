@@ -277,14 +277,19 @@ export class RunRepo {
     logs?: unknown;
     attempts: number;
   }) {
+    const final = (s: unknown) => s === 'done' || s === 'error';
     this.db.tx(() => {
+      const before = this.db.get('SELECT status FROM results WHERE id = ?', resultId)?.status;
       this.db.run(
         `UPDATE results SET status = ?, passed = ?, score = ?, request = ?, response = ?, outputs = ?, checks = ?, metrics = ?, error = ?, logs = ?, attempts = ?, finished_at = ? WHERE id = ?`,
         r.status, r.passed === null ? null : r.passed ? 1 : 0, r.score, JSON.stringify(r.request ?? null), JSON.stringify(r.response ?? null),
         JSON.stringify(r.outputs ?? {}), JSON.stringify(r.checks ?? []), JSON.stringify(r.metrics ?? {}), r.error ?? null,
         JSON.stringify(r.logs ?? []), r.attempts, nowIso(), resultId,
       );
-      this.db.run("UPDATE runs SET done = (SELECT COUNT(*) FROM results WHERE run_id = ? AND status IN ('done','error')) WHERE id = ?", runId, runId);
+      // Keep the finished count by increments: recounting the run's results on every save made big runs
+      // quadratic (seconds per thousand rows at 50k).
+      const delta = Number(final(r.status)) - Number(final(before));
+      if (delta) this.db.run('UPDATE runs SET done = done + ? WHERE id = ?', delta, runId);
     });
   }
 
@@ -327,6 +332,20 @@ export class RunRepo {
     const r = this.db.get('SELECT * FROM results WHERE id = ?', id);
     if (!r) throw notFound('Result', id);
     return toResult(r);
+  }
+
+  /** Just what summarize() reads, for live and final run summaries (no inputs or outputs to parse). */
+  summaryRows(runId: string) {
+    return this.db
+      .all('SELECT status, passed, score, error, checks, metrics FROM results WHERE run_id = ? ORDER BY seq', runId)
+      .map((r) => ({
+        status: r.status as ResultStatus,
+        passed: r.passed === null ? null : !!r.passed,
+        score: r.score as number | null,
+        error: r.error as string | null,
+        checks: parseJson<any[]>(r.checks, []),
+        metrics: parseJson<Record<string, number>>(r.metrics, {}),
+      }));
   }
 
   /** All finished results of a run, light shape, for summaries and comparisons. */

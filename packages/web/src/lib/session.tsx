@@ -96,9 +96,13 @@ export function AuthGate() {
   );
 }
 
-/** Only same-site paths are followed after sign-in (never another site from a crafted link). */
+/**
+ * Only same-site paths are followed after sign-in (never another site from a crafted link).
+ * Browsers drop tabs and newlines from URLs and read a backslash as "/", so a path like "/<tab>/evil.example"
+ * would become "//evil.example": paths with control characters or backslashes are refused.
+ */
 export function safeNext(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  if (!next || !next.startsWith('/') || next.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(next) || next.startsWith('/api/')) return '/';
   return next;
 }
 

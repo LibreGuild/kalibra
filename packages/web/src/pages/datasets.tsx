@@ -560,6 +560,7 @@ function RowsTab({
 /* Columns & instructions tab ─────────────────────────────────────────────── */
 
 function ColumnsTab({ ds, onSaved }: { ds: DatasetSchemaResp; onSaved: () => void }) {
+  const canEdit = useCanEdit();
   const qc = useQueryClient();
   const [columns, setColumns] = useState<ColumnDef[]>(ds.columns);
   const [instructions, setInstructions] = useState(ds.instructions);
@@ -610,7 +611,8 @@ function ColumnsTab({ ds, onSaved }: { ds: DatasetSchemaResp; onSaved: () => voi
   }
 
   return (
-    <div className="flex max-w-[1000px] flex-col gap-6">
+    // Viewers see the columns and instructions read-only (every control inside is disabled).
+    <fieldset disabled={!canEdit} className="flex max-w-[1000px] min-w-0 flex-col gap-6">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -635,27 +637,29 @@ function ColumnsTab({ ds, onSaved }: { ds: DatasetSchemaResp; onSaved: () => voi
         <Textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={5} placeholder="How new rows should be written" />
       </Field>
 
-      <div className="flex items-center gap-3 border-t border-line pt-4">
-        <Button variant="primary" loading={saving} disabled={!dirty || invalid} onClick={save}>
-          Save changes
-        </Button>
-        {dirty && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setColumns(ds.columns);
-              setInstructions(ds.instructions);
-              setName(ds.name);
-              setDescription(ds.description);
-              setBaseRevision(ds.revision);
-            }}
-          >
-            Discard
+      {canEdit && (
+        <div className="flex items-center gap-3 border-t border-line pt-4">
+          <Button variant="primary" loading={saving} disabled={!dirty || invalid} onClick={save}>
+            Save changes
           </Button>
-        )}
-        <span className="text-[0.78125rem] text-ink-faint">{dirty ? 'Unsaved changes' : `Revision ${baseRevision}`}</span>
-      </div>
-    </div>
+          {dirty && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setColumns(ds.columns);
+                setInstructions(ds.instructions);
+                setName(ds.name);
+                setDescription(ds.description);
+                setBaseRevision(ds.revision);
+              }}
+            >
+              Discard
+            </Button>
+          )}
+          <span className="text-[0.78125rem] text-ink-faint">{dirty ? 'Unsaved changes' : `Revision ${baseRevision}`}</span>
+        </div>
+      )}
+    </fieldset>
   );
 }
 

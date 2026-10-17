@@ -49,6 +49,11 @@ export class Jobs {
 
   constructor(private events: EventBus) {}
 
+  /** Jobs still queued or running. */
+  activeCount() {
+    return [...this.jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running').length;
+  }
+
   start<T>(kind: string, title: string, fn: (job: JobHandle) => Promise<T>, actor?: Actor, meta?: Record<string, unknown>): JobRecord {
     const id = newId('job');
     const job: JobRecord = { id, kind, title, status: 'queued', done: 0, total: 0, message: '', errors: [], actor, meta, createdAt: nowIso() };

@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate as useRawNavigate } from 'react-router';
 import { NavLink } from '../../lib/nav';
 import clsx from 'clsx';
 import { BookOpen, Bot, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { authCall, useOp } from '../../lib/api';
+import { authCall, forgetProject, useOp } from '../../lib/api';
 import { ProjectProvider, useProject, useSession } from '../../lib/session';
 import { Menu, MenuItem, MenuSeparator, Tip } from '../ui/overlay';
 import { toastError } from '../ui/toast';
@@ -77,7 +77,8 @@ export function AppShell() {
 function Shell() {
   const session = useSession();
   const project = useProject();
-  const datasets = useOp<any[]>('list_datasets', {}, { retry: false });
+  // Rows waiting for review in the current project (none on pages outside a project).
+  const datasets = useOp<any[]>('list_datasets', {}, { retry: false, enabled: !!project });
   const review = (datasets.data ?? []).reduce((n, d) => n + (d.reviewCount ?? 0), 0);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggle = () =>
@@ -89,6 +90,18 @@ function Shell() {
       }
       return !c;
     });
+
+  // The collapse and expand buttons replace each other; keep keyboard focus on whichever is shown.
+  const toggleButton = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  const toggleFromButton = (e: { currentTarget: HTMLButtonElement }) => {
+    refocus.current = document.activeElement === e.currentTarget;
+    toggle();
+  };
+  useEffect(() => {
+    if (refocus.current) toggleButton.current?.focus();
+    refocus.current = false;
+  }, [collapsed]);
 
   // ⌘\ / Ctrl+\ toggles the sidebar.
   useEffect(() => {
@@ -106,8 +119,37 @@ function Shell() {
     <div className="flex h-full">
       <aside className={clsx('flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
         <div className={clsx('mb-4 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
-          <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent">K</div>
-          {!collapsed && <span className="text-[1.0625rem] font-bold tracking-tight">Kalibra</span>}
+          {collapsed ? (
+            // Collapsed: the logo tile is the expand control; hover or focus swaps the K for the icon.
+            <Tip content={'Expand sidebar (⌘\\)'} side="right">
+              <button
+                ref={toggleButton}
+                type="button"
+                onClick={toggleFromButton}
+                aria-label="Expand sidebar"
+                className="group relative grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent focus-visible:outline-offset-2"
+              >
+                <span className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">K</span>
+                <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
+              </button>
+            </Tip>
+          ) : (
+            <>
+              <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent">K</div>
+              <span className="flex-1 text-[1.0625rem] font-bold tracking-tight">Kalibra</span>
+              <Tip content={'Collapse sidebar (⌘\\)'} side="right">
+                <button
+                  ref={toggleButton}
+                  type="button"
+                  onClick={toggleFromButton}
+                  aria-label="Collapse sidebar"
+                  className="grid size-7 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-hover hover:text-ink"
+                >
+                  <PanelLeftClose className="size-4" />
+                </button>
+              </Tip>
+            </>
+          )}
         </div>
         <div className="mb-3">
           <ProjectSwitcher collapsed={collapsed} />
@@ -129,19 +171,6 @@ function Shell() {
           ))}
         </nav>
         {session.isServer && session.user && <UserMenu collapsed={collapsed} />}
-        <div className="mt-1.5">
-          <Tip content={collapsed ? 'Expand sidebar (⌘\\)' : 'Collapse sidebar (⌘\\)'} side="right">
-            <button
-              type="button"
-              onClick={toggle}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className={clsx('flex h-8 w-full items-center rounded-lg text-[0.8125rem] text-ink-faint hover:bg-hover hover:text-ink', collapsed ? 'justify-center' : 'gap-2.5 px-2.5')}
-            >
-              {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-              {!collapsed && 'Collapse'}
-            </button>
-          </Tip>
-        </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto">
         {project && !project.canEdit && <ViewOnlyBar />}
@@ -174,6 +203,7 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
       return;
     }
     qc.clear();
+    forgetProject();
     window.location.assign('/login');
   };
   const initial = (user.name || user.username).slice(0, 1).toUpperCase();

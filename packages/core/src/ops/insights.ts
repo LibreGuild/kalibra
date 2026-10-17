@@ -111,7 +111,7 @@ export const insightOps = [
       if (i.by === 'column' && !i.column) throw invalid('Pick a column to split by');
       const results = runs.allLite(run.id);
       const rowMeta = new Map<string, { tags: string[]; status: string }>();
-      if (run.datasetVersionId) for (const r of datasets.versionRows(run.datasetVersionId)) rowMeta.set(r.id, { tags: r.tags, status: r.status });
+      if (run.datasetVersionId) for (const r of datasets.versionRowMeta(run.datasetVersionId)) rowMeta.set(r.id, { tags: r.tags, status: r.status });
 
       // Columns worth slicing by: a handful of distinct values each.
       let columns: { key: string; type: string }[] = [];

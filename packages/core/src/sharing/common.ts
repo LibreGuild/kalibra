@@ -3,7 +3,7 @@ import { isAbsolute, normalize, resolve, sep } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
-import { validateRow } from '../repo/datasets.js';
+import { fingerprint, validateRow } from '../repo/datasets.js';
 import type { ColumnSpec, RowStatus } from '../specs.js';
 import { invalid, newId, nowIso, parseJson } from '../util.js';
 
@@ -256,9 +256,9 @@ export function insertRows(engine: Engine, datasetId: string, columns: ColumnSpe
       const data = JSON.stringify(value);
       const tags = JSON.stringify(Array.isArray(row.tags) ? row.tags.filter((t) => typeof t === 'string') : []);
       db.run(
-        `INSERT INTO rows (id, dataset_id, seq, rev, data, tags, status, split, provenance, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO rows (id, dataset_id, seq, rev, data, tags, status, split, provenance, created_at, updated_at, fp) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, datasetId, seq++, data, tags, row.status ?? 'approved', row.split ?? null,
-        JSON.stringify({ ...(row.provenance ?? {}), ...extraProvenance }), now, now,
+        JSON.stringify({ ...(row.provenance ?? {}), ...extraProvenance }), now, now, fingerprint(value),
       );
       db.run('INSERT INTO row_revs (row_id, rev, data, tags, created_at, actor) VALUES (?, 1, ?, ?, ?, ?)', id, data, tags, now, JSON.stringify(actor));
       added.push({ index, id, sourceId: row.id });

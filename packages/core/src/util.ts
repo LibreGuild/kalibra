@@ -38,11 +38,17 @@ export function parseJson<T>(text: string | null | undefined, fallback: T): T {
 export const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(t);
-      reject(signal.reason);
-    }, { once: true });
+      reject(signal!.reason);
+    };
+    // The listener is removed when the time is up: a run shares one signal across thousands of
+    // waits (delays, retries), and leftover listeners would pile up on it.
+    const t = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 
 export function percentile(sorted: number[], p: number): number | undefined {

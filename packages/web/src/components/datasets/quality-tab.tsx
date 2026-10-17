@@ -5,6 +5,7 @@ import { Card, ErrorBox, Loading, SectionTitle } from '../ui/display';
 import { Button } from '../ui/button';
 import { HelpTip, Tip } from '../ui/overlay';
 import { useOp } from '../../lib/api';
+import { useCanEdit } from '../../lib/session';
 import { DuplicatesSection } from './quality/duplicates';
 import { FillGapsDialog } from './quality/fill-gaps-dialog';
 import { LocalModelStatus } from './quality/semantic-tools';
@@ -27,7 +28,7 @@ function Chip({ label, value, tone, help }: { label: string; value: string | num
   );
 }
 
-function CoverageBars({ col, onFill }: { col: ColumnQuality; onFill: () => void }) {
+function CoverageBars({ col, onFill }: { col: ColumnQuality; onFill?: () => void }) {
   const values = col.topValues ?? [];
   const max = Math.max(1, ...values.map((v) => v.count));
   const shown = values.slice(0, 12);
@@ -35,9 +36,11 @@ function CoverageBars({ col, onFill }: { col: ColumnQuality; onFill: () => void 
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <span className="font-mono text-[0.8125rem]">{col.key}</span>
-        <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} onClick={onFill}>
-          Fill gaps
-        </Button>
+        {onFill && (
+          <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} onClick={onFill}>
+            Fill gaps
+          </Button>
+        )}
       </div>
       <ul className="flex flex-col gap-1.5">
         {shown.map((v) => (
@@ -113,6 +116,8 @@ function Metric({ label, value, help }: { label: string; value: string; help: st
 export function QualityTab({ datasetId }: { datasetId: string; columns: { key: string; type: string }[] }) {
   const q = useOp<QualityReport>('dataset_quality', { dataset: datasetId }, { staleTime: 0 });
   const [fill, setFill] = useState<{ open: boolean; column?: string }>({ open: false });
+  // Filling gaps, finding and merging duplicates call models and change rows: editors only.
+  const canEdit = useCanEdit();
   const [showAllFlags, setShowAllFlags] = useState(false);
 
   if (q.isLoading) return <Loading label="Checking the dataset…" />;
@@ -152,7 +157,7 @@ export function QualityTab({ datasetId }: { datasetId: string; columns: { key: s
                   <div className="text-[0.84375rem] font-medium">{f.message}</div>
                   <div className="text-[0.78125rem] text-ink-muted">{f.suggestion}</div>
                 </div>
-                {(f.kind === 'imbalanced' || f.kind === 'missing_values') && f.column && (
+                {canEdit && (f.kind === 'imbalanced' || f.kind === 'missing_values') && f.column && (
                   <Button size="sm" onClick={() => setFill({ open: true, column: f.column })}>
                     Fill gaps
                   </Button>
@@ -177,13 +182,13 @@ export function QualityTab({ datasetId }: { datasetId: string; columns: { key: s
           <SectionTitle help="How often each value appears in category-like columns (accent, category, language…). Uneven coverage means some cases are barely tested. Fill gaps asks a model for more rows of the rare values.">Coverage</SectionTitle>
           <div className="grid gap-6 lg:grid-cols-2">
             {categorical.map((c) => (
-              <CoverageBars key={c.key} col={c} onFill={() => setFill({ open: true, column: c.key })} />
+              <CoverageBars key={c.key} col={c} onFill={canEdit ? () => setFill({ open: true, column: c.key }) : undefined} />
             ))}
           </div>
         </Card>
       )}
 
-      <DuplicatesSection datasetId={datasetId} onChanged={() => q.refetch()} />
+      {canEdit && <DuplicatesSection datasetId={datasetId} onChanged={() => q.refetch()} />}
 
       {textCols.length > 0 && (
         <Card>
@@ -196,12 +201,14 @@ export function QualityTab({ datasetId }: { datasetId: string; columns: { key: s
         </Card>
       )}
 
-      <details className="group rounded-xl border border-line bg-surface px-5 py-4">
-        <summary className="cursor-pointer text-[0.84375rem] font-semibold text-ink-muted group-open:text-ink">Meaning-based tools</summary>
-        <div className="mt-4">
-          <LocalModelStatus />
-        </div>
-      </details>
+      {canEdit && (
+        <details className="group rounded-xl border border-line bg-surface px-5 py-4">
+          <summary className="cursor-pointer text-[0.84375rem] font-semibold text-ink-muted group-open:text-ink">Meaning-based tools</summary>
+          <div className="mt-4">
+            <LocalModelStatus />
+          </div>
+        </details>
+      )}
 
       {fill.open && <FillGapsDialog open onOpenChange={(o) => setFill((f) => ({ ...f, open: o }))} datasetId={datasetId} columns={r.columns} initialColumn={fill.column} />}
     </div>

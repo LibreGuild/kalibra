@@ -366,7 +366,9 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
       await sendMessages(cfg.onOpen);
       if (cfg.waitForOpenAck.trim() && isOpen() && !acked) {
         const ack = new Promise<void>((r) => (ackWaiter = r));
-        const r = await Promise.race([ack, done.then(() => 'done'), sleep(cfg.connectTimeoutMs).then(() => 'timeout')]);
+        // Its own timer, cleared afterwards, so a finished call does not keep the process alive.
+        const stopWaiting = new AbortController();
+        const r = await Promise.race([ack, done.then(() => 'done'), sleep(cfg.connectTimeoutMs, stopWaiting.signal).then(() => 'timeout', () => 'stopped')]).finally(() => stopWaiting.abort());
         if (r === 'timeout') throw new Error(`No message matched waitForOpenAck within ${cfg.connectTimeoutMs} ms`);
       }
       if (cfg.audio.enabled && isOpen()) await sendAudio();

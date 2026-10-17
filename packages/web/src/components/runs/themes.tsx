@@ -9,6 +9,7 @@ import { Field, Input } from '../ui/form';
 import { HelpTip, Popover, Tip } from '../ui/overlay';
 import { toastError } from '../ui/toast';
 import { op, useOp } from '../../lib/api';
+import { CanEdit } from '../../lib/session';
 import { pct, timeAgo } from '../../lib/format';
 import { useJob } from '../datasets/media-dialogs';
 
@@ -142,7 +143,10 @@ export function ThemesPanel({ runId, onFilter }: { runId: string; onFilter?: (re
           <span className="font-semibold text-ink">{data.totalFailures}</span> failed {data.totalFailures === 1 ? 'row' : 'rows'}
           {onFilter && <span> · click a group to see its rows</span>}
         </div>
-        <FindThemesButton runId={runId} onStarted={setJobId} busy={!!running} />
+        {/* Asks a model, so it needs the editor role. */}
+        <CanEdit>
+          <FindThemesButton runId={runId} onStarted={setJobId} busy={!!running} />
+        </CanEdit>
       </div>
 
       {running && job.data && (

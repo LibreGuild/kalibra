@@ -451,11 +451,13 @@ export function RunDetailPage() {
               </Button>
             </Tip>
           )}
-          <Tip content="Label results yourself and see how well each check (e.g. an LLM judge) agrees with you">
-            <Button icon={<Scale className="size-4" />} onClick={() => navigate(`/runs/${r.id}/calibrate`)} disabled={!(s.checks ?? []).length}>
-              Review & calibrate
-            </Button>
-          </Tip>
+          {canEdit && (
+            <Tip content="Label results yourself and see how well each check (e.g. an LLM judge) agrees with you">
+              <Button icon={<Scale className="size-4" />} onClick={() => navigate(`/runs/${r.id}/calibrate`)} disabled={!(s.checks ?? []).length}>
+                Review & calibrate
+              </Button>
+            </Tip>
+          )}
           <Menu
             trigger={
               <Button icon={<GitCompare className="size-4" />} disabled={compareTargets.length === 0}>
@@ -677,21 +679,22 @@ export function RunDetailPage() {
                       header: '',
                       width: '48px',
                       align: 'right',
-                      render: (c) => (
-                        <Tip content="Label rows yourself and measure how often this check agrees with you">
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            aria-label="Calibrate this check"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/runs/${r.id}/calibrate?check=${encodeURIComponent(c.id)}`);
-                            }}
-                          >
-                            <Scale className="size-3.5" />
-                          </Button>
-                        </Tip>
-                      ),
+                      render: (c) =>
+                        canEdit && (
+                          <Tip content="Label rows yourself and measure how often this check agrees with you">
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label="Calibrate this check"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/runs/${r.id}/calibrate?check=${encodeURIComponent(c.id)}`);
+                              }}
+                            >
+                              <Scale className="size-3.5" />
+                            </Button>
+                          </Tip>
+                        ),
                     },
                   ]}
                 />

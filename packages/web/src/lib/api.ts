@@ -40,6 +40,15 @@ export function rememberProject(id: string) {
   }
 }
 
+/** On sign-out: the next person on this browser should not start in this person's project. */
+export function forgetProject() {
+  try {
+    localStorage.removeItem(LAST_PROJECT);
+  } catch {
+    /* nothing remembered */
+  }
+}
+
 let currentProject = lastProject();
 
 /** The project imperative `op()` calls go to. Set by the project layout before its pages render. */
@@ -200,11 +209,14 @@ export function useLiveEvents(project: string, enabled = true) {
     if (!enabled) return;
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    // Reconnect delay: grows while the server is unreachable (or refuses us), resets once connected.
+    let delay = 2000;
     const pending = new Set<string>();
     let flush: ReturnType<typeof setTimeout> | undefined;
 
     const connect = () => {
       es = new EventSource(`${projectBase(project)}/events`, { withCredentials: true });
+      es.onopen = () => (delay = 2000);
       es.onmessage = (m) => {
         try {
           const e = JSON.parse(m.data);
@@ -220,7 +232,10 @@ export function useLiveEvents(project: string, enabled = true) {
       };
       es.onerror = () => {
         es?.close();
-        retry = setTimeout(connect, 2000);
+        // EventSource hides the status code: re-check sign-in, so an ended session shows the sign-in page.
+        onAuthProblem?.();
+        retry = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 30_000);
       };
     };
     connect();

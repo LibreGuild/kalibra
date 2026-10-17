@@ -5,7 +5,7 @@ import { GitBranch, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { ErrorBox } from '../components/ui/display';
 import { Field, Input } from '../components/ui/form';
-import { authCall, hubOp, useAuthStatus, type AuthStatus } from '../lib/api';
+import { authCall, forgetProject, hubOp, useAuthStatus, type AuthStatus } from '../lib/api';
 import { safeNext, useSession } from '../lib/session';
 
 /*
@@ -243,6 +243,7 @@ export function ChangePasswordPage() {
           className="text-[0.78125rem] text-ink-faint hover:text-ink"
           onClick={async () => {
             await authCall('logout').catch(() => {});
+            forgetProject();
             window.location.assign('/login');
           }}
         >

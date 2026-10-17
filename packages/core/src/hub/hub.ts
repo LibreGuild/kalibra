@@ -62,7 +62,15 @@ export interface HubOptions {
   authProviders?: { config: unknown; clientSecret?: string }[];
   /** Where client secrets of sign-in providers made in the app are kept. Defaults to hub-secrets.json (0600). */
   hubSecrets?: SecretStore;
+  /**
+   * Project engines kept open at once (each holds ~4 open files). Beyond this, engines that have
+   * been idle for a while are closed and reopened on next use. Default 64.
+   */
+  maxOpenProjects?: number;
 }
+
+/** An open project is only closed to make room after this long without use. */
+const IDLE_CLOSE_MS = 10 * 60_000;
 
 export class Hub {
   readonly dir: string;
@@ -81,7 +89,9 @@ export class Hub {
     },
     accessOf: (def) => def.access,
   });
+  /** Open project engines, least recently used first, with when each was last used. */
   private engines = new Map<string, Engine>();
+  private lastUsed = new Map<string, number>();
   /** One-time code that lets the first administrator be created on a fresh server (see completeSetup). */
   private setup?: string;
 
@@ -232,23 +242,56 @@ export class Hub {
   engine(projectId: string): Engine {
     const project = this.projects.get(projectId);
     let engine = this.engines.get(project.id);
-    if (!engine) {
+    if (engine) this.engines.delete(project.id); // re-inserted below: the map stays in use order
+    else {
       const dir = resolve(this.dir, project.dir);
       engine = new Engine({ dir, ...(this.opts.secretsFor ? { secrets: this.opts.secretsFor(dir) } : {}) });
-      this.engines.set(project.id, engine);
     }
+    this.engines.set(project.id, engine);
+    this.lastUsed.set(project.id, Date.now());
+    this.closeIdle(project.id);
     return engine;
   }
 
-  /** Opens every live project, so runs left running by a crash are marked interrupted right away. */
+  /**
+   * Keeps at most maxOpenProjects engines open by closing ones that sit idle (no runs, jobs, calls
+   * or live listeners) and were not used recently. Busy or recent engines are never closed, so the
+   * cap can be exceeded briefly rather than interrupt work.
+   */
+  private closeIdle(keep: string) {
+    const max = this.opts.maxOpenProjects ?? 64;
+    if (this.engines.size <= max) return;
+    const cutoff = Date.now() - IDLE_CLOSE_MS;
+    for (const [id, engine] of this.engines) {
+      if (this.engines.size <= max) break;
+      if (id === keep || (this.lastUsed.get(id) ?? 0) > cutoff || !engine.isIdle()) continue;
+      this.closeEngine(id);
+    }
+  }
+
+  /**
+   * Opens every live project once, so runs left running by a crash are marked interrupted right
+   * away. Engines over the open limit are closed again (they reopen on use).
+   */
   openAll() {
-    for (const p of this.projects.list()) this.engine(p.id);
+    const max = this.opts.maxOpenProjects ?? 64;
+    for (const p of this.projects.list()) {
+      const fresh = !this.engines.has(p.id);
+      const engine = this.engine(p.id);
+      if (fresh && this.engines.size > max && engine.isIdle()) this.closeEngine(p.id);
+    }
   }
 
   /** Closes a project's engine (when it moves to the trash). */
   closeEngine(projectId: string) {
     this.engines.get(projectId)?.close();
     this.engines.delete(projectId);
+    this.lastUsed.delete(projectId);
+  }
+
+  /** How many project engines are open (for tests and diagnostics). */
+  openEngineCount() {
+    return this.engines.size;
   }
 
   close() {

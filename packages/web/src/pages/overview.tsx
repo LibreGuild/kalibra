@@ -22,11 +22,11 @@ export function OverviewPage() {
   const activity = useOp<any[]>('list_activity', { limit: 8 });
   const datasets = useOp<any[]>('list_datasets');
   const review = (datasets.data ?? []).filter((d) => d.reviewCount > 0);
+  const { isServer } = useSession();
+  const meta = useMeta();
 
   if (ws.isLoading) return <Loading />;
   const counts = ws.data ?? {};
-  const { isServer } = useSession();
-  const meta = useMeta();
   const done = STEPS.filter((s) => counts[s.key] > 0).length;
 
   return (

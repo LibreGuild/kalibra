@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, stat, writeFile, chmod } from 'node:fs/promises';
-import { createReadStream, existsSync, readFileSync } from 'node:fs';
+import { mkdir, readFile, rename, rm, stat, writeFile, chmod } from 'node:fs/promises';
+import { createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
+import { once } from 'node:events';
 import { dirname, join } from 'node:path';
 import type { Db } from './db.js';
-import { invalid, notFound, nowIso } from './util.js';
+import { invalid, KalibraError, notFound, nowIso } from './util.js';
 
 export interface BlobInfo {
   hash: string;
@@ -15,6 +16,11 @@ export interface BlobInfo {
 /** Content-addressed file store. Desktop: local folder. Server mode can swap in S3/GCS/Azure Blob. */
 export interface BlobStore {
   put(data: Uint8Array, meta: { mime?: string; name?: string }): Promise<BlobInfo>;
+  /**
+   * Stores a stream without holding it in memory (large uploads). Optional for other stores; callers
+   * fall back to buffering and put(). Throws when more than `maxBytes` arrive.
+   */
+  putStream?(source: AsyncIterable<Uint8Array>, meta: { mime?: string; name?: string }, maxBytes: number): Promise<BlobInfo>;
   get(hash: string): Promise<Buffer>;
   info(hash: string): BlobInfo | undefined;
   stream(hash: string, range?: { start: number; end: number }): NodeJS.ReadableStream;
@@ -45,6 +51,44 @@ export class FsBlobStore implements BlobStore {
       info.hash, info.size, info.mime, info.name ?? null, nowIso(),
     );
     return info;
+  }
+
+  async putStream(source: AsyncIterable<Uint8Array>, meta: { mime?: string; name?: string }, maxBytes: number): Promise<BlobInfo> {
+    // Written to a temp file while hashing, then moved to its content address.
+    await mkdir(this.root, { recursive: true });
+    const tmp = join(this.root, `upload.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`);
+    const out = createWriteStream(tmp);
+    const hasher = createHash('sha256');
+    let size = 0;
+    let head = Buffer.alloc(0);
+    try {
+      for await (const chunk of source) {
+        size += chunk.byteLength;
+        if (size > maxBytes) throw new KalibraError('invalid', 'File too large');
+        hasher.update(chunk);
+        if (head.length < 16) head = Buffer.concat([head, Buffer.from(chunk.subarray(0, 16 - head.length))]);
+        if (!out.write(chunk)) await once(out, 'drain');
+      }
+      out.end();
+      await once(out, 'close');
+      const hash = hasher.digest('hex');
+      const file = this.path(hash);
+      if (existsSync(file)) await rm(tmp, { force: true });
+      else {
+        await mkdir(dirname(file), { recursive: true });
+        await rename(tmp, file);
+      }
+      const info: BlobInfo = { hash, size, mime: meta.mime || sniffMime(head, meta.name), name: meta.name };
+      this.db.run(
+        'INSERT INTO blobs (hash, size, mime, name, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(hash) DO NOTHING',
+        info.hash, info.size, info.mime, info.name ?? null, nowIso(),
+      );
+      return info;
+    } catch (e) {
+      out.destroy();
+      await rm(tmp, { force: true });
+      throw e;
+    }
   }
 
   async get(hash: string) {

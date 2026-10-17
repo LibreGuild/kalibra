@@ -8,7 +8,7 @@ import { ApiError, op, useOp, useOpMutation } from '../lib/api';
 import { actorLabel, dateTime, timeAgo } from '../lib/format';
 import { BackLink, Page } from '../components/layout/shell';
 import { Button } from '../components/ui/button';
-import { Badge, EmptyState, ErrorBox, Loading } from '../components/ui/display';
+import { Badge, Card, EmptyState, ErrorBox, Loading } from '../components/ui/display';
 import { Field, Input, KeyValueEditor } from '../components/ui/form';
 import { Dialog, Popover, Tip, useConfirm } from '../components/ui/overlay';
 import { SimpleTable } from '../components/ui/table';
@@ -269,12 +269,12 @@ export function TargetEditorPage() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (dirty) save();
+        if (dirty && canEdit) save();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dirty, save]);
+  }, [dirty, save, canEdit]);
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => canEdit && !leaving.current && dirty && currentLocation.pathname !== nextLocation.pathname);
   useBeforeUnload(
@@ -407,7 +407,12 @@ export function TargetEditorPage() {
         </div>
 
         <div className="min-w-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-48px)] lg:self-start lg:overflow-y-auto">
-          <TryPanel spec={draft.spec} targetId={id} />
+          {canEdit ? (
+            <TryPanel spec={draft.spec} targetId={id} />
+          ) : (
+            // Trying calls the app with the project's secrets, which is an editor's action.
+            <Card className="text-[0.8125rem] text-ink-muted">Trying a target calls your app with this project's secrets, so it needs the editor role.</Card>
+          )}
         </div>
       </div>
 

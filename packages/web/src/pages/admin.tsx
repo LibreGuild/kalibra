@@ -207,12 +207,11 @@ function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const [form, setForm] = useState(empty);
   const [created, setCreated] = useState<{ username: string; password?: string } | null>(null);
   const create = useHubMutation('create_user', { invalidate: ['list_users', 'list_people'] });
+  // Reset on open and on close, so a starting password does not stay in memory after the dialog.
   useEffect(() => {
-    if (open) {
-      setForm(empty);
-      setCreated(null);
-      create.reset();
-    }
+    setForm(empty);
+    setCreated(null);
+    create.reset();
   }, [open]);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const submit = async (e?: FormEvent) => {
@@ -312,9 +311,12 @@ function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
 function EditUserDialog({ user, onClose }: { user: any; onClose: () => void }) {
   const [form, setForm] = useState({ name: '', email: '', role: 'user', disabled: false });
   const { user: me } = useSession();
+  const qc = useQueryClient();
   const update = useHubMutation('update_user', {
-    invalidate: ['list_users', 'list_people'],
+    invalidate: ['list_users', 'list_people', 'get_me'],
     onSuccess: () => {
+      // Editing yourself (name, role) changes what the sidebar and pages show.
+      qc.invalidateQueries({ queryKey: ['auth-status'] });
       toast.success('User saved');
       onClose();
     },
@@ -379,12 +381,11 @@ function ResetPasswordDialog({ user, onClose }: { user: any; onClose: () => void
   const [done, setDone] = useState<string | null>(null);
   const reset = useHubMutation('reset_user_password', { invalidate: ['list_users'] });
   useEffect(() => {
-    if (user) {
-      setPassword(temporaryPassword());
-      setRevokeTokens(true);
-      setDone(null);
-      reset.reset();
-    }
+    // A fresh password on open; forget it (and the request carrying it) on close.
+    setPassword(user ? temporaryPassword() : '');
+    setRevokeTokens(true);
+    setDone(null);
+    reset.reset();
   }, [user]);
   if (!user) return null;
   return (

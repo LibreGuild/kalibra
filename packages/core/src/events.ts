@@ -22,6 +22,11 @@ export class EventBus {
     this.emitter.emit('event', e);
   }
 
+  /** How many listeners (e.g. open live-event streams) are attached. */
+  listenerCount() {
+    return this.emitter.listenerCount('event');
+  }
+
   subscribe(fn: (e: EngineEvent) => void) {
     this.emitter.on('event', fn);
     return () => this.emitter.off('event', fn);

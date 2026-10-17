@@ -201,6 +201,12 @@ export const PROJECT_MIGRATIONS: string[] = [
   );
   CREATE INDEX insights_subject ON insights(kind, subject_id, created_at);
   `,
+  // 4: a fingerprint per row, so the duplicate check when adding rows is an index lookup instead of
+  // reading and hashing the whole dataset on every add (rows written before this get theirs lazily)
+  `
+  ALTER TABLE rows ADD COLUMN fp TEXT;
+  CREATE INDEX rows_fp ON rows(dataset_id, fp);
+  `,
 ];
 
 /** Thin synchronous wrapper over node:sqlite with cached statements and transactions. */

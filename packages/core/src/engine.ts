@@ -48,6 +48,8 @@ export class Engine {
   embeddings: Embedder = new Embeddings(() => ({ getConnection: (id) => ConnectionSpec.parse(this.repos.defs.get('connection', id).spec), secrets: this.secrets }));
   /** Background jobs (media generation, augmentation, …). */
   readonly jobs: Jobs;
+  /** Operations currently executing. */
+  private inFlight = 0;
 
   constructor(opts: EngineOptions) {
     this.dir = resolve(opts.dir);
@@ -70,7 +72,13 @@ export class Engine {
    */
   async call<T = any>(name: string, input: unknown, actor: Actor = LOCAL_USER, access: { role?: ProjectRole; caps?: Capabilities } = {}): Promise<T> {
     const ctx = { engine: this, actor, role: access.role ?? 'owner', caps: access.caps ?? ALL_CAPABILITIES };
-    const result = await withCall(ctx, () => this.registry.call(ctx, name, input));
+    this.inFlight++;
+    let result: unknown;
+    try {
+      result = await withCall(ctx, () => this.registry.call(ctx, name, input));
+    } finally {
+      this.inFlight--;
+    }
     const def = this.registry.get(name)!;
     if (!def.readOnly && !def.quiet) {
       const summary = describeChange(def.title, input);
@@ -78,6 +86,11 @@ export class Engine {
       this.events.emit({ type: 'activity', op: name, summary, actor });
     }
     return result as T;
+  }
+
+  /** Nothing running, no operation executing and nobody listening: safe to close to free its files. */
+  isIdle() {
+    return this.inFlight === 0 && this.runner.activeCount() === 0 && this.jobs.activeCount() === 0 && this.events.listenerCount() === 0;
   }
 
   templateEnv(): TemplateEnv {

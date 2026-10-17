@@ -10,6 +10,7 @@ import { toastError } from '../components/ui/toast';
 import { AgreementPanel, type Agreement } from '../components/calibrate/agreement';
 import { LabelCard, type LabelItem } from '../components/calibrate/label-card';
 import { op, useOp } from '../lib/api';
+import { useCanEdit } from '../lib/session';
 
 type Strategy = 'balanced' | 'random' | 'unlabeled_failures' | 'disagreements';
 const ROW = '__row__'; // UI value for "the whole row" (checkId '')
@@ -30,6 +31,7 @@ export function CalibratePage() {
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
   const run = useOp<any>('get_run', { runId });
+  const canEdit = useCanEdit();
 
   const checks = useMemo(
     () =>
@@ -54,7 +56,7 @@ export function CalibratePage() {
   const [feedback, setFeedback] = useState<{ agree: boolean; check: 'pass' | 'fail' } | null>(null);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const queue = useOp<{ items: LabelItem[]; remaining: number }>('next_to_label', { runId, checkId, strategy, limit: 300 }, { enabled: !!run.data && checks.length > 0 });
+  const queue = useOp<{ items: LabelItem[]; remaining: number }>('next_to_label', { runId, checkId, strategy, limit: 300 }, { enabled: canEdit && !!run.data && checks.length > 0 });
   const agreement = useOp<Agreement>(
     'judge_agreement',
     scope === 'suite' ? { suiteId: run.data?.suiteId, checkId } : { runId, checkId },
@@ -183,7 +185,11 @@ export function CalibratePage() {
       title="Calibrate checks"
       description="Label a sample of results yourself, then see how often a check — especially an LLM judge — agrees with you. Trust a judge once its agreement is high on enough rows."
     >
-      {checks.length === 0 ? (
+      {!canEdit ? (
+        <EmptyState icon={<Scale />} title="Labelling needs the editor role">
+          Viewers can read results but not label them. Ask a project owner for the editor role.
+        </EmptyState>
+      ) : checks.length === 0 ? (
         <EmptyState icon={<Scale />} title="Nothing to calibrate yet">
           This run has no check results. Calibrate once it has finished scoring some rows.
         </EmptyState>

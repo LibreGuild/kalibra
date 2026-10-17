@@ -175,9 +175,12 @@ export class DatasetRepo {
     const rejected: { index: number; errors: string[]; duplicateOf?: string }[] = [];
     const warnings: { index: number; message: string }[] = [];
     const now = nowIso();
-    const existing = opts.dedupe === false ? new Map<string, string>() : this.fingerprints(ds.id);
+    const dedupe = opts.dedupe !== false;
+    // Copies within this batch are always caught; copies of stored rows only when deduping.
+    const batch = new Map<string, string>();
 
     this.db.tx(() => {
+      if (dedupe) this.backfillFingerprints(ds.id);
       let seq = this.db.get('SELECT next_seq FROM datasets WHERE id = ?', ds.id).next_seq as number;
       input.forEach((item, index) => {
         const { value, errors, unknownKeys } = validateRow(ds.schema.columns, item.data ?? {});
@@ -187,7 +190,7 @@ export class DatasetRepo {
         }
         if (unknownKeys.length) warnings.push({ index, message: `Unknown columns kept as-is: ${unknownKeys.join(', ')}` });
         const fp = fingerprint(value);
-        const dup = existing.get(fp);
+        const dup = batch.get(fp) ?? (dedupe ? (this.db.get('SELECT id FROM rows WHERE dataset_id = ? AND fp = ? AND deleted_at IS NULL LIMIT 1', ds.id, fp)?.id as string | undefined) : undefined);
         if (dup) {
           rejected.push({ index, errors: ['Duplicate of an existing row'], duplicateOf: dup });
           return;
@@ -196,13 +199,13 @@ export class DatasetRepo {
         const tags = JSON.stringify(item.tags ?? []);
         const data = JSON.stringify(value);
         this.db.run(
-          `INSERT INTO rows (id, dataset_id, seq, rev, data, tags, status, split, provenance, created_at, updated_at)
-           VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO rows (id, dataset_id, seq, rev, data, tags, status, split, provenance, created_at, updated_at, fp)
+           VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
           id, ds.id, seq++, data, tags, item.status ?? opts.defaultStatus ?? 'approved', item.split ?? null,
-          JSON.stringify({ ...opts.provenance, actor }), now, now,
+          JSON.stringify({ ...opts.provenance, actor }), now, now, fp,
         );
         this.db.run('INSERT INTO row_revs (row_id, rev, data, tags, created_at, actor) VALUES (?, 1, ?, ?, ?, ?)', id, data, tags, now, JSON.stringify(actor));
-        existing.set(fp, id);
+        batch.set(fp, id);
         added.push(id);
       });
       this.db.run('UPDATE datasets SET next_seq = ?, updated_at = ? WHERE id = ?', seq, now, ds.id);
@@ -233,9 +236,9 @@ export class DatasetRepo {
     this.db.tx(() => {
       const rev = contentChanged ? cur.rev + 1 : cur.rev;
       this.db.run(
-        'UPDATE rows SET data = ?, tags = ?, status = ?, split = ?, rev = ?, updated_at = ? WHERE id = ?',
+        'UPDATE rows SET data = ?, tags = ?, status = ?, split = ?, rev = ?, updated_at = ?, fp = ? WHERE id = ?',
         JSON.stringify(data), JSON.stringify(tags), patch.status ?? cur.status,
-        patch.split === undefined ? cur.split : patch.split, rev, now, id,
+        patch.split === undefined ? cur.split : patch.split, rev, now, fingerprint(data), id,
       );
       if (contentChanged) {
         this.db.run('INSERT INTO row_revs (row_id, rev, data, tags, created_at, actor) VALUES (?, ?, ?, ?, ?, ?)', id, rev, JSON.stringify(data), JSON.stringify(tags), now, JSON.stringify(actor));
@@ -308,16 +311,29 @@ export class DatasetRepo {
       .map((r) => ({ id: r.id as string, seq: r.seq as number, rev: r.rev as number, status: r.status as RowStatus, data: parseJson<Record<string, unknown>>(r.data, {}), tags: parseJson<string[]>(r.tags, []) }));
   }
 
-  private fingerprints(datasetId: string) {
-    const map = new Map<string, string>();
-    for (const r of this.db.all('SELECT id, data FROM rows WHERE dataset_id = ? AND deleted_at IS NULL', datasetId)) {
-      map.set(fingerprint(parseJson(r.data, {})), r.id);
+  /** Tags (as of the version) and current review status of a version's rows, without their data. */
+  versionRowMeta(versionId: string) {
+    return this.db
+      .all(
+        `SELECT r.id, r.status, rr.tags FROM dataset_version_rows vr
+         JOIN rows r ON r.id = vr.row_id
+         JOIN row_revs rr ON rr.row_id = vr.row_id AND rr.rev = vr.rev
+         WHERE vr.version_id = ?`,
+        versionId,
+      )
+      .map((r) => ({ id: r.id as string, status: r.status as RowStatus, tags: parseJson<string[]>(r.tags, []) }));
+  }
+
+  /** Fills in fingerprints of rows written before they were stored (or by code that skipped them). */
+  private backfillFingerprints(datasetId: string) {
+    for (const r of this.db.all('SELECT id, data FROM rows WHERE dataset_id = ? AND fp IS NULL', datasetId)) {
+      this.db.run('UPDATE rows SET fp = ? WHERE id = ?', fingerprint(parseJson(r.data, {})), r.id);
     }
-    return map;
   }
 }
 
-function fingerprint(data: Record<string, unknown>) {
+/** Identity of a row's values, independent of key order: equal fingerprints mean duplicate rows. */
+export function fingerprint(data: Record<string, unknown>) {
   const sorted = Object.keys(data).sort().map((k) => [k, data[k]]);
   return createHash('sha1').update(JSON.stringify(sorted)).digest('hex');
 }
