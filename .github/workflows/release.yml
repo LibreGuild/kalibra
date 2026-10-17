@@ -85,8 +85,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only the installers: the Docker job also leaves a build-record artifact behind.
       - uses: actions/download-artifact@v5
         with:
+          pattern: desktop-*
           path: dist
           merge-multiple: true
       - name: Create the GitHub release
