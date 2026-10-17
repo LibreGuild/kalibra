@@ -40,14 +40,13 @@ export function limitValue(v: unknown, max: number = INGEST_LIMITS.valueBytes): 
   return `${s.slice(0, max)}…[truncated ${s.length - max} chars]`;
 }
 
+/** Dates are valid within ±8.64e15 ms of 1970; past that toISOString() throws. */
+const MAX_DATE_MS = 8.64e15;
+
 /** An ISO time from an ISO string or epoch milliseconds; falls back to now. */
 export function toIso(v: unknown): string {
-  if (typeof v === 'number' && Number.isFinite(v)) return new Date(v).toISOString();
-  if (typeof v === 'string' && v) {
-    const t = Date.parse(v);
-    if (Number.isFinite(t)) return new Date(t).toISOString();
-  }
-  return new Date().toISOString();
+  const t = typeof v === 'number' ? v : typeof v === 'string' && v ? Date.parse(v) : NaN;
+  return new Date(Number.isFinite(t) && Math.abs(t) <= MAX_DATE_MS ? t : Date.now()).toISOString();
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : v == null ? undefined : String(v).slice(0, max));

@@ -54,6 +54,14 @@ describe('ingest validation', () => {
     expect(weird.spans[0].kind).toBe('step');
   });
 
+  it('falls back to now for times out of range or unreadable, instead of failing', () => {
+    const { traces, rejected } = normalizeBatch({ traces: [{ name: 'far', startedAt: 1e20, spans: [{ name: 's', startedAt: -9e15 }] }] });
+    expect(rejected).toEqual([]);
+    expect(Date.parse(traces[0].startedAt)).toBeGreaterThan(Date.parse('2026-01-01'));
+    const span = (start: unknown) => ({ resourceSpans: [{ scopeSpans: [{ spans: [{ traceId: 'c'.repeat(32), spanId: 'd'.repeat(16), name: 'x', startTimeUnixNano: start, endTimeUnixNano: 'oops' }] }] }] });
+    for (const start of ['1.5e18', 'abc', '99999999999999999999999999']) expect(otlpToTraces(span(start))[0].spans[0].startedAt).toMatch(/^\d{4}-/);
+  });
+
   it('enforces request limits and truncates huge values', () => {
     expect(() => normalizeBatch({ traces: Array.from({ length: INGEST_LIMITS.tracesPerRequest + 1 }, () => ({ name: 'x' })) })).toThrow(/At most 1000 traces/);
     expect(() => normalizeBatch({ traces: [{ name: 'x', spans: Array.from({ length: INGEST_LIMITS.spansPerRequest + 1 }, () => ({ name: 's' })) }] })).toThrow(/spans per request/);
@@ -114,6 +122,22 @@ describe('trace store', () => {
     const s = await e.call('set_trace_settings', { retentionDays: 7, proxyOpenaiUpstream: 'https://llm.internal.example/v1/' });
     expect(s).toEqual({ retentionDays: 7, proxyOpenaiUpstream: 'https://llm.internal.example/v1' });
     expect(await e.call('get_trace_settings', {})).toMatchObject({ retentionDays: 7, traces: 2, spans: 6 });
+  });
+
+  it('stores the rest of a batch when one trace cannot be written', () => {
+    const e = engine();
+    const [good] = normalizeBatch({ traces: [sample()] }).traces;
+    const bad = { ...good, id: 'bad', name: { not: 'text' } as any, spans: [] };
+    const err = console.error;
+    console.error = () => {};
+    try {
+      e.traces.enqueue([bad, good]);
+      e.traces.flush();
+    } finally {
+      console.error = err;
+    }
+    expect(e.traces.repo.get('trace-1').name).toBe('answer_question');
+    expect(() => e.traces.repo.get('bad')).toThrow();
   });
 
   it('refuses new writes when the queue is full instead of growing without bound', () => {
@@ -191,13 +215,21 @@ describe('OpenTelemetry mapping', () => {
 });
 
 describe('check scope from what apps return', () => {
+  it('leaves steps, sources and tool calls unknown when the app reported nothing', () => {
+    expect(checkScope({ output: 'hi' }, [])).toEqual({ steps: undefined, sources: undefined, tool_calls: undefined });
+    // A trace without tool or retrieval steps: no tools were called; documents are still unknown.
+    const llmOnly = checkScope({}, [{ id: 'a', traceId: 't', name: 'llm', kind: 'llm', startedAt: '2026-10-17T10:00:00.000Z', attributes: {} }]);
+    expect(llmOnly).toMatchObject({ tool_calls: [], sources: undefined });
+    expect(checkScope({ tool_calls: [], sources: [] }, [])).toMatchObject({ steps: undefined, tool_calls: [], sources: [] });
+  });
+
   it('normalizes common document and tool-call shapes', () => {
     expect(toSources({ documents: [{ page_content: 'a', metadata: { source: 'doc.md' } }] })).toEqual([{ id: 'doc.md', text: 'a', metadata: { source: 'doc.md' } }]);
     expect(toSources(['plain', 'text']).map((s) => s.id)).toEqual(['1', '2']);
     expect(toToolCalls([{ id: 'c1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }])).toEqual([{ name: 'lookup', args: { q: 'x' } }]);
     expect(toToolCalls('[{"name":"a","input":{"k":1}}]')).toEqual([{ name: 'a', args: { k: 1 } }]);
     const scope = checkScope({ steps: [{ name: 'search', type: 'tool', args: { q: 1 }, result: 'r' }], sources: ['only this'] }, []);
-    expect(scope.steps[0]).toMatchObject({ kind: 'tool', input: { q: 1 }, output: 'r' });
+    expect(scope.steps![0]).toMatchObject({ kind: 'tool', input: { q: 1 }, output: 'r' });
     expect(scope.tool_calls).toEqual([{ name: 'search', args: { q: 1 }, output: 'r' }]);
     expect(scope.sources).toEqual([{ id: '1', text: 'only this' }]);
   });
@@ -240,6 +272,13 @@ describe('the OpenAI proxy recording', () => {
     expect(t.spans[0].attributes).toMatchObject({ streamed: true, tokens_in: 3, tokens_out: 1 });
     const err = traceFromProxy({ method: 'POST', path: '/v1/responses', requestBody: { model: 'm', input: 'x' }, status: 401, contentType: 'application/json', responseText: '{"error":{"message":"Incorrect API key"}}', startedAt: new Date().toISOString(), durationMs: 5 });
     expect(err).toMatchObject({ status: 'error', error: 'Incorrect API key', name: 'openai.responses' });
+  });
+
+  it('keeps text fields text when a compatible upstream sends other shapes', () => {
+    const t = traceFromProxy({ method: 'POST', path: '/v1/chat/completions', requestBody: { model: 42 }, status: 400, contentType: 'application/json', responseText: '{"model":{"id":"m"},"error":{"message":{"detail":"bad"}}}', startedAt: new Date().toISOString(), durationMs: 5 });
+    expect(t.spans[0].name).toBe('chat.completions');
+    expect(t.error).toBe('HTTP 400');
+    expect(t.metadata).toEqual({ endpoint: '/v1/chat/completions' });
   });
 });
 
@@ -293,6 +332,26 @@ describe('joining an app’s trace to eval rows', () => {
     expect(result.passed).toBe(true);
     // The trace itself is listed with its run, and kept by retention.
     expect((await e.call('list_traces', { runId: run.id })).total).toBe(1);
+  });
+
+  it('skips agent and RAG checks when the app reported no trace, instead of passing them', async () => {
+    const e = engine();
+    app = createServer((_req, res) => res.end(JSON.stringify({ answer: 'Done [kb-1]' })));
+    await new Promise<void>((r) => app.listen(0, '127.0.0.1', () => r()));
+    await e.call('create_dataset', { name: 'D', columns: [{ key: 'q' }] });
+    await e.call('add_dataset_rows', { dataset: 'D', rows: [{ data: { q: 'x' } }] });
+    await e.call('create_target', { name: 'No SDK', spec: { config: { kind: 'http', url: `http://127.0.0.1:${(app.address() as any).port}/`, outputs: [{ name: 'output', from: 'json', path: '$.answer' }] } } });
+    const checks = [
+      { id: 'never', type: 'tool_not_called', config: { names: ['issue_refund'] } },
+      { id: 'cites', type: 'citations', config: {} },
+    ];
+    await e.call('create_suite', { name: 'S', spec: { checks } });
+    const run = await e.call('start_run', { dataset: 'D', target: 'No SDK', suite: 'S' });
+    await e.runner.wait(run.id);
+    const { results } = await e.call('query_results', { runId: run.id });
+    const result = await e.call('get_result', { resultId: results[0].id });
+    expect(result.checks.map((c: any) => [c.id, c.status])).toEqual([['never', 'skip'], ['cites', 'skip']]);
+    expect(result.steps).toBeNull();
   });
 
   it('sends no headers when the target turns trace headers off, and does not wait', async () => {

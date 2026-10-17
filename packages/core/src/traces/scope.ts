@@ -127,18 +127,26 @@ export function toToolCalls(value: unknown): ToolCall[] {
   });
 }
 
-/** `steps`, `sources` and `tool_calls` for the check scope of one result. */
-export function checkScope(outputs: Record<string, unknown>, spanSteps: Step[]): { steps: Step[]; sources: Source[]; tool_calls: ToolCall[] } {
-  const steps = [...spanSteps, ...stepsFromOutputs(outputs.steps)];
-  const sources =
-    outputs.sources !== undefined
-      ? toSources(outputs.sources)
-      : steps.filter((s) => s.kind === 'retrieval').flatMap((s) => toSources(s.output));
+export interface InsideScope {
+  steps?: Step[];
+  sources?: Source[];
+  tool_calls?: ToolCall[];
+}
+
+/**
+ * `steps`, `sources` and `tool_calls` for the check scope of one result. A field is undefined when
+ * the app reported nothing it could come from (no trace arrived, no such output field), so agent
+ * and RAG checks skip with a hint instead of reading "no trace" as "no tools were called".
+ */
+export function checkScope(outputs: Record<string, unknown>, spanSteps: Step[]): InsideScope {
+  const steps = spanSteps.length || outputs.steps !== undefined ? [...spanSteps, ...stepsFromOutputs(outputs.steps)] : undefined;
+  const retrieval = steps?.filter((s) => s.kind === 'retrieval') ?? [];
+  const sources = outputs.sources !== undefined ? toSources(outputs.sources) : retrieval.length ? retrieval.flatMap((s) => toSources(s.output)) : undefined;
   const tool_calls =
     outputs.tool_calls !== undefined
       ? toToolCalls(outputs.tool_calls)
       : steps
-          .filter((s) => s.kind === 'tool')
+          ?.filter((s) => s.kind === 'tool')
           .map((s) => ({ name: String(s.attributes.tool ?? s.name), args: parseMaybeJson(s.input ?? s.attributes.args ?? {}), ...(s.output !== undefined ? { output: s.output } : {}), ...(s.error ? { error: s.error } : {}) }));
   return { steps, sources, tool_calls };
 }

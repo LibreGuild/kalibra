@@ -23,6 +23,9 @@ export interface ProxyExchange {
   resultId?: string;
 }
 
+/** Upstreams are only OpenAI-compatible: a field that should be text may be anything. */
+const asText = (v: unknown, max = 200): string | undefined => (typeof v === 'string' && v ? v.slice(0, max) : undefined);
+
 /** Concatenates the text of a streamed response: Chat Completions deltas or Responses API events. */
 function fromSse(text: string): { output: string; usage?: Record<string, unknown>; model?: string } {
   let output = '';
@@ -38,7 +41,7 @@ function fromSse(text: string): { output: string; usage?: Record<string, unknown
     } catch {
       continue;
     }
-    model ??= e.model ?? e.response?.model;
+    model ??= asText(e.model) ?? asText(e.response?.model);
     const delta = e.choices?.[0]?.delta?.content;
     if (typeof delta === 'string') output += delta;
     if (e.type === 'response.output_text.delta' && typeof e.delta === 'string') output += e.delta;
@@ -64,7 +67,7 @@ export function traceFromProxy(x: ProxyExchange): TraceWithSpans {
   const streamed = /text\/event-stream/i.test(x.contentType);
   let output: unknown;
   let usage: Record<string, any> | undefined;
-  let model: string | undefined = typeof req.model === 'string' ? req.model : undefined;
+  let model = asText(req.model);
   let error: string | undefined;
   if (streamed) {
     const s = fromSse(x.responseText);
@@ -79,9 +82,9 @@ export function traceFromProxy(x: ProxyExchange): TraceWithSpans {
       body = x.responseText;
     }
     output = fromJson(body) ?? body;
-    usage = body?.usage;
-    model = body?.model ?? model;
-    if (x.status >= 400) error = body?.error?.message ?? `HTTP ${x.status}`;
+    usage = body?.usage && typeof body.usage === 'object' ? body.usage : undefined;
+    model = asText(body?.model) ?? model;
+    if (x.status >= 400) error = asText(body?.error?.message, 4000) ?? `HTTP ${x.status}`;
   }
   if (x.status >= 400 && !error) error = `HTTP ${x.status}`;
   const input = req.messages ?? req.input ?? req.prompt;

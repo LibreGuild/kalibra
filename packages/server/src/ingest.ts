@@ -150,6 +150,7 @@ export function ingestRoutes(hub: Hub, cfg: AuthConfig) {
     const buf = await body(req, res, TOOL_BODY);
     if (!buf) return;
     const b = json(buf);
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return fail(res, 400, 'invalid', 'Send { "tool": …, "args": …, "output": … }');
     const tool = typeof b.tool === 'string' ? b.tool.trim() : '';
     if (!tool || tool.length > 200) return fail(res, 400, 'invalid', 'tool (1–200 characters) is required');
     // The server's hash is the one stored; a client that canonicalizes differently is told so.

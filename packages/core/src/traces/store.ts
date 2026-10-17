@@ -4,8 +4,8 @@ import type { Engine } from '../engine.js';
 import { ToolRecordingRepo, TraceRepo } from '../repo/traces.js';
 import { invalid, KalibraError, parseJson } from '../util.js';
 import { normalizeBatch } from './ingest.js';
-import { checkScope, stepsFromSpans } from './scope.js';
-import type { Source, Step, ToolCall, TraceSource, TraceWithSpans } from './types.js';
+import { checkScope, stepsFromSpans, type InsideScope } from './scope.js';
+import type { Step, TraceSource, TraceWithSpans } from './types.js';
 
 /*
  * Everything a project does with traces, in one place (engine.traces):
@@ -105,9 +105,16 @@ export class TraceStore {
     try {
       this.repo.write(batch);
     } catch (e: any) {
-      // A closed database (app quitting) drops the batch; anything else is worth a line in the log.
-      if (!/not open/i.test(e?.message ?? '')) console.error(`Could not store ${batch.length} traces: ${e?.message ?? e}`);
-      return;
+      // A closed database (app quitting) drops the batch.
+      if (/not open/i.test(e?.message ?? '')) return;
+      // Otherwise one bad trace must not drop everyone else's: write them one by one.
+      for (const t of batch) {
+        try {
+          this.repo.write([t]);
+        } catch (err: any) {
+          console.error(`Could not store trace ${t.id}: ${err?.message ?? err}`);
+        }
+      }
     }
     const resultIds = [...new Set(batch.map((t) => t.resultId).filter((x): x is string => !!x))];
     this.written.emit('written', resultIds);
@@ -140,9 +147,14 @@ export class TraceStore {
     return { traceId, spanId, traceparent: `00-${traceId}-${spanId}-01` };
   }
 
+  /** Drops expired ids, and the oldest tenth when that is not enough (a Map keeps insertion order). */
   private forgetOldJoins() {
     const cutoff = Date.now() - JOIN_TTL_MS;
-    for (const [k, v] of this.joins) if (v.at < cutoff || this.joins.size >= MAX_JOINS) this.joins.delete(k);
+    const keep = MAX_JOINS * 0.9;
+    for (const [k, v] of this.joins) {
+      if (v.at >= cutoff && this.joins.size <= keep) break;
+      this.joins.delete(k);
+    }
   }
 
   /**
@@ -175,7 +187,7 @@ export class TraceStore {
   }
 
   /** `steps`, `sources` and `tool_calls` for one result's check scope. */
-  scopeFor(outputs: Record<string, unknown>, steps: Step[]): { steps: Step[]; sources: Source[]; tool_calls: ToolCall[] } {
+  scopeFor(outputs: Record<string, unknown>, steps: Step[]): InsideScope {
     return checkScope(outputs, steps);
   }
 

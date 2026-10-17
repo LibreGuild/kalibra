@@ -85,6 +85,16 @@ describe('runs from code', () => {
     expect((await engine.call<any>('finish_code_run', { runId: started.runId })).run.status).toBe('completed');
   });
 
+  it('links a trace given by id even when it is still queued', async () => {
+    const started = await engine.call<any>('start_code_run', { dataset: 'Capitals', suite: 'Exact', limit: 1 });
+    const [row] = started.rows;
+    engine.traces.ingestBody({ traces: [{ id: 'code-trace-1', name: 'answer' }] });
+    expect(engine.traces.pending()).toBe(1);
+    await engine.call('submit_code_results', { runId: started.runId, results: [{ rowId: row.id, outputs: { output: row.data.expected }, traceId: 'code-trace-1' }] });
+    expect(engine.traces.repo.get('code-trace-1')).toMatchObject({ runId: started.runId, resultId: row.resultId });
+    await engine.call('finish_code_run', { runId: started.runId });
+  });
+
   it('refuses to finish an empty run and to take results for runs not started from code', async () => {
     const started = await engine.call<any>('start_code_run', { dataset: 'Capitals', suite: 'Exact', limit: 1 });
     expect(started.rows).toHaveLength(1);

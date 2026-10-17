@@ -187,7 +187,7 @@ export class Runner {
       error: call.error ?? null,
       logs: [...call.logs, ...logs].slice(0, 500),
       attempts,
-      steps: inside.steps.slice(0, MAX_STEPS),
+      steps: inside.steps?.slice(0, MAX_STEPS) ?? null,
     });
     this.engine.events.emit({ type: 'result.updated', runId: run.id, resultId: item.id });
   }

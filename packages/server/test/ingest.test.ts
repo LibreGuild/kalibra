@@ -171,6 +171,7 @@ describe('tool recordings', () => {
     await send(path, { tool: 'send_email', args: {}, error: 'smtp down' });
     expect(await get(`tool=send_email&argsHash=${argsHash({})}`)).toEqual({ found: true, output: null, error: 'smtp down' });
     expect((await fetch(`${srv.url}${path}?tool=x&argsHash=nothex`, { headers: { 'x-kalibra-key': key } })).status).toBe(400);
+    expect((await send(path, null)).status).toBe(400);
     expect((await admin.call(`/api/projects/${project.id}/ops/list_tool_recordings`, {})).body.data.total).toBe(2);
   });
 });

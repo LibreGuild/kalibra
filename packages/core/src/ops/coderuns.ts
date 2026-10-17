@@ -83,6 +83,8 @@ export const codeRunOps: OpDef<any, any>[] = [
       if (!OPEN.has(run.status)) throw new KalibraError('conflict', `This run is already ${run.status}; start a new one`);
       const unknown: string[] = [];
       let accepted = 0;
+      // A trace the app just sent may still be queued; store it so traceId below can link it.
+      if (i.results.some((r) => r.traceId)) engine.traces.flush();
       engine.db.tx(() => {
         for (const r of i.results) {
           if (!runs.submitCodeOutput(run.id, r.rowId, { outputs: r.outputs, metrics: r.metrics, error: r.error ?? null })) {

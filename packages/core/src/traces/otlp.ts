@@ -1,5 +1,5 @@
 import { invalid } from '../util.js';
-import { INGEST_LIMITS, limitValue, newSpanId } from './ingest.js';
+import { INGEST_LIMITS, limitValue, newSpanId, toIso } from './ingest.js';
 import type { Span, SpanKind, TraceWithSpans } from './types.js';
 
 /*
@@ -58,9 +58,15 @@ function hexId(id: unknown, bytes: number): string | undefined {
   return undefined;
 }
 
+/** Unix nanoseconds (a decimal string in OTLP JSON, or a number) → ISO time; now when unreadable. */
 const nanosToIso = (n: unknown) => {
-  const ns = typeof n === 'string' ? Number(BigInt(n) / 1000000n) : typeof n === 'number' ? Math.floor(n / 1e6) : NaN;
-  return Number.isFinite(ns) && ns > 0 ? new Date(ns).toISOString() : new Date().toISOString();
+  let ms = NaN;
+  try {
+    ms = typeof n === 'string' ? Number(BigInt(n) / 1000000n) : typeof n === 'number' ? Math.floor(n / 1e6) : NaN;
+  } catch {
+    /* not an integer string */
+  }
+  return toIso(ms > 0 ? ms : undefined);
 };
 const nanosMs = (start: unknown, end: unknown) => {
   try {
