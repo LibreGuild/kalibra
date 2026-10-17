@@ -207,11 +207,23 @@ export const ModelTarget = z.object({
   audio: z.string().default('{{audio}}').describe('Transcription: template resolving to the audio file column'),
 });
 
+/**
+ * Joining the app's own traces (SDK, OpenTelemetry, proxy) to eval rows: during runs, HTTP and
+ * WebSocket calls carry `traceparent`, `x-kalibra-run`, `x-kalibra-result` (and `x-kalibra-tools`).
+ */
+export const TargetTraces = z.object({
+  send: z.boolean().default(true).describe('Send trace headers during runs so the app can report its steps for each row'),
+  wait: z.number().int().min(0).max(30000).default(0).describe('Always wait this long (ms) after each call for the app\'s trace; 0 = only when the run collects traces'),
+});
+
 export const TargetSpec = z.object({
   variables: z.array(KV).default([]).describe('Values available as {{vars.name}} (base URLs, model names, ...)'),
   config: z.discriminatedUnion('kind', [HttpTarget, WsTarget, ScriptTarget, ModelTarget]),
+  /** Absent = send headers, wait only when the run collects traces. */
+  traces: TargetTraces.optional(),
 });
 export type TargetSpec = z.infer<typeof TargetSpec>;
+export type TargetTraces = z.infer<typeof TargetTraces>;
 export type HttpTargetConfig = z.infer<typeof HttpTarget>;
 export type WsTargetConfig = z.infer<typeof WsTarget>;
 export type ScriptTargetConfig = z.infer<typeof ScriptTarget>;
@@ -293,6 +305,14 @@ export const RunSettings = z.object({
   overrides: RunOverrides.optional(),
   /** Multi-turn: scripted turns from a column, or an LLM playing a user with a goal. */
   conversation: ConversationSettings.optional(),
+  /** How the app's tools behave during this run (SDK tool wrappers read the x-kalibra-tools header). */
+  tools: z
+    .enum(['live', 'record', 'replay', 'replay-strict', 'fault:timeout', 'fault:error', 'fault:empty'])
+    .optional()
+    .describe('(default) live: real tools; record: call and save responses; replay: use saved responses (live when missing); replay-strict: fail when missing; fault:*: simulate failures'),
+  /** Wait after each call for the app's trace (SDK / OpenTelemetry / proxy) and attach its steps to the row. */
+  collectTraces: z.boolean().optional(),
+  traceWaitMs: z.number().int().min(0).max(30000).optional().describe('With collectTraces: how long to wait for each row\'s trace (default 1500)'),
 });
 export type RunSettings = z.infer<typeof RunSettings>;
 

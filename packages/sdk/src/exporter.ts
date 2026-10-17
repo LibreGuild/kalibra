@@ -97,7 +97,8 @@ export class Exporter {
       warnOnce('queue-full', `Kalibra is not keeping up (or unreachable); dropping the oldest traces (queue limit ${MAX_QUEUED_SPANS} spans)`);
     }
     this.start();
-    if (this.queued >= FLUSH_AT_SPANS) void this.flush();
+    // A trace from a Kalibra eval row is sent at once: the run waits only briefly for it.
+    if (this.queued >= FLUSH_AT_SPANS || trace.resultId) void this.flush();
   }
 
   private start() {

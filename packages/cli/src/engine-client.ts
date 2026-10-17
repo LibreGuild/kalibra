@@ -84,6 +84,8 @@ export interface OpsClient {
   /** Switches project after checking it exists and you can open it. */
   useProject(idOrName: string): Promise<any>;
   mode: 'remote' | 'local';
+  /** The team server's address, when connected to one (used for links in CI reports). */
+  serverUrl?: string;
   close(): Promise<void>;
 }
 
@@ -101,7 +103,7 @@ export async function connect(dir: string, actor: Actor, opts: ConnectOptions = 
   if (server) {
     const token = opts.token ?? process.env.KALIBRA_TOKEN;
     if (!token) throw new Error('Set KALIBRA_TOKEN to a personal access token (create one in Kalibra under Account → Access tokens)');
-    return remote(server, token, actor, opts.project);
+    return { ...(await remote(server, token, actor, opts.project)), serverUrl: server };
   }
   const info = readEngineInfo(dir);
   if (info) {

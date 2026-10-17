@@ -12,6 +12,8 @@ An npm-workspaces monorepo, TypeScript everywhere.
 | `packages/cli` | `kalibra` CLI: `serve`, `run`, `op`, `ops`, `mcp`. Published to npm as `kalibra` |
 | `packages/desktop` | Electron shell: starts the server, opens the UI, OS-keychain secrets |
 | `packages/demo` | Mock apps under test (chat JSON/SSE, multi-turn session chat, STT batch + WebSocket) and demo data |
+| `packages/sdk` | `kalibra-sdk` for your app: traces and steps, eval-run linking, tool record/replay, `evaluate()` (evals as code). Zero dependencies; off in production unless enabled |
+| `sdks/python` | `kalibra-sdk` on PyPI (import `kalibra`): the same SDK for Python apps, standard library only, Python 3.9+; see its [README](../sdks/python/README.md) |
 
 ## How the pieces talk
 

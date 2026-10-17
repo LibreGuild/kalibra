@@ -5,7 +5,7 @@ import { sleep } from '../util.js';
 import { bytesPerSample, durationMs as audioDuration, prepareAudio } from '../audio/convert.js';
 import { decodeWav, isWav } from '../audio/wav.js';
 import type { TargetSpec, WsTargetConfig } from '../specs.js';
-import type { TargetCallContext, TargetCallResult } from './types.js';
+import { withTraceHeaders, type TargetCallContext, type TargetCallResult } from './types.js';
 import {
   applyExtractors,
   describeError,
@@ -76,6 +76,7 @@ export async function executeWebSocket(spec: TargetSpec, ctx: TargetCallContext)
       secrets.add(encoded);
       headers['Authorization'] = `Basic ${encoded}`;
     }
+    withTraceHeaders(headers, ctx.traceHeaders);
   } catch (e) {
     return failure(`Could not build the connection: ${(e as Error).message}`, logs);
   }

@@ -4,11 +4,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { newToken, startServer } from '@kalibra/server';
-import { providersFromEnv } from '@kalibra/core';
+import { providersFromEnv, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
 import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
 import { runMcp } from './mcp.js';
 import { backup } from './backup.js';
+import { detectGit, runUrl } from './report.js';
 
 // node:sqlite prints an ExperimentalWarning on load; it is expected and noisy for CLI users.
 const emit = process.emitWarning;
@@ -25,6 +26,10 @@ Usage:
   kalibra server                              Run as a team server: sign-in, users, project members
   kalibra mcp [--project P]                   MCP server (stdio) for coding agents
   kalibra run --dataset D --target T --suite S [--name N] [--min-pass 0.9] [--json]
+              [--baseline auto|<runId>] [--report markdown] [--git-branch B] [--git-commit C] [--base-branch main]
+                                              Run a suite; compare with the base branch and print a PR report
+  kalibra eval-report <runId> [--baseline <runId>] [--format markdown|json]
+                                              Compare a finished run with its baseline
   kalibra projects                            List projects
   kalibra ops                                 List operations
   kalibra op <name> ['<json input>']          Call any operation
@@ -74,6 +79,12 @@ async function main() {
       name: { type: 'string' },
       'min-pass': { type: 'string' },
       json: { type: 'boolean', default: false },
+      baseline: { type: 'string' },
+      report: { type: 'string' },
+      format: { type: 'string' },
+      'git-branch': { type: 'string' },
+      'git-commit': { type: 'string' },
+      'base-branch': { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
     },
   });
@@ -106,7 +117,9 @@ async function main() {
       console.log(JSON.stringify(await (isHub ? client.hub(name, input) : client.call(name, input)), null, 2));
     } else if (cmd === 'run') {
       if (!values.dataset || !values.target || !values.suite) throw new Error('kalibra run needs --dataset, --target and --suite');
-      const run = await client.call('start_run', { dataset: values.dataset, target: values.target, suite: values.suite, name: values.name });
+      if (values.report && values.report !== 'markdown') throw new Error('--report supports "markdown"');
+      const git = detectGit(process.env, { branch: values['git-branch'], commit: values['git-commit'], baseBranch: values['base-branch'] });
+      const run = await client.call('start_run', { dataset: values.dataset, target: values.target, suite: values.suite, name: values.name, ...(git ? { git } : {}) });
       for (const w of run.warnings ?? []) process.stderr.write(`Warning: ${w.message}\n`);
       let cur = run;
       while (['queued', 'running'].includes(cur.status)) {
@@ -116,13 +129,27 @@ async function main() {
       }
       if (!values.json) process.stderr.write('\n');
       const s = cur.summary ?? {};
-      if (values.json) console.log(JSON.stringify(cur, null, 2));
+      // A baseline or a report asks for the comparison with the base branch (or the given run).
+      const report = values.baseline || values.report ? await client.call('compare_to_baseline', { runId: cur.id, ...(values.baseline && values.baseline !== 'auto' ? { baselineRunId: values.baseline } : {}) }) : undefined;
+      if (values.json) console.log(JSON.stringify(report ? { run: cur, report } : cur, null, 2));
+      else if (report && values.report === 'markdown') console.log(renderEvalReport(report, { marker: true, url: runUrl(client.serverUrl, client.project(), cur.id) }));
       else {
         console.log(`${cur.name}: ${cur.status}. Pass rate ${fmtPct(s.passRate)} (${s.passed}/${(s.passed ?? 0) + (s.failed ?? 0)})`);
         for (const c of s.checks ?? []) console.log(`  ${c.name.padEnd(30)} ${fmtPct(c.passRate)}${c.corpus ? `  corpus ${c.corpus.metric} ${fmtPct(c.corpus.value)}` : ''}`);
+        if (report) {
+          const b = report.baseline;
+          console.log(b ? `vs run #${b.number}${b.git?.branch ? ` (${b.git.branch})` : ''}: ${fmtPct(b.passRate)} → ${fmtPct(report.run.passRate)}, ${report.counts.newFailures} new failures, ${report.counts.fixed} fixed` : 'No baseline run to compare with yet.');
+        }
       }
       const min = values['min-pass'] ? Number(values['min-pass']) : undefined;
       if (cur.status !== 'completed' || (min !== undefined && (s.passRate ?? 0) < min)) process.exitCode = 1;
+    } else if (cmd === 'eval-report') {
+      const runId = rest[0];
+      if (!runId) throw new Error('Usage: kalibra eval-report <runId> [--baseline <runId>] [--format markdown|json]');
+      const format = values.format ?? (values.json ? 'json' : 'markdown');
+      if (format !== 'markdown' && format !== 'json') throw new Error('--format is markdown or json');
+      const report = await client.call('compare_to_baseline', { runId, ...(values.baseline && values.baseline !== 'auto' ? { baselineRunId: values.baseline } : {}) });
+      console.log(format === 'json' ? JSON.stringify(report, null, 2) : renderEvalReport(report, { marker: true, url: runUrl(client.serverUrl, client.project(), report.run.id) }));
     } else {
       throw new Error(`Unknown command "${cmd}". Run kalibra --help.`);
     }

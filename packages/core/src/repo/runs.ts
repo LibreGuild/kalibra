@@ -1,16 +1,31 @@
+import { z } from 'zod';
 import type { Db } from '../db.js';
 import type { Actor } from '../registry.js';
 import { RunSettings } from '../specs.js';
 import { newId, notFound, nowIso, parseJson } from '../util.js';
 
 export type RunStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+/**
+ * live: Kalibra calls a target. imported: outputs came from a file. code: outputs came from the
+ * developer's own code (SDK evaluate() / CI), submitted in batches (ops/coderuns.ts).
+ */
+export type RunKind = 'live' | 'imported' | 'code';
+
+/** Where a run came from in version control, so CI runs can be compared with their base branch. */
+export const GitInfoInput = z.object({
+  branch: z.string().max(200).optional(),
+  commit: z.string().max(100).optional(),
+  pr: z.number().int().positive().optional(),
+  baseBranch: z.string().max(200).optional().describe('Branch to compare with (default main)'),
+});
+export type GitInfo = z.infer<typeof GitInfoInput>;
 export type ResultStatus = 'pending' | 'running' | 'done' | 'error';
 
 export interface RunRecord {
   id: string;
   number: number;
   name: string;
-  kind: 'live' | 'imported';
+  kind: RunKind;
   status: RunStatus;
   datasetId: string | null;
   datasetVersionId: string | null;
@@ -30,6 +45,7 @@ export interface RunRecord {
   /** Set when the run is one variant of a comparison. */
   groupId: string | null;
   variantLabel: string | null;
+  git: GitInfo | null;
 }
 
 export interface RunGroupRecord {
@@ -62,6 +78,8 @@ export interface ResultRecord {
   error: string | null;
   logs: any[];
   attempts: number;
+  /** What the app did inside for this row (spans of its trace, or steps it returned), in start order. */
+  steps: unknown[] | null;
   startedAt: string | null;
   finishedAt: string | null;
 }
@@ -89,6 +107,7 @@ const toRun = (r: any): RunRecord => ({
   error: r.error,
   groupId: r.group_id ?? null,
   variantLabel: r.variant_label ?? null,
+  git: parseJson<GitInfo | null>(r.git, null),
 });
 
 const toGroup = (r: any): RunGroupRecord => ({
@@ -129,6 +148,7 @@ const toResult = (r: any): ResultRecord => ({
   response: parseJson(r.response, null),
   checks: parseJson(r.checks, []),
   logs: parseJson(r.logs, []),
+  steps: parseJson<unknown[] | null>(r.steps, null),
   attempts: r.attempts,
   startedAt: r.started_at,
   finishedAt: r.finished_at,
@@ -139,7 +159,7 @@ export class RunRepo {
 
   create(input: {
     name?: string;
-    kind: 'live' | 'imported';
+    kind: RunKind;
     datasetId: string;
     datasetVersionId: string;
     targetId?: string | null;
@@ -276,15 +296,16 @@ export class RunRepo {
     error?: string | null;
     logs?: unknown;
     attempts: number;
+    steps?: unknown[] | null;
   }) {
     const final = (s: unknown) => s === 'done' || s === 'error';
     this.db.tx(() => {
       const before = this.db.get('SELECT status FROM results WHERE id = ?', resultId)?.status;
       this.db.run(
-        `UPDATE results SET status = ?, passed = ?, score = ?, request = ?, response = ?, outputs = ?, checks = ?, metrics = ?, error = ?, logs = ?, attempts = ?, finished_at = ? WHERE id = ?`,
+        `UPDATE results SET status = ?, passed = ?, score = ?, request = ?, response = ?, outputs = ?, checks = ?, metrics = ?, error = ?, logs = ?, attempts = ?, steps = ?, finished_at = ? WHERE id = ?`,
         r.status, r.passed === null ? null : r.passed ? 1 : 0, r.score, JSON.stringify(r.request ?? null), JSON.stringify(r.response ?? null),
         JSON.stringify(r.outputs ?? {}), JSON.stringify(r.checks ?? []), JSON.stringify(r.metrics ?? {}), r.error ?? null,
-        JSON.stringify(r.logs ?? []), r.attempts, nowIso(), resultId,
+        JSON.stringify(r.logs ?? []), r.attempts, r.steps?.length ? JSON.stringify(r.steps) : null, nowIso(), resultId,
       );
       // Keep the finished count by increments: recounting the run's results on every save made big runs
       // quadratic (seconds per thousand rows at 50k).
@@ -346,6 +367,52 @@ export class RunRepo {
         checks: parseJson<any[]>(r.checks, []),
         metrics: parseJson<Record<string, number>>(r.metrics, {}),
       }));
+  }
+
+  // ── Code runs and git metadata (ops/coderuns.ts) ───────────────────────────
+
+  setGit(runId: string, git: GitInfo | null) {
+    this.db.run('UPDATE runs SET git = ? WHERE id = ?', git && Object.keys(git).length ? JSON.stringify(git) : null, runId);
+  }
+
+  /**
+   * Stores what the developer's code produced for a row of a code run, before scoring. Submitting
+   * the same row again replaces the earlier submission. Returns false when the row is not part of
+   * the run or was already scored.
+   */
+  submitCodeOutput(runId: string, rowId: string, r: { outputs: unknown; metrics?: unknown; error?: string | null }): boolean {
+    const res = this.db.run(
+      "UPDATE results SET outputs = ?, metrics = ?, error = ? WHERE run_id = ? AND row_id = ? AND status = 'pending'",
+      JSON.stringify(r.outputs ?? {}), JSON.stringify(r.metrics ?? {}), r.error ?? null, runId, rowId,
+    );
+    return Number(res.changes) > 0;
+  }
+
+  /** Rows of a code run nothing was submitted for (outputs still NULL) get an error instead. */
+  markUnsubmitted(runId: string, message: string): number {
+    const res = this.db.run("UPDATE results SET outputs = '{}', error = ? WHERE run_id = ? AND status = 'pending' AND outputs IS NULL", message, runId);
+    return Number(res.changes);
+  }
+
+  /** How many rows of a code run have outputs submitted. */
+  submittedCount(runId: string): number {
+    return this.db.get('SELECT COUNT(*) AS n FROM results WHERE run_id = ? AND outputs IS NOT NULL', runId).n as number;
+  }
+
+  /**
+   * The run to compare a CI run with: the latest completed run on `branch` with the same dataset
+   * and suite (and target, when the run has one), started before `beforeNumber`.
+   */
+  findBaseline(q: { datasetId: string | null; suiteId: string | null; targetId: string | null; branch: string; beforeNumber: number }): RunRecord | undefined {
+    const r = this.db.get(
+      `SELECT * FROM runs
+        WHERE deleted_at IS NULL AND status = 'completed' AND number < ?
+          AND dataset_id IS ? AND suite_id IS ? AND target_id IS ?
+          AND json_extract(git, '$.branch') = ?
+        ORDER BY number DESC LIMIT 1`,
+      q.beforeNumber, q.datasetId, q.suiteId, q.targetId, q.branch,
+    );
+    return r ? toRun(r) : undefined;
   }
 
   /** All finished results of a run, light shape, for summaries and comparisons. */

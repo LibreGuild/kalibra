@@ -129,7 +129,8 @@ class Transport:
                 _, c = self._queue.popleft()
                 self._queued_spans -= c
                 self.dropped += 1
-            if self._queued_spans >= FLUSH_AT_SPANS:
+            # A trace from a Kalibra eval row is sent at once: the run waits only briefly for it.
+            if self._queued_spans >= FLUSH_AT_SPANS or trace.get("resultId"):
                 self._wake = True
                 self._cond.notify_all()
 

@@ -25,6 +25,7 @@ defineOp({
 | `datasets.ts` | `list_datasets` `get_dataset_schema` `create_dataset` `update_dataset` `delete_dataset` `list_rows` `add_dataset_rows` `update_row` `set_rows_status` `delete_rows` `create_dataset_version` `list_dataset_versions` `import_rows` `export_dataset` `generate_rows` |
 | `defs.ts` | `list/get/create/update/delete_*` and `list_*_versions` for targets, suites, connections; `test_target` `parse_curl` `list_check_types` `list_providers` `test_connection` `list_models` `list_secrets` (+ `set_secret` `delete_secret`, UI only) |
 | `runs.ts` | `start_run` `preflight_run` `import_outputs` `list_runs` `get_run` `cancel_run` `resume_run` `delete_run` `query_results` `get_result` `compare_runs` |
+| `coderuns.ts` | `start_code_run` `submit_code_results` `finish_code_run` `compare_to_baseline` |
 | `groups.ts` | `start_comparison` `get_comparison` `compare_rows` `list_comparisons` `cancel_comparison` `delete_comparison` |
 | `conversations.ts` | `test_conversation` |
 | `themes.ts` | `get_failure_themes` `cluster_failures` |
@@ -39,7 +40,7 @@ defineOp({
 
 - **Actor** = `{ kind: 'user' | 'agent' | 'cli' | 'system', id, client?, model? }`. The MCP bridge sends `x-kalibra-actor`.
 - Agent-added rows default to `needs_review` and record provenance (client, model).
-- **Events** (`events.ts`): `dataset.changed`, `rows.changed`, `def.changed`, `run.updated`, `result.updated`, `job.updated`, `activity`. Streamed to the UI over SSE.
+- **Events** (`events.ts`): `dataset.changed`, `rows.changed`, `def.changed`, `run.updated`, `result.updated`, `job.updated`, `traces.ingested`, `activity`. Streamed to the UI over SSE.
 
 ## Jobs
 
@@ -61,6 +62,15 @@ start_run ─► dataset version snapshot ─► pending results (row × repetit
 - **Conversations** (`settings.conversation`, `runner/conversation.ts`): `scripted` sends each user message from a list column; `simulated` lets a model play `{{persona}}` with `{{goal}}` and decide when it is done. The target is called once per turn with `message`, `history`, `turn`, `conversation_id` and `session_id` (from the previous reply's `session_id` output). Checks run once on the final state; `outputs.transcript`, `outputs.stop_reason`, `outputs.goal_met` (simulated); metrics `turns`, `turn_latency_ms`, `conversation_ms`. `test_conversation` tries one without a run.
 - **Comparisons** (`ops/groups.ts`): a run group with 2–8 variants, each an ordinary run tagged `group_id` + `variant_label`, all pinned to one dataset version. Ranked by pass rate, then mean score, then p50 latency; each variant gets an exact McNemar test on paired rows against the best (`clearly worse` below p 0.05, `could be noise` above it, `tied` at equal pass rates).
 
+## Traces (`src/traces/`, `engine.traces`)
+
+What apps send about their own steps (docs/design/sdk-and-traces.md). Ingest is not an operation: the server's `/ingest/traces`, `/otlp/v1/traces`, `/ingest/tools` and `/proxy/openai/*` routes (`packages/server/src/ingest.ts`) validate, answer at once (202) and queue.
+
+- `ingest.ts` normalizes SDK batches and enforces `INGEST_LIMITS` (2 MB body, 1000 traces / 5000 spans per request, 64 KB per value: longer values are truncated, not refused). `otlp.ts` maps OTLP/HTTP JSON (GenAI and OpenInference attributes) to traces; spans of one trace can arrive in several requests and are merged. `proxy.ts` turns one proxied OpenAI call (JSON or SSE) into a trace with one `llm` span; the caller's Authorization header is never part of it.
+- `store.ts` (`TraceStore`): a write queue flushed every ~20 ms in one transaction (at most 20 000 queued traces, then `unavailable`), settings (`retentionDays`, `proxyOpenaiUpstream`), retention pruning on open and every 6 h (traces of runs are kept). Reads (`list_traces` …) flush first.
+- **Joining runs**: unless the target sets `traces.send: false`, the runner sends `traceparent` (trace id derived from run + result id), `x-kalibra-run`, `x-kalibra-result` and, when `settings.tools` is not `live`, `x-kalibra-tools`. With `settings.collectTraces` (or `target.traces.wait`) it waits up to `traceWaitMs` (default 1500) for the trace, stores its spans as `results.steps`, and checks get `steps`, `sources` and `tool_calls` (`scope.ts`, also read from `outputs.steps` / `outputs.sources` / `outputs.tool_calls` in OpenAI and LangChain shapes).
+- **Ingest keys** (`hub/ingest-keys.ts`, `kik_…`, SHA-256 stored) can only send to and read tool recordings of their one project; signed-in users need the editor role. Hub ops `list_ingest_keys` / `create_ingest_key` / `revoke_ingest_key` are not exposed over MCP.
+
 ## Checks and gates
 
 - Layers 0–5: Transport, Structure, Fields, Content, Reference metrics, Judgment.
@@ -73,6 +83,12 @@ start_run ─► dataset version snapshot ─► pending results (row × repetit
 - Pass rate with a **Wilson 95% interval**.
 - **Corpus WER/CER** = Σ errors ÷ Σ reference units (checks report `details.errors` / `details.refUnits`).
 - Percentiles (p50/p95/p99) for every numeric metric.
+- **Runs from code** (`ops/coderuns.ts`, kind `code`):
+  - the SDK's `evaluate()` or CI gets the rows from `start_code_run`, runs the developer's function, and sends outputs with `submit_code_results` (batches; resubmitting a row replaces it);
+  - `finish_code_run` scores them like imported outputs.
+- **Baselines** (`runner/report.ts`): runs carry `git` (branch, commit, PR, base branch).
+  - `compare_to_baseline` compares row by row with the latest completed run on the base branch (else `main`) with the same dataset, suite and target, giving new failures, fixed rows and the pass-rate change.
+  - `renderEvalReport` turns that into the PR comment that `kalibra run --report markdown`, `kalibra eval-report` and `action/` print.
 - `compare_runs`: row matching + exact **McNemar** p-value. `run_breakdown`: per tag/column groups. `judge_agreement`: kappa, TPR/TNR, corrected pass rate.
 - `get_failure_themes`: free groups by first failing check + normalized reason (numbers, ids, quotes stripped). `cluster_failures` (job): failure summaries clustered with the local embedding model (or assigned by the model when it isn't downloaded), then named with cause, fix and severity; saved in `insights`, latest wins.
 - `dataset_quality`: fill per column, coverage of category-like columns, length spread, distinct-2, self-BLEU, compression ratio, exact copies, flags. `find_duplicates`: exact / near (character overlap) / semantic (cosine).

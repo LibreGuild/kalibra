@@ -68,7 +68,8 @@ export interface CheckField {
 export interface CheckType<C = any> {
   type: string;
   label: string;
-  category: 'transport' | 'structure' | 'fields' | 'content' | 'reference' | 'judgment';
+  /** "agents": checks over tool calls, steps and retrieved documents (agents and RAG). */
+  category: 'transport' | 'structure' | 'fields' | 'content' | 'reference' | 'judgment' | 'agents';
   layer: number;
   description: string;
   /** Config schema (zod) – also drives validation for API/MCP callers. */

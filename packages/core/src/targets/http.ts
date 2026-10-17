@@ -1,7 +1,7 @@
 import { render, renderValue, toText } from '../template.js';
 import { evalExpression, runScript } from '../script.js';
 import type { HttpTargetConfig, TargetSpec } from '../specs.js';
-import type { TargetCallContext, TargetCallResult } from './types.js';
+import { withTraceHeaders, type TargetCallContext, type TargetCallResult } from './types.js';
 import {
   applyExtractors,
   capText,
@@ -50,6 +50,8 @@ export async function executeHttp(spec: TargetSpec, ctx: TargetCallContext): Pro
   try {
     const built = await buildRequest(cfg, scope, env, secrets.add, log);
     draft = built.draft;
+    // Before the hook, so a beforeRequest script can see (or drop) them.
+    withTraceHeaders(draft.headers, ctx.traceHeaders);
     bodySummary = built.summary;
   } catch (e) {
     return failure(`Could not build the request: ${(e as Error).message}`, logs);

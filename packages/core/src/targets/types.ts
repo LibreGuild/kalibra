@@ -17,6 +17,20 @@ export interface TargetCallContext {
   signal: AbortSignal;
   /** Directory used for `require()` inside user scripts. */
   workspaceDir: string;
+  /**
+   * Headers that let the app report its own trace for this call (traceparent, x-kalibra-run,
+   * x-kalibra-result, x-kalibra-tools). Set by the runner during runs; HTTP and WebSocket targets add
+   * them unless the request already has a header of the same name.
+   */
+  traceHeaders?: Record<string, string>;
+}
+
+/** Adds the runner's trace headers to `headers`, keeping any the target sets itself. */
+export function withTraceHeaders(headers: Record<string, string>, extra?: Record<string, string>) {
+  if (!extra) return headers;
+  const have = new Set(Object.keys(headers).map((k) => k.toLowerCase()));
+  for (const [k, v] of Object.entries(extra)) if (!have.has(k.toLowerCase())) headers[k] = v;
+  return headers;
 }
 
 export interface TargetCallResult {
