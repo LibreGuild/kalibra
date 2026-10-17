@@ -353,7 +353,9 @@ describe('encrypted secrets', () => {
     await db.run('UPDATE secrets SET value = ? WHERE name = ?', stored, 'other');
     await expect(store.get('other')).rejects.toThrow(/could not be decrypted/);
     // Tampered.
-    const flipped = stored.slice(0, -2) + (stored.endsWith('A') ? 'B' : 'A') + stored.slice(-1);
+    // Change a character in the middle (the last base64 characters may only carry padding bits).
+    const at = Math.floor(stored.length * 0.6);
+    const flipped = stored.slice(0, at) + (stored[at] === 'A' ? 'B' : 'A') + stored.slice(at + 1);
     await db.run('UPDATE secrets SET value = ? WHERE name = ?', flipped, 'openai');
     await expect(store.get('openai')).rejects.toThrow(/could not be decrypted/);
     // A different key.
