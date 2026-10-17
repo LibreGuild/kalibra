@@ -29,7 +29,7 @@ That starts Kalibra on your machine and opens it in the browser. No account, not
 | Prefer… | Use |
 |---|---|
 | A command you keep | `npm i -g kalibra@next`, then `kalibra` (same data folder as npx) |
-| A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next`, then open `http://localhost:4317/kalibra/` ([deploy guide](docs/deploy.md)) |
+| A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next`, then open `http://localhost:4317/kalibra/` ([self-hosting guide](docs/self-hosting.md)) |
 
 ## What it does
 
@@ -100,7 +100,7 @@ claude mcp add kalibra -- npx -y kalibra@next mcp
   - an audit log and backups.
 - **No server at all:** `.kalibra` bundles, a Git-synced folder, and importers for promptfoo, OpenAI Evals, LangSmith and Langfuse.
 
-See [users and projects](docs/users-and-projects.md) and [deploy](docs/deploy.md).
+See [users and projects](docs/users-and-projects.md) and [self-hosting](docs/self-hosting.md): one VM, a bucket, Postgres, or several instances with Redis.
 
 ## Docs
 

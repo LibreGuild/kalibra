@@ -45,7 +45,7 @@ An npm-workspaces monorepo, TypeScript everywhere.
 | Mode | Processes |
 |---|---|
 | `npx kalibra` / `kalibra` | One Node process (bundled CLI) runs engine + server and opens the browser at `http://127.0.0.1:<port>/kalibra/?token=…` |
-| Team server (`kalibra server`, Docker) | One Node process with sign-in; see [deploy.md](deploy.md) |
+| Team server (`kalibra server`, Docker) | One Node process with sign-in; see [self-hosting.md](self-hosting.md) |
 | Dev (`npm run dev`) | Engine on :4317 (tsx watch) + Vite UI on http://localhost:5173/kalibra/ (proxy `/kalibra/api`) + demo apps on :4400 |
 | CI | `kalibra run …` opens the workspace directly, exits non-zero on failure |
 
@@ -80,7 +80,7 @@ Each package has a README with its code map: [core](../packages/core/README.md) 
 | **how a run executes** | `packages/core/src/runner/runner.ts` (+ `evaluate.ts`, `summary.ts`, `conversation.ts`) |
 | **model providers** | `packages/core/src/providers/index.ts` |
 | **the MCP bridge** | `packages/cli/src/mcp.ts`; how it reaches Kalibra in `engine-client.ts` |
-| **the release pipeline** | `.github/workflows/release.yml` (tags `v*`), `ci.yml` (pull requests), `Dockerfile`, `scripts/set-version.mjs`; how to release in [deploy.md](deploy.md) |
+| **the release pipeline** | `.github/workflows/release.yml` (tags `v*`), `ci.yml` (pull requests), `Dockerfile`, `scripts/set-version.mjs`; how to release in [releasing.md](releasing.md) |
 | **in-app docs** | `packages/web/src/docs/content.ts`, illustrations in `packages/web/public/docs/` |
 
 ## Projects and the team server

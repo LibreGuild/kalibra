@@ -13,7 +13,7 @@ npm run dev                 # engine :4317 (tsx watch) + UI :5173/kalibra/ (Vite
 npm run demo -- --seed      # once: fill ./.kalibra-dev with demo datasets, targets, suites
 ```
 
-Open http://localhost:5173/kalibra/. The dev workspace is `./.kalibra-dev` (git-ignored). Everything Kalibra serves is under `/kalibra` (see [deploy.md](deploy.md#addresses-everything-under-kalibra)); Vite proxies `/kalibra/api` to the engine.
+Open http://localhost:5173/kalibra/. The dev workspace is `./.kalibra-dev` (git-ignored). Everything Kalibra serves is under `/kalibra` (see [self-hosting.md](self-hosting.md#addresses-and-load-balancers)); Vite proxies `/kalibra/api` to the engine.
 
 Run pieces separately:
 
@@ -64,4 +64,4 @@ npm pack                    # inspect the tarball (prepack builds it)
 npx -y --package="$PWD/kalibra-0.1.1-beta.1.tgz" kalibra --help   # try it like a user
 ```
 
-Releases are staged from a version tag by GitHub Actions and approved on npmjs.com; see [deploy.md](deploy.md#releasing-maintainers). Users then run `npx kalibra` (or `npm i -g kalibra`). Kalibra ships as npm and Docker only: no installers, no code-signing prompts.
+Releases are staged from a version tag by GitHub Actions and approved on npmjs.com; see [releasing.md](releasing.md). Users then run `npx kalibra` (or `npm i -g kalibra`). Kalibra ships as npm and Docker only: no installers, no code-signing prompts.
