@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate as useRawNavigate } from 'react-router';
 import { NavLink } from '../../lib/nav';
 import clsx from 'clsx';
-import { Activity, BookOpen, Bot, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
+import { Activity, BookOpen, Bot, Braces, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { authCall, forgetProject, useHubOp, useMeta, useOp } from '../../lib/api';
 import { ProjectProvider, useProject, useSession } from '../../lib/session';
 import { Menu, MenuItem, MenuNote, MenuSeparator, Tip } from '../ui/overlay';
 import { toastError } from '../ui/toast';
 import { ProjectSwitcher } from './project-switcher';
+import { SdkDocsDialog } from '../../sdk-docs/picker-dialog';
 
 /*
  * The app frame: sidebar (logo, project switcher, the project's pages, tools, and the profile menu
@@ -227,7 +228,7 @@ function Logo({ className }: { className?: string }) {
 }
 
 /**
- * Bottom of the sidebar, in every mode: who you are ("You" on the desktop), and the menu for what
+ * Bottom of the sidebar, in every mode: who you are ("You" in local mode), and the menu for what
  * is yours or app-wide: account and administration (team server), settings, docs, coding agents,
  * sign out, and the app version.
  */
@@ -237,6 +238,7 @@ function ProfileMenu({ collapsed }: { collapsed: boolean }) {
   const qc = useQueryClient();
   const version = useAppVersion();
   const signedIn = isServer && !!user;
+  const [sdkDocs, setSdkDocs] = useState(false);
   const name = signedIn ? user!.name : 'You';
   const detail = signedIn ? (isAdmin ? 'Administrator' : user!.username) : 'This computer';
   const initial = (signedIn ? user!.name || user!.username : 'You').slice(0, 1).toUpperCase();
@@ -283,11 +285,14 @@ function ProfileMenu({ collapsed }: { collapsed: boolean }) {
           </MenuItem>
         )}
         {signedIn && <MenuSeparator />}
-        <MenuItem icon={<Settings />} onSelect={() => navigate('/settings')} hint="Theme, accent, reading font, text size">
+        <MenuItem icon={<Settings />} onSelect={() => navigate('/settings')} hint="Theme, reading font, text size">
           Settings
         </MenuItem>
         <MenuItem icon={<BookOpen />} onSelect={() => navigate('/docs')} hint="Short, illustrated guides">
           Docs
+        </MenuItem>
+        <MenuItem icon={<Braces />} onSelect={() => setSdkDocs(true)} hint="JavaScript and Python SDK reference">
+          SDK docs
         </MenuItem>
         <MenuItem icon={<Bot />} onSelect={() => navigate('/agents')} hint="Claude Code, Codex, Cursor… through MCP">
           Coding agents
@@ -307,6 +312,7 @@ function ProfileMenu({ collapsed }: { collapsed: boolean }) {
           </>
         )}
       </Menu>
+      <SdkDocsDialog open={sdkDocs} onOpenChange={setSdkDocs} />
     </div>
   );
 }

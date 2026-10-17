@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Waves } from 'lucide-react';
+import { ArrowUpRight, Waves } from 'lucide-react';
 import { Page } from '../layout/shell';
 import { Button, buttonClass } from '../ui/button';
 import { Card, CodeBlock, ErrorBox, SectionTitle, TabPanel, Tabs } from '../ui/display';
@@ -11,6 +11,7 @@ import { useProject } from '../../lib/session';
 import { isMissingOp } from '../traces/types';
 import { IngestKeys } from './ingest-keys';
 import { jsSnippet, otelSnippet, proxySnippet, pythonSnippet, type SnippetContext } from './snippets';
+import { sdkDocsPath } from '../../sdk-docs/links';
 
 /*
  * Connect your app: one key and one snippet, and the app's real calls start showing up under
@@ -64,11 +65,13 @@ export function ConnectPage() {
                 <Snippet label="Install" code={js.install} />
                 <Snippet label="Environment (.env, development only)" code={js.env} />
                 <Snippet label="In your app" code={js.code} />
+                <SdkDocsLink href={sdkDocsPath('js')}>JavaScript SDK docs: steps, tools, evaluate(), every option</SdkDocsLink>
               </TabPanel>
               <TabPanel value="python" className="flex flex-col gap-3 pt-3">
                 <Snippet label="Install" code={py.install} />
                 <Snippet label="Environment (development only)" code={py.env} />
                 <Snippet label="In your app" code={py.code} />
+                <SdkDocsLink href={sdkDocsPath('python')}>Python SDK docs: steps, tools, evaluate(), every option</SdkDocsLink>
               </TabPanel>
               <TabPanel value="otel" className="flex flex-col gap-3 pt-3">
                 <p className="text-[0.8125rem] text-ink-muted">
@@ -106,12 +109,25 @@ export function ConnectPage() {
               <b className="text-ink">Off in production.</b> Every snippet checks the environment, and <code className="font-mono">KALIBRA_ENABLED=false</code> always switches it off.
             </li>
           </ul>
-          <Link to="/docs/traces" className="mt-4 inline-block text-[0.8125rem] font-medium text-accent-ink hover:underline">
-            Read the guide →
-          </Link>
+          <div className="mt-4 flex flex-col items-start gap-1.5">
+            <Link to="/docs/traces" className="text-[0.8125rem] font-medium text-accent-ink hover:underline">
+              Read the guide →
+            </Link>
+            <SdkDocsLink href={sdkDocsPath(tab === 'python' ? 'python' : 'js')}>SDK docs</SdkDocsLink>
+          </div>
         </Card>
       </div>
     </Page>
+  );
+}
+
+/** The public SDK docs, in a new tab. */
+function SdkDocsLink({ href, children }: { href: string; children: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex w-fit items-center gap-1 text-[0.8125rem] font-medium text-accent-ink hover:underline">
+      {children}
+      <ArrowUpRight className="size-3.5" />
+    </a>
   );
 }
 

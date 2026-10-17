@@ -9,7 +9,10 @@ import { useProjectId } from './api';
  */
 
 /** First path segments of pages that are not inside a project. */
-const GLOBAL = new Set(['p', 'docs', 'settings', 'agents', 'projects', 'account', 'admin', 'login', 'setup', 'change-password']);
+const GLOBAL = new Set(['p', 'docs', 'sdk-docs', 'settings', 'agents', 'projects', 'account', 'admin', 'login', 'setup', 'change-password']);
+
+/** Pages outside the app frame (the public SDK docs): links to them open in a new tab. */
+export const opensNewTab = (path: string) => path === '/sdk-docs' || path.startsWith('/sdk-docs/');
 
 /** "/datasets/x" → "/p/<project>/datasets/x"; global and relative paths are left alone. */
 export function projectPath(path: string, project: string): string {

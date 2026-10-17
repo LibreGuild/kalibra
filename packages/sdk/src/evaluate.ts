@@ -38,7 +38,7 @@ export interface EvaluateOptions {
   suite: string;
   /** Your code under test, called once per row. */
   task: (data: Record<string, any>, row: EvalRow) => TaskResult | Promise<TaskResult>;
-  /** Run name shown in Kalibra. Default: "<dataset> · code". */
+  /** Run name shown in Kalibra. Default: "Code run (<branch>)". */
   name?: string;
   /** Project id or name (KALIBRA_PROJECT, default `default`). */
   project?: string;

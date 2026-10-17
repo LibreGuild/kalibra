@@ -23,6 +23,7 @@ import { AccountPage } from './pages/account';
 import { AdminPage } from './pages/admin';
 import { TracesPage } from './pages/traces';
 import { ConnectPage } from './components/connect/connect-page';
+import { SdkDocsPage } from './sdk-docs/page';
 
 /*
  * Pages inside a project live under /p/<project id>/…; account, administration, docs and app
@@ -56,6 +57,9 @@ const projectPages: RouteObject[] = [
 const LEGACY = ['datasets/*', 'targets/*', 'suites/*', 'runs/*', 'comparisons/*', 'playground', 'connections', 'traces/*', 'connect'];
 
 export const router = createBrowserRouter([
+  // The SDK docs are public: readable without signing in, and they never call the API.
+  { path: '/sdk-docs', element: <SdkDocsPage /> },
+  { path: '/sdk-docs/:lang', element: <SdkDocsPage /> },
   {
     element: <AuthGate />,
     children: [

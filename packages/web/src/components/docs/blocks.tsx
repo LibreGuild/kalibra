@@ -1,8 +1,9 @@
-import { Link } from '../../lib/nav';
+import { Link, opensNewTab } from '../../lib/nav';
 import clsx from 'clsx';
 import {
   ArrowLeftRight,
   ArrowRight,
+  ArrowUpRight,
   BookA,
   Bot,
   ChartColumn,
@@ -123,9 +124,9 @@ export function BlockView({ block }: { block: Block }) {
       return (
         <div className="flex flex-wrap gap-2">
           {block.links.map((l) => (
-            <Link key={l.to} to={l.to} className={buttonClass(l.primary ? 'primary' : 'secondary')}>
+            <Link key={l.to} to={l.to} {...(opensNewTab(l.to) ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={buttonClass(l.primary ? 'primary' : 'secondary')}>
               {l.label}
-              <ArrowRight className="size-4" />
+              {opensNewTab(l.to) ? <ArrowUpRight className="size-4" /> : <ArrowRight className="size-4" />}
             </Link>
           ))}
         </div>
