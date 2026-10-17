@@ -1,0 +1,23 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "And what you expected instead." }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Kalibra version, description: "Shown in the profile menu (bottom left) or `kalibra --help`." }
+  - type: dropdown
+    id: how
+    attributes:
+      label: How you run Kalibra
+      options: [Desktop app, npx / npm, Team server (Docker), Team server (node), Other]
+  - type: textarea
+    id: logs
+    attributes: { label: Logs or screenshots, description: "Remove secrets and personal data first." }

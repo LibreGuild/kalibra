@@ -35,3 +35,19 @@ jobs:
         run: |
           node packages/cli/dist/kalibra.mjs --help
           node packages/cli/dist/kalibra.mjs users list --dir "$RUNNER_TEMP/kalibra"
+
+  python-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          # Oldest and newest supported versions.
+          python-version: |
+            3.9
+            3.13
+      - name: Unit tests on Python 3.9
+        run: python3.9 -m unittest discover -s sdks/python/tests -v
+      - name: Unit tests on Python 3.13
+        run: python3.13 -m unittest discover -s sdks/python/tests -v
