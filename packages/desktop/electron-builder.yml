@@ -32,6 +32,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: Kalibra-${version}-win-${arch}-setup.${ext}
 linux:
+  # Without this, the name comes from the package name (@kalibra/desktop), which is not a valid file name.
+  executableName: kalibra
   target: [AppImage]
   category: Development
   synopsis: Local-first evaluation for AI applications
