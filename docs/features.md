@@ -9,7 +9,7 @@
 - ✅ Immutable versions; runs pin the version they used
 - ✅ Review queue: draft / needs review / approved / rejected, bulk actions, provenance on every row
 - ✅ Generate text rows with any model connection, guided by column descriptions and instructions
-- ✅ Generate images into a column or as new rows (GPT Image, Imagen, …)
+- ✅ Generate images into a column or as new rows (GPT Image, Imagen, …), optionally kept under a file size (e.g. 50 KB: re-encoded as JPEG and scaled down when needed)
 - ✅ Generate speech (TTS) from a text column, rotating voices, with speaking instructions
 - ✅ Audio variants: noise (SNR), phone line, echo, quieter, clipping, speed, muffled, dropouts (reproducible)
 - ✅ Transcribe audio into a text column (draft references)

@@ -7,6 +7,7 @@ import type { RowRecord } from '../repo/datasets.js';
 import { RowStatus, type ColumnSpec, type ColumnType } from '../specs.js';
 import { render } from '../template.js';
 import { invalid } from '../util.js';
+import { fitImageToSize } from '../media/image-size.js';
 
 /*
  * Media for datasets: generate images and speech with model connections, transcribe audio into
@@ -167,6 +168,12 @@ export const mediaOps: OpDef<any, any>[] = [
       limit: z.number().int().positive().optional(),
       concurrency: z.number().int().min(1).max(8).default(2),
       status: RowStatus.optional().describe('Status for rows that get an image (new rows default to needs_review)'),
+      maxKb: z
+        .number()
+        .positive()
+        .max(51_200)
+        .optional()
+        .describe('Keep every image at or under this many KB (1 KB = 1000 bytes): larger images are re-encoded as JPEG and scaled down. Leave out for no limit.'),
     }),
     handler: ({ engine, actor }, i) => {
       const ds = engine.repos.datasets.get(i.dataset);
@@ -176,12 +183,40 @@ export const mediaOps: OpDef<any, any>[] = [
         if (i.promptColumn) column(engine, ds.id, i.promptColumn, ['text']);
       } else if (!i.promptTemplate.trim()) throw invalid('promptTemplate is required');
       const provider = connectionProvider(engine, i.connectionId);
-      const options = i.quality && (provider === 'openai' || provider === 'azure') ? { quality: i.quality } : undefined;
+      const openai = provider === 'openai' || provider === 'azure';
+      const options: Record<string, unknown> = {};
+      if (i.quality && openai) options.quality = i.quality;
+      // With a size limit the image is decoded and re-encoded, which needs PNG or JPEG: ask GPT Image
+      // models for PNG (their default, but a connection may be set to WebP). DALL·E rejects the option.
+      const spec = engine.repos.defs.get('connection', i.connectionId).spec as { imageModel?: string; defaultModel?: string };
+      const modelId = i.model || spec.imageModel || '';
+      if (i.maxKb && openai && /^gpt-image/i.test(modelId)) options.output_format = 'png';
+      const maxBytes = i.maxKb ? Math.floor(i.maxKb * 1000) : undefined;
 
       const draw = async (prompt: string, signal: AbortSignal) => {
-        const res = await engine.llm.image({ connectionId: i.connectionId, model: i.model || undefined, prompt, size: i.size || undefined, aspectRatio: i.aspectRatio || undefined, options, signal });
+        const res = await engine.llm.image({
+          connectionId: i.connectionId,
+          model: i.model || undefined,
+          prompt,
+          size: i.size || undefined,
+          aspectRatio: i.aspectRatio || undefined,
+          options: Object.keys(options).length ? options : undefined,
+          signal,
+        });
         if (!res.images.length) throw new Error('The model returned no image');
-        return { res, file: await putFile(engine, res.images[0].data, res.images[0].mime, slug(prompt)) };
+        const image = res.images[0];
+        if (!maxBytes) return { res, file: await putFile(engine, image.data, image.mime, slug(prompt)), sizing: undefined };
+        const fit = fitImageToSize(image.data, image.mime, maxBytes);
+        const sizing = {
+          limitKb: i.maxKb,
+          originalBytes: fit.originalBytes,
+          bytes: fit.data.length,
+          ...(fit.originalWidth ? { originalWidth: fit.originalWidth, originalHeight: fit.originalHeight } : {}),
+          ...(fit.width ? { width: fit.width, height: fit.height } : {}),
+          reencoded: fit.changed,
+          ...(fit.quality ? { jpegQuality: fit.quality } : {}),
+        };
+        return { res, file: await putFile(engine, fit.data, fit.mime, slug(prompt)), sizing };
       };
 
       const job = engine.jobs.start(
@@ -192,11 +227,11 @@ export const mediaOps: OpDef<any, any>[] = [
             const prompts = i.prompts.map((p) => p.trim()).filter(Boolean).slice(0, i.limit ?? Infinity);
             return eachItem(job, prompts, i.concurrency, (p) => p.slice(0, 60), async (p) => {
               const prompt = i.promptTemplate.trim() ? await render(i.promptTemplate, { prompt: p }, engine.templateEnv()) : p;
-              const { res, file } = await draw(prompt, job.signal);
+              const { res, file, sizing } = await draw(prompt, job.signal);
               const data: Record<string, unknown> = { [i.column]: file };
               if (i.promptColumn) data[i.promptColumn] = p;
               const out = engine.repos.datasets.addRows(ds.id, [{ data, status: i.status ?? 'needs_review' }], actor, {
-                provenance: { source: 'generated', kind: 'image', model: res.model, prompt, connectionId: i.connectionId },
+                provenance: { source: 'generated', kind: 'image', model: res.model, prompt, connectionId: i.connectionId, ...(sizing ? { sizing } : {}) },
               });
               if (out.rejected.length) throw new Error(out.rejected[0].errors.join('; '));
               engine.events.emit({ type: 'rows.changed', datasetId: ds.id, count: 1, actor });
@@ -207,9 +242,9 @@ export const mediaOps: OpDef<any, any>[] = [
           return eachItem(job, rows, i.concurrency, (r) => r.id, async (row) => {
             const prompt = await render(i.promptTemplate, rowScope(row), engine.templateEnv());
             if (!prompt.trim()) return 'skipped';
-            const { res, file } = await draw(prompt, job.signal);
+            const { res, file, sizing } = await draw(prompt, job.signal);
             setRowFile(engine, actor, row, i.column, file, { status: i.status });
-            noteProvenance(engine, row.id, { media: { [i.column]: { source: 'generated', kind: 'image', model: res.model, prompt } } });
+            noteProvenance(engine, row.id, { media: { [i.column]: { source: 'generated', kind: 'image', model: res.model, prompt, ...(sizing ? { sizing } : {}) } } });
             return 'updated';
           });
         },
