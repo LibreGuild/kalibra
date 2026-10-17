@@ -118,7 +118,12 @@ export function trimReport(r: EvalReport): EvalReport & { counts: { newFailures:
 
 const pct = (v: number | null | undefined, digits = 1) => (v === null || v === undefined ? '–' : `${(v * 100).toFixed(digits)}%`);
 const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v * 100).toFixed(1)} pts`;
-const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').slice(0, 160);
+/**
+ * Text from runs (names, check reasons, model output) goes into a PR comment: escape HTML so it
+ * can't fake the report marker or break the layout, and stop @mentions from pinging people.
+ */
+const plain = (s: string) => s.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/@(?=[\w-])/g, '@\u200b');
+const cell = (s: string) => plain(s).replace(/\|/g, '\\|').replace(/\s+/g, ' ').slice(0, 160);
 
 /** Marker so CI can find and update its own comment instead of adding a new one each push. */
 export const REPORT_MARKER = '<!-- kalibra-eval -->';
@@ -133,14 +138,14 @@ export function renderEvalReport(r: EvalReport & { counts?: { newFailures: numbe
   const counts = r.counts ?? { newFailures: r.newFailures.length, fixed: r.fixed.length };
   const status = r.run.status !== 'completed' ? ` (${r.run.status})` : '';
   const verdict = !r.baseline ? '' : counts.newFailures ? '⚠️ ' : (r.delta ?? 0) >= 0 ? '✅ ' : '';
-  lines.push(`### ${verdict}${opts.title ?? 'Kalibra eval'}: ${r.run.name}${status}`);
+  lines.push(`### ${verdict}${plain(opts.title ?? 'Kalibra eval')}: ${plain(r.run.name)}${status}`);
   lines.push('');
   const ci = r.run.passRateCi ? ` (95% CI ${pct(r.run.passRateCi[0], 0)}–${pct(r.run.passRateCi[1], 0)})` : '';
   const judged = r.run.passed + r.run.failed;
   lines.push(`**Pass rate ${pct(r.run.passRate)}**${ci} · ${r.run.passed}/${judged} rows passed${r.run.errors ? ` · ${r.run.errors} errors` : ''}`);
   if (r.baseline) {
     const delta = r.delta === null ? '' : `: **${signed(r.delta)}**`;
-    const where = r.baseline.git?.branch ? ` on \`${r.baseline.git.branch}\`` : '';
+    const where = r.baseline.git?.branch ? ` on \`${r.baseline.git.branch.replace(/`/g, "'")}\`` : '';
     lines.push(`Compared with run #${r.baseline.number}${where} (${pct(r.baseline.passRate)})${delta} · ${counts.newFailures} new failure${counts.newFailures === 1 ? '' : 's'} · ${counts.fixed} fixed`);
   } else {
     lines.push('No baseline yet: run the same dataset and suite on the base branch to compare future changes.');

@@ -69,6 +69,21 @@ describe('runs from code', () => {
     expect(md).toContain('[Open run #');
   });
 
+  it('escapes run text in the markdown report so it cannot ping people or fake the marker', () => {
+    const md = renderEvalReport({
+      run: { id: 'run_x', number: 3, name: 'Fix @team <!-- kalibra-eval -->', status: 'completed', passRate: 0, passRateCi: null, passed: 0, errors: 0, total: 1 },
+      baseline: null,
+      delta: null,
+      newFailures: [{ rowId: 'row_1', resultId: 'res_1', reason: 'Judge: cc @alice | <b>bad</b>', wasInBaseline: false }],
+      fixed: [],
+    } as any);
+    expect(md).not.toContain('@team');
+    expect(md).not.toContain('@alice');
+    expect(md).not.toContain(REPORT_MARKER);
+    expect(md).toContain('&lt;b&gt;bad&lt;/b&gt;');
+    expect(md).toContain('\\|');
+  });
+
   it('accepts a resubmitted row, reports unknown rows, and turns missing rows into errors', async () => {
     const started = await engine.call<any>('start_code_run', { dataset: 'Capitals', suite: 'Exact', name: 'Partial' });
     const [a] = started.rows;
