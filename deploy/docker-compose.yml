@@ -4,7 +4,7 @@
 #   2. cp .env.example .env   and fill in what you need (sign-in providers, first administrator).
 #   3. docker compose up -d   then   docker compose logs kalibra   for the one-time setup link.
 #
-# Back up (safe while running):  docker compose exec kalibra node /app/kalibra.mjs backup /backups/$(date +%F)
+# Back up (safe while running):  docker compose exec kalibra /nodejs/bin/node /app/kalibra.mjs backup /backups/$(date +%F)
 # then copy it off the machine:  docker compose cp kalibra:/backups ./backups
 services:
   kalibra:
