@@ -1,7 +1,7 @@
 {
   "name": "@kalibra/desktop",
   "productName": "Kalibra",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.3",
   "private": true,
   "description": "Kalibra desktop app: local-first evaluation for AI applications",
   "author": "LibreGuild",
@@ -14,8 +14,8 @@
     "dist": "node build.mjs && electron-builder --config electron-builder.yml --publish never"
   },
   "devDependencies": {
-    "@kalibra/core": "0.1.0",
-    "@kalibra/server": "0.1.0",
+    "@kalibra/core": "0.1.0-beta.3",
+    "@kalibra/server": "0.1.0-beta.3",
     "electron": "44.8.0",
     "electron-builder": "26.17.0"
   }

@@ -14,6 +14,14 @@ import { router } from './routes';
 const root = document.documentElement;
 addEventListener('pointerdown', () => (root.dataset.input = 'pointer'), true);
 addEventListener('keydown', (e) => { if (!e.metaKey && !e.ctrlKey && !e.altKey) root.dataset.input = 'keyboard'; }, true);
+// When a mouse user switches to another app, the browser restores focus to the last clicked link or
+// button on return, which made it look hovered (and opened its tooltip). Mouse users don't rely on
+// that focus, so let it go; fields keep theirs so typing can continue, and keyboard users keep theirs.
+addEventListener('blur', (e) => {
+  if (e.target !== window || root.dataset.input === 'keyboard') return;
+  const el = document.activeElement as HTMLElement | null;
+  if (el?.matches('a, button, [role="button"], [role="tab"], [role="menuitem"], [role="radio"], summary')) el.blur();
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

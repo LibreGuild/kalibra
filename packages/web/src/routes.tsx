@@ -21,6 +21,8 @@ import { ChangePasswordPage, LoginPage, SetupPage } from './pages/auth';
 import { ProjectSettingsPage, ProjectsPage } from './pages/projects';
 import { AccountPage } from './pages/account';
 import { AdminPage } from './pages/admin';
+import { TracesPage } from './pages/traces';
+import { ConnectPage } from './components/connect/connect-page';
 
 /*
  * Pages inside a project live under /p/<project id>/…; account, administration, docs and app
@@ -43,12 +45,15 @@ const projectPages: RouteObject[] = [
   { path: 'comparisons/:id', element: <RunGroupPage /> },
   { path: 'playground', element: <PlaygroundPage /> },
   { path: 'connections', element: <ConnectionsPage /> },
+  { path: 'traces', element: <TracesPage /> },
+  { path: 'traces/:id', element: <TracesPage /> },
+  { path: 'connect', element: <ConnectPage /> },
   { path: 'settings', element: <ProjectSettingsPage /> },
   { path: '*', element: <RouteError notFound /> },
 ];
 
 /** Project pages from before projects existed: /datasets/x → /p/<last project>/datasets/x. */
-const LEGACY = ['datasets/*', 'targets/*', 'suites/*', 'runs/*', 'comparisons/*', 'playground', 'connections'];
+const LEGACY = ['datasets/*', 'targets/*', 'suites/*', 'runs/*', 'comparisons/*', 'playground', 'connections', 'traces/*', 'connect'];
 
 export const router = createBrowserRouter([
   {

@@ -1,6 +1,6 @@
 {
   "name": "@kalibra/core",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.3",
   "private": true,
   "type": "module",
   "exports": {
@@ -20,15 +20,18 @@
     "ajv-formats": "^3.0.1",
     "fflate": "^0.8.3",
     "jose": "6.2.12",
+    "jpeg-js": "0.4.4",
     "jsonpath-plus": "^11.2.1",
     "openid-client": "6.8.8",
     "papaparse": "^5.7.0",
+    "pngjs": "7.0.0",
     "ws": "^8.22.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/papaparse": "^5.5.2",
+    "@types/pngjs": "6.0.5",
     "@types/ws": "^8.18.2"
   }
 }

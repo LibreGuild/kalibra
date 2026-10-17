@@ -146,26 +146,35 @@ export function AgentsPage() {
           </Card>
         </div>
 
-        <Card className="h-fit">
-          <SectionTitle help="Changes made through MCP, with the client that made them. Rows added by agents also wait for your review.">Agent activity</SectionTitle>
-          {(activity.data ?? []).length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center text-[0.8125rem] text-ink-muted">
-              <Bot className="size-6 text-ink-faint" />
-              No agent activity yet.
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-3">
-              {activity.data!.map((a) => (
-                <li key={a.id} className="min-w-0">
-                  <div className="truncate text-[0.8125rem]">{a.summary}</div>
-                  <div className="flex items-center gap-1.5 text-[0.75rem] text-ink-faint">
-                    <Badge tone="accent">{actorLabel(a.actor)}</Badge> {timeAgo(a.at)}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+        <div className="flex h-fit flex-col gap-6">
+          <Card>
+            <SectionTitle help="Different from MCP: the Kalibra SDK, OpenTelemetry or the OpenAI proxy send your app's own calls (prompts, tool calls, retrieved documents) to Kalibra.">Your app, not your agent?</SectionTitle>
+            <p className="text-[0.8125rem] text-ink-muted">Send the real calls your app makes to Kalibra, turn them into test rows, and let eval runs see the steps inside every answer.</p>
+            <Link to="/connect" className="mt-3 inline-block text-[0.8125rem] font-medium text-accent-ink hover:underline">
+              Connect your app →
+            </Link>
+          </Card>
+          <Card>
+            <SectionTitle help="Changes made through MCP, with the client that made them. Rows added by agents also wait for your review.">Agent activity</SectionTitle>
+            {(activity.data ?? []).length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-6 text-center text-[0.8125rem] text-ink-muted">
+                <Bot className="size-6 text-ink-faint" />
+                No agent activity yet.
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {activity.data!.map((a) => (
+                  <li key={a.id} className="min-w-0">
+                    <div className="truncate text-[0.8125rem]">{a.summary}</div>
+                    <div className="flex items-center gap-1.5 text-[0.75rem] text-ink-faint">
+                      <Badge tone="accent">{actorLabel(a.actor)}</Badge> {timeAgo(a.at)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
     </Page>
   );

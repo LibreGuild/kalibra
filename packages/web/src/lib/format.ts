@@ -54,7 +54,9 @@ export const actorLabel = (a: { kind?: string; client?: string; id?: string; nam
   const me = a.id === getCurrentUserId() || a.id === 'local' || ((a.kind === 'agent' || a.kind === 'cli') && !a.name);
   const person = me ? 'you' : (a.name ?? a.id ?? 'someone');
   if (a.kind === 'agent') return me ? (a.client ?? 'agent') : `${a.client ?? 'agent'} via ${person}`;
-  if (a.kind === 'cli') return me ? 'CLI' : `CLI via ${person}`;
+  // The SDKs' evaluate() helpers call in as "cli" with their own client name.
+  const tool = a.client?.startsWith('kalibra-sdk') ? 'SDK' : 'CLI';
+  if (a.kind === 'cli') return me ? tool : `${tool} via ${person}`;
   if (a.kind === 'system') return 'Kalibra';
   return me ? 'You' : (a.name ?? a.id ?? 'someone');
 };

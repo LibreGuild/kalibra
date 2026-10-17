@@ -71,4 +71,16 @@ Every check can be a **gate**, has a **weight** and an optional **applyWhen** ex
 - `script`: your JavaScript returns `true/false` or `{ pass, score, value, reason }`.
 - `expression`: a one-line JS condition.
 
+**Agents & RAG** (category `agents`; `checks/agents.ts`, `checks/rag.ts`)
+
+They read tool calls, steps and retrieved documents from traces joined to the row (`tool_calls`, `steps`, `sources`), or from fields your app returns (`outputs.tool_calls`, `outputs.steps`, `outputs.sources`). With neither, they skip and explain how to provide them.
+
+- `tool_called` (layer 2): a tool was called between min and max times. Optionally only calls whose arguments match: partial deep match, `{{column}}` templates allowed.
+- `tool_not_called` (2): none of the listed tools was called.
+- `tool_order` (2): the calls contain a sequence in order; other calls may come in between.
+- `step_limits` (2): at most N steps, model calls or tool calls.
+- `citations` (3): every cited id (a regex such as `[doc-17]`, or a field) was actually retrieved.
+- `retrieval_recall` (4): the expected document ids (a list or comma-separated column) are among the first k retrieved.
+- `grounded` (5): an LLM judge splits the answer into claims and checks each against the retrieved documents. The score is the share supported.
+
 Source: `packages/core/src/checks/*.ts`. Every field has a help text that becomes a UI tooltip.

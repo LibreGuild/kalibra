@@ -9,7 +9,9 @@ export type EngineEvent =
   | { type: 'run.updated'; runId: string; status: string; done: number; total: number }
   | { type: 'result.updated'; runId: string; resultId: string }
   | { type: 'activity'; op: string; summary: string; actor: Actor }
-  | { type: 'job.updated'; jobId: string; kind: string; status: string; done: number; total: number };
+  | { type: 'job.updated'; jobId: string; kind: string; status: string; done: number; total: number }
+  /** The app sent traces (SDK, OpenTelemetry, proxy); `resultIds` when some belong to eval rows. */
+  | { type: 'traces.ingested'; count: number; resultIds?: string[] };
 
 export class EventBus {
   private emitter = new EventEmitter();

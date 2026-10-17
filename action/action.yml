@@ -1,0 +1,130 @@
+# Runs a Kalibra suite against your app on a team server and reports the result on the pull
+# request: pass rate, change against the base branch, and the new failures.
+#
+#   - uses: LibreGuild/kalibra/action@v0
+#     with:
+#       server: https://kalibra.example.com
+#       token: ${{ secrets.KALIBRA_TOKEN }}
+#       project: Support bot
+#       dataset: Support questions
+#       target: Staging API
+#       suite: Chat checks
+#       min-pass: "0.9"
+name: Kalibra eval
+description: Evaluate your AI app with Kalibra and comment the result on the pull request
+author: LibreGuild
+branding:
+  icon: check-circle
+  color: orange
+
+inputs:
+  server:
+    description: Address of your Kalibra team server
+    required: true
+  token:
+    description: A Kalibra access token (Account → Access tokens), stored as a repository secret
+    required: true
+  project:
+    description: Project id or name
+    required: false
+    default: ""
+  dataset:
+    description: Dataset name or id
+    required: true
+  target:
+    description: Target name or id (the app under test)
+    required: true
+  suite:
+    description: Suite name or id
+    required: true
+  name:
+    description: Run name (default from the branch)
+    required: false
+    default: ""
+  min-pass:
+    description: Fail the step below this pass rate (0 to 1). Empty = never fail on the pass rate.
+    required: false
+    default: ""
+  baseline:
+    description: '"auto" (latest run on the base branch) or a run id'
+    required: false
+    default: auto
+  comment:
+    description: Post or update one comment on the pull request
+    required: false
+    default: "true"
+  github-token:
+    description: Token used to comment (needs pull-requests write)
+    required: false
+    default: ${{ github.token }}
+  kalibra-version:
+    description: npm version or dist-tag of the kalibra CLI
+    required: false
+    default: next
+
+outputs:
+  report:
+    description: Path of the markdown report
+    value: ${{ steps.run.outputs.report }}
+  exit-code:
+    description: Exit code of kalibra run (non-zero when the run failed or the pass rate is below min-pass)
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 22
+
+    - id: run
+      shell: bash
+      env:
+        KALIBRA_URL: ${{ inputs.server }}
+        KALIBRA_TOKEN: ${{ inputs.token }}
+        KALIBRA_PROJECT: ${{ inputs.project }}
+        IN_DATASET: ${{ inputs.dataset }}
+        IN_TARGET: ${{ inputs.target }}
+        IN_SUITE: ${{ inputs.suite }}
+        IN_NAME: ${{ inputs.name }}
+        IN_MIN_PASS: ${{ inputs.min-pass }}
+        IN_BASELINE: ${{ inputs.baseline }}
+        IN_VERSION: ${{ inputs.kalibra-version }}
+        # On pull requests GITHUB_SHA is the temporary merge commit; report the branch's own head instead.
+        IN_COMMIT: ${{ github.event.pull_request.head.sha }}
+      run: |
+        report="$RUNNER_TEMP/kalibra-report.md"
+        args=(run --dataset "$IN_DATASET" --target "$IN_TARGET" --suite "$IN_SUITE" --baseline "$IN_BASELINE" --report markdown)
+        [ -n "$IN_NAME" ] && args+=(--name "$IN_NAME")
+        [ -n "$IN_MIN_PASS" ] && args+=(--min-pass "$IN_MIN_PASS")
+        [ -n "$IN_COMMIT" ] && args+=(--git-commit "$IN_COMMIT")
+        set +e
+        npx -y "kalibra@$IN_VERSION" "${args[@]}" > "$report"
+        code=$?
+        set -e
+        cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+    - if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.run.outputs.report != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPORT: ${{ steps.run.outputs.report }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        # One comment per pull request, updated on every push (found by the marker in the report).
+        [ -s "$REPORT" ] || { echo "No report to post"; exit 0; }
+        id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- kalibra-eval -->")) | .id' | head -n 1)
+        if [ -n "$id" ]; then
+          gh api --method PATCH "repos/$REPO/issues/comments/$id" -F body=@"$REPORT" > /dev/null
+        else
+          gh api --method POST "repos/$REPO/issues/$PR/comments" -F body=@"$REPORT" > /dev/null
+        fi
+
+    - if: steps.run.outputs.exit-code != '0'
+      shell: bash
+      run: |
+        echo "::error::Kalibra eval failed (exit code ${{ steps.run.outputs.exit-code }}); see the report above."
+        exit 1

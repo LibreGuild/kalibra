@@ -70,6 +70,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   content: 'Content',
   reference: 'Reference metrics',
   judgment: 'Judgment',
+  agents: 'Agents & RAG',
 };
 
 /** Fields that only matter for some settings stay hidden otherwise, to keep forms short. */

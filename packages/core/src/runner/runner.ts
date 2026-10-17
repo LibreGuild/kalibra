@@ -11,6 +11,8 @@ import { runConversation } from './conversation.js';
 import { summarize } from './summary.js';
 
 const MAX_TEXT = 256 * 1024;
+/** Steps kept per row (a runaway agent can produce thousands). */
+const MAX_STEPS = 500;
 
 /**
  * Executes runs in-process: bounded concurrency, retries with backoff (honouring Retry-After),
@@ -133,9 +135,12 @@ export class Runner {
     let call: TargetCallResult;
     let attempts = 0;
     const conv = run.settings.conversation;
+    // Trace headers let the app report what it did for this row (docs/design/sdk-and-traces.md §4).
+    const sendTraces = !!target && target.traces?.send !== false;
+    const traceHeaders = sendTraces ? this.traceHeaders(run, item.id) : undefined;
     if (target) {
       const callOnce = (row: Record<string, unknown>) =>
-        callTarget(this.engine, target, { row, rowId: item.rowId, vars, retries: run.settings.retries, signal, log });
+        callTarget(this.engine, target, { row, rowId: item.rowId, vars, retries: run.settings.retries, signal, log, traceHeaders });
       const out = conv && conv.mode !== 'off'
         ? await runConversation(conv, item.input, { call: callOnce, llm: this.engine.llm, env, signal, log })
         : await callOnce(item.input);
@@ -145,6 +150,13 @@ export class Runner {
       call = { ok: !item.error, outputs: item.outputs ?? {}, metrics: item.metrics ?? {}, error: item.error ?? undefined, logs: [] };
     }
     if (signal.aborted) return; // left as "running"; reset to pending when the run stops
+
+    // The app's trace for this row: waited for when the run collects traces (or the target asks to),
+    // otherwise whatever already arrived. Traces of code runs carry the row id themselves.
+    const waitMs = target?.traces?.wait || (run.settings.collectTraces ? (run.settings.traceWaitMs ?? 1500) : 0);
+    const reported = sendTraces || !target ? await this.engine.traces.waitForResult(item.id, waitMs, signal) : { steps: [], traceIds: [] };
+    if (signal.aborted) return;
+    const inside = this.engine.traces.scopeFor(call.outputs, reported.steps);
 
     const scope: Record<string, unknown> = {
       ...item.input,
@@ -156,6 +168,9 @@ export class Runner {
       metrics: call.metrics,
       vars,
       error: call.error ?? '',
+      steps: inside.steps,
+      sources: inside.sources,
+      tool_calls: inside.tool_calls,
     };
     const evaluated = await evaluateChecks(suite, { scope, env, llm: this.engine.llm, embed: this.engine.embeddings, log, workspaceDir: this.engine.dir, signal });
 
@@ -172,8 +187,21 @@ export class Runner {
       error: call.error ?? null,
       logs: [...call.logs, ...logs].slice(0, 500),
       attempts,
+      steps: inside.steps?.slice(0, MAX_STEPS) ?? null,
     });
     this.engine.events.emit({ type: 'result.updated', runId: run.id, resultId: item.id });
+  }
+
+  /** traceparent + x-kalibra-run / x-kalibra-result (+ x-kalibra-tools) for one row's calls. */
+  private traceHeaders(run: RunRecord, resultId: string): Record<string, string> {
+    const { traceparent } = this.engine.traces.joinIds(run.id, resultId);
+    const tools = run.settings.tools ?? 'live';
+    return {
+      traceparent,
+      'x-kalibra-run': run.id,
+      'x-kalibra-result': resultId,
+      ...(tools !== 'live' ? { 'x-kalibra-tools': tools } : {}),
+    };
   }
 
   private saveCrash(runId: string, resultId: string, e: any) {
@@ -201,7 +229,16 @@ export class Runner {
 export async function callTarget(
   engine: Engine,
   target: TargetSpec,
-  opts: { row: Record<string, unknown>; rowId: string; vars: Record<string, string>; retries: number; signal: AbortSignal; log: (level: LogEntry['level'], message: string) => void },
+  opts: {
+    row: Record<string, unknown>;
+    rowId: string;
+    vars: Record<string, string>;
+    retries: number;
+    signal: AbortSignal;
+    log: (level: LogEntry['level'], message: string) => void;
+    /** Runs only: lets the app report its trace for this row. */
+    traceHeaders?: Record<string, string>;
+  },
 ): Promise<{ result: TargetCallResult; attempts: number }> {
   let attempts = 0;
   for (;;) {
@@ -215,6 +252,7 @@ export async function callTarget(
       llm: engine.llm,
       signal: opts.signal,
       workspaceDir: engine.dir,
+      traceHeaders: opts.traceHeaders,
     });
     if (!result.retryable || attempts > opts.retries || opts.signal.aborted) return { result, attempts };
     const retryAfter = Number(result.response?.headers?.['retry-after']);

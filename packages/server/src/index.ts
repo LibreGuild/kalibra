@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { DEFAULT_PROJECT, KalibraError, roleAtLeast, type EngineEvent, type Hub, type Principal } from '@kalibra/core';
 import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, ownOrigin, RateLimiter, readSessionCookie, sessionCookieName, type AuthConfig } from './auth.js';
 import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serveBlob, serveStatic } from './http.js';
+import { ingestRoutes, isIngestRoute } from './ingest.js';
 
 /*
  * The HTTP API. The desktop app and `npx kalibra` run it on 127.0.0.1 with a per-launch token
@@ -22,6 +23,8 @@ import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serv
  *   GET  /api/projects/:p/events             live change events (SSE)
  *   POST /api/projects/:p/files              upload a file (raw body) → blob info
  *   GET  /api/projects/:p/files/:hash        download / stream a file (Range supported)
+ *   POST /api/projects/:p/ingest/traces      traces from your app (SDK); also otlp/v1/traces,
+ *   GET|POST /api/projects/:p/ingest/tools   tool recordings, and proxy/openai/* (see ingest.ts)
  *
  * /api/ops, /api/events and /api/files are kept as shortcuts to the default project, for older
  * MCP bridge configs and scripts.
@@ -67,6 +70,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   let port = 0;
   const cfg: AuthConfig = { hub, token: opts.token, allowedOrigins: opts.allowedOrigins ?? [], publicUrl: opts.publicUrl?.replace(/\/$/, ''), trustProxy: !!opts.trustProxy };
   const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000);
+  const ingest = ingestRoutes(hub, cfg);
 
   const server = createServer(async (req, res) => {
     try {
@@ -89,6 +93,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (!url.pathname.startsWith('/api/')) return serveStatic(opts.staticDir, req, res, url);
     if (url.pathname === '/api/health') return send(res, 200, { ok: true, name: 'kalibra' });
     if (url.pathname.startsWith('/api/auth/')) return authRoutes(req, res, url);
+    // Apps sending traces authenticate with an ingest key (or a normal sign-in): see ingest.ts.
+    if (isIngestRoute(url.pathname)) return ingest(req, res, url);
 
     const auth = await authenticate(req, cfg);
     if (!auth.ok) return fail(res, auth.status, auth.code, auth.message);

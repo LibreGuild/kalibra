@@ -1,0 +1,56 @@
+{
+  "name": "kalibra-sdk",
+  "version": "0.1.0-beta.3",
+  "description": "Kalibra SDK: trace what happens inside your AI app, link it to Kalibra eval runs, record and replay tools, and run evals as code. Zero dependencies; switch it off for production.",
+  "license": "MIT",
+  "author": "LibreGuild",
+  "homepage": "https://github.com/LibreGuild/kalibra/tree/main/packages/sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LibreGuild/kalibra.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/LibreGuild/kalibra/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./eval": {
+      "types": "./dist/eval.d.ts",
+      "import": "./dist/eval.js",
+      "require": "./dist/eval.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "llm",
+    "evals",
+    "tracing",
+    "observability",
+    "agents",
+    "rag",
+    "ai",
+    "testing",
+    "kalibra"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs"
+  }
+}

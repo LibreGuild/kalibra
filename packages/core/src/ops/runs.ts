@@ -8,9 +8,10 @@ import { invalid } from '../util.js';
 import { assertCodeChange } from '../policy.js';
 import type { Engine } from '../engine.js';
 import type { Actor } from '../registry.js';
+import { GitInfoInput, type RunKind } from '../repo/runs.js';
 
 /** Snapshot the dataset, pick rows per settings, create the run with one pending result per row × repetition. */
-export function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: string; target?: string; name?: string; settings: RunSettings; kind: 'live' | 'imported'; groupId?: string; variantLabel?: string }) {
+export function prepareRun(engine: Engine, actor: Actor, i: { dataset: string; suite: string; target?: string; name?: string; settings: RunSettings; kind: RunKind; groupId?: string; variantLabel?: string }) {
   const { datasets, defs, runs } = engine.repos;
   const ds = datasets.get(i.dataset);
   const suite = defs.get('suite', i.suite);
@@ -41,10 +42,12 @@ export const runOps = [
       suite: z.string(),
       name: z.string().optional(),
       settings: RunSettings.prefault({}),
+      git: GitInfoInput.optional().describe('Branch / commit / PR of the code under test (CI), so later runs can compare against the base branch'),
     }),
     handler: ({ engine, actor }, i) => {
       const warnings = runPreflight(engine, i.dataset, i.target, i.settings);
       const { run, rows } = prepareRun(engine, actor, { ...i, kind: 'live' });
+      if (i.git) engine.repos.runs.setGit(run.id, i.git);
       const items = rows.flatMap((r) => Array.from({ length: i.settings.repetitions }, (_, rep) => ({ rowId: r.id, rowRev: r.rev, rep, input: r.data })));
       engine.repos.runs.addPending(run.id, items);
       engine.runner.start(run.id);

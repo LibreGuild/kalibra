@@ -640,4 +640,50 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
         .all(i.action ? 'SELECT * FROM audit WHERE action LIKE ? ORDER BY id DESC LIMIT ?' : 'SELECT * FROM audit ORDER BY id DESC LIMIT ?', ...(i.action ? [`${i.action}%`, i.limit] : [i.limit]))
         .map((a) => ({ id: a.id, at: a.at, actor: parseJson(a.actor, {}), action: a.action, subject: a.subject, details: parseJson(a.details, {}), ip: a.ip })),
   }),
+
+  // ── Ingest keys (apps sending traces) ─────────────────────────────────────
+  defineHubOp({
+    name: 'list_ingest_keys',
+    title: 'Ingest keys',
+    description: 'Keys your app uses to send traces to this project (SDK, OpenTelemetry, OpenAI proxy). A key can only send traces and use tool recordings of this one project.',
+    category: 'projects',
+    access: 'user',
+    mcp: false,
+    readOnly: true,
+    input: z.object({ project: projectRef }),
+    handler: (ctx, i) => ctx.hub.ingestKeys.list(requireRole(ctx, i.project, 'editor').id),
+  }),
+
+  defineHubOp({
+    name: 'create_ingest_key',
+    title: 'Create an ingest key',
+    description: 'Creates a key for your app to send traces to this project. The key is shown once; put it in the app\'s environment (KALIBRA_KEY).',
+    category: 'projects',
+    access: 'user',
+    mcp: false,
+    input: z.object({ project: projectRef, name: z.string().min(1).max(100) }),
+    handler: (ctx, i) => {
+      const p = requireRole(ctx, i.project, 'editor');
+      const key = ctx.hub.ingestKeys.create(p.id, i.name, ctx.principal.user.id);
+      ctx.hub.audit(ctx.actor, 'ingest_key.created', p.name, { id: key.id, name: key.name }, ctx.ip);
+      return key;
+    },
+  }),
+
+  defineHubOp({
+    name: 'revoke_ingest_key',
+    title: 'Revoke an ingest key',
+    description: 'Stops a key from sending traces.',
+    category: 'projects',
+    access: 'user',
+    mcp: false,
+    destructive: true,
+    input: z.object({ project: projectRef, id: z.string() }),
+    handler: (ctx, i) => {
+      const p = requireRole(ctx, i.project, 'editor');
+      const key = ctx.hub.ingestKeys.revoke(p.id, i.id);
+      ctx.hub.audit(ctx.actor, 'ingest_key.revoked', p.name, { id: key.id, name: key.name }, ctx.ip);
+      return { revoked: key.id };
+    },
+  }),
 ];

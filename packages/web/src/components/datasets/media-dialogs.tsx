@@ -347,6 +347,8 @@ export function GenerateImagesDialog({ open, onOpenChange, ds, selectedIds }: { 
   const [newPromptColumn, setNewPromptColumn] = useState('prompt');
   const [size, setSize] = useState('default');
   const [quality, setQuality] = useState('medium');
+  const [maxSize, setMaxSize] = useState('any');
+  const [customKb, setCustomKb] = useState('');
   const [scope, setScope] = useState<Scope>(selectedIds.length ? 'selected' : 'empty');
   const { list, spec } = useConnectionSpec(connectionId);
   const sample = useSampleRows(ds.id, open && mode === 'fill');
@@ -364,6 +366,9 @@ export function GenerateImagesDialog({ open, onOpenChange, ds, selectedIds }: { 
     return rows;
   }, [sample.data, scope, column, selectedIds]);
   const count = mode === 'new' ? promptList.length : scope === 'selected' ? selectedIds.length : targetRows.length;
+  // KB here means 1000 bytes, like Finder and Explorer show file sizes.
+  const maxKb = maxSize === 'any' ? undefined : maxSize === 'custom' ? Number(customKb) || undefined : Number(maxSize);
+  const customInvalid = maxSize === 'custom' && !(Number(customKb) > 0);
   const modelHint = spec?.imageModel || (/(image|dall-e|imagen)/i.test(spec?.defaultModel ?? '') ? spec.defaultModel : '') || 'gpt-image-2';
 
   return (
@@ -373,10 +378,10 @@ export function GenerateImagesDialog({ open, onOpenChange, ds, selectedIds }: { 
       title="Generate images"
       description="An image model draws one image per row (or per prompt) and stores it in an image column."
       startLabel={count ? `Generate ${count} image${count === 1 ? '' : 's'}` : 'Generate'}
-      canStart={!!connectionId && count > 0 && (mode === 'new' || !!template.trim())}
+      canStart={!!connectionId && count > 0 && (mode === 'new' || !!template.trim()) && !customInvalid}
       onStart={async () => {
         const col = await ensureColumn(ds, column, newColumn, 'image');
-        const common = { dataset: ds.id, column: col, connectionId, model, size: size === 'default' ? '' : size, quality: isOpenAI ? quality : '' };
+        const common = { dataset: ds.id, column: col, connectionId, model, size: size === 'default' ? '' : size, quality: isOpenAI ? quality : '', ...(maxKb ? { maxKb } : {}) };
         if (mode === 'new') {
           const pc = promptColumn === '__none' ? '' : await ensureColumn(ds, promptColumn, newPromptColumn, 'text');
           return (await op('generate_images', { ...common, mode: 'new_rows', prompts: promptList, promptColumn: pc })).jobId;
@@ -456,10 +461,36 @@ export function GenerateImagesDialog({ open, onOpenChange, ds, selectedIds }: { 
           </Field>
         )}
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field
+          label="Max file size"
+          help="Keeps every image at or under this size, e.g. for small test images. Larger images are saved as JPEG and scaled down until they fit; images that already fit are kept as they are. Any = no limit."
+        >
+          <Select
+            value={maxSize}
+            onChange={setMaxSize}
+            options={[
+              { value: 'any', label: 'Any' },
+              { value: '50', label: '50 KB' },
+              { value: '100', label: '100 KB' },
+              { value: '250', label: '250 KB' },
+              { value: '500', label: '500 KB' },
+              { value: '1000', label: '1 MB' },
+              { value: 'custom', label: 'Custom…' },
+            ]}
+          />
+        </Field>
+        {maxSize === 'custom' && (
+          <Field label="Limit (KB)" help="1 KB = 1000 bytes.">
+            <Input type="number" min={1} step={1} value={customKb} onChange={(e) => setCustomKb(e.target.value)} placeholder="e.g. 80" />
+          </Field>
+        )}
+      </div>
       {count > 0 && (
         <div className="text-[0.78125rem] text-ink-faint">
           {count} image{count === 1 ? '' : 's'}
-          {isOpenAI ? ` at ${quality} quality` : ''} — each one is a paid call to your provider.
+          {isOpenAI ? ` at ${quality} quality` : ''}
+          {maxKb ? `, each kept under ${maxKb >= 1000 ? `${maxKb / 1000} MB` : `${maxKb} KB`}` : ''} — each one is a paid call to your provider.
         </div>
       )}
     </JobDialog>

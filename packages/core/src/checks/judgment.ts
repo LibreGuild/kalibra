@@ -146,7 +146,7 @@ export const scriptCheck = defineCheck({
   layer: 5,
   description: 'Your own JavaScript decides pass/fail. Use it for any rule the built-in checks do not cover.',
   config: z.object({
-    code: z.string().default("// Available: output, outputs, row, response, metrics, vars, error, log\n// Return true/false, a score from 0 to 1, or { pass, score, reason }\nreturn String(output).length > 0;"),
+    code: z.string().default("// Available: output, outputs, row, response, metrics, vars, error, steps, sources, tool_calls, log\n// Return true/false, a score from 0 to 1, or { pass, score, reason }\nreturn String(output).length > 0;"),
     timeoutMs: z.number().int().positive().default(10000),
   }),
   fields: [
@@ -166,6 +166,8 @@ export const scriptCheck = defineCheck({
         cfg.code,
         {
           output: s.output, outputs: s.outputs, row: s.row, response: s.response, metrics: s.metrics, vars: s.vars, error: s.error,
+          // What the app reported doing (SDK/OpenTelemetry traces, or fields of its reply); empty when unknown.
+          steps: s.steps ?? [], sources: s.sources ?? [], tool_calls: s.tool_calls ?? [],
           log: (...a: unknown[]) => ctx.log('info', a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')),
         },
         { timeoutMs: cfg.timeoutMs, log: ctx.log, requireFrom: ctx.workspaceDir, filename: 'check.js' },

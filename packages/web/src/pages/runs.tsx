@@ -51,11 +51,20 @@ interface Summary {
   metrics?: Record<string, { count: number; mean: number; p50: number; p95: number; p99: number; min: number; max: number }>;
 }
 
+/** Where a run started from code or CI came from (see start_code_run). */
+interface RunGit {
+  branch?: string;
+  commit?: string;
+  pr?: number | string;
+  baseBranch?: string;
+}
+
 interface Run {
   id: string;
   number: number;
   name: string;
-  kind: 'live' | 'imported';
+  kind: 'live' | 'imported' | 'code';
+  git?: RunGit | null;
   status: string;
   datasetId: string | null;
   targetId: string | null;
@@ -116,6 +125,42 @@ function useNameLookup() {
     const map = (xs?: any[]) => new Map((xs ?? []).map((x) => [x.id, x.name as string]));
     return { dataset: map(datasets.data), target: map(targets.data), suite: map(suites.data) };
   }, [datasets.data, targets.data, suites.data]);
+}
+
+/** "feature/x @ 1a2b3c4 · PR 12": where a code run came from. */
+const gitLabel = (g?: RunGit | null) =>
+  g ? [g.branch, g.commit ? `@ ${String(g.commit).slice(0, 7)}` : '', g.pr ? `· PR ${g.pr}` : ''].filter(Boolean).join(' ') : '';
+
+/** compare_to_baseline's answer, the parts the runs list shows. */
+interface BaselineReport {
+  baseline: { id: string; number: number; name: string; passRate: number | null; git: RunGit | null } | null;
+  delta: number | null;
+  newFailures: unknown[];
+  fixed: unknown[];
+}
+
+/** "+3.0 pts vs main": how a finished code run did against its baseline (latest run on the base branch). */
+function BaselineChip({ run }: { run: Run }) {
+  const enabled = run.kind === 'code' && run.status === 'completed';
+  // A finished run's baseline is fixed (the latest one before it), so the answer can stay cached.
+  const report = useOp<BaselineReport>('compare_to_baseline', { runId: run.id }, { enabled, staleTime: 5 * 60_000, retry: false } as any);
+  const r = report.data;
+  if (!enabled || !r?.baseline || r.delta == null) return null;
+  const delta = r.delta * 100;
+  const tone = Math.abs(delta) < 0.05 ? 'neutral' : delta > 0 ? 'ok' : 'bad';
+  const branch = r.baseline.git?.branch ?? run.git?.baseBranch;
+  return (
+    <Tip
+      content={`Pass rate ${pct(run.summary?.passRate ?? null, 1)} against ${pct(r.baseline.passRate, 1)} in run #${r.baseline.number}${branch ? ` on ${branch}` : ''}: ${r.newFailures.length} new failure${r.newFailures.length === 1 ? '' : 's'}, ${r.fixed.length} fixed.`}
+    >
+      <span>
+        <Badge tone={tone}>
+          {delta >= 0 ? '+' : ''}
+          {delta.toFixed(1)} pts vs {branch ?? 'baseline'}
+        </Badge>
+      </span>
+    </Tip>
+  );
 }
 
 function PassRateCell({ s }: { s: Summary }) {
@@ -225,9 +270,26 @@ export function RunsPage() {
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{e.run.name}</span>
                       {e.run.kind === 'imported' && <Badge tone="info">Imported</Badge>}
+                      {e.run.kind === 'code' && (
+                        <Tip content="Started from code (the SDK's evaluate helper, a test or CI): your own function produced the outputs, Kalibra scored them.">
+                          <span>
+                            <Badge tone="info">Code</Badge>
+                          </span>
+                        </Tip>
+                      )}
                     </div>
-                    <div className="truncate text-[0.78125rem] text-ink-muted">
-                      {[names.dataset.get(e.run.datasetId ?? ''), e.run.kind === 'imported' ? 'imported outputs' : names.target.get(e.run.targetId ?? ''), names.suite.get(e.run.suiteId ?? '')].map((x) => x ?? '—').join(' · ')}
+                    {/* The baseline chip sits on the second line so it never squeezes the run name. */}
+                    <div className="flex min-w-0 items-center gap-2 text-[0.78125rem] text-ink-muted">
+                      {e.run.kind === 'code' && <BaselineChip run={e.run} />}
+                      <span className="truncate">
+                      {[
+                        names.dataset.get(e.run.datasetId ?? ''),
+                        e.run.kind === 'imported' ? 'imported outputs' : e.run.kind === 'code' ? gitLabel(e.run.git) || 'from code' : names.target.get(e.run.targetId ?? ''),
+                        names.suite.get(e.run.suiteId ?? ''),
+                      ]
+                        .map((x) => x ?? '—')
+                        .join(' · ')}
+                      </span>
                     </div>
                   </div>
                 ) : (
@@ -327,7 +389,8 @@ export function RunDetailPage() {
   const [debounced, setDebounced] = useState('');
   const [sort, setSort] = useState<'seq' | 'score' | 'latency'>('seq');
   const [pages, setPages] = useState(1);
-  const [openResult, setOpenResult] = useState<string | null>(null);
+  // ?result=<id> (e.g. from a trace) opens that row's result.
+  const [openResult, setOpenResult] = useState<string | null>(() => params.get('result'));
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 250);

@@ -8,6 +8,8 @@ import { expressionCheck, llmJudgeCheck, scriptCheck } from './judgment.js';
 import { piiLeakCheck, refusalCheck } from './safety.js';
 import { semanticChecks } from './semantic.js';
 import { conversationChecks } from './conversation.js';
+import { agentChecks } from './agents.js';
+import { ragChecks } from './rag.js';
 
 export * from './types.js';
 export { statusMatches } from './transport.js';
@@ -36,6 +38,8 @@ export const CHECK_TYPES: CheckType[] = [
   refusalCheck,
   piiLeakCheck,
   ...conversationChecks,
+  ...agentChecks,
+  ...ragChecks,
   llmJudgeCheck,
   scriptCheck,
   expressionCheck,

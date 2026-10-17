@@ -3,7 +3,7 @@ import { useNavigate } from '../../lib/nav';
 import { Upload } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ErrorBox } from '../ui/display';
-import { Field, Input, KeyValueEditor, Switch, TagInput, type KV } from '../ui/form';
+import { Field, Input, KeyValueEditor, Select, Switch, TagInput, type KV } from '../ui/form';
 import { Dialog, HelpTip } from '../ui/overlay';
 import { toast } from '../ui/toast';
 import { DatasetPicker, SuitePicker, TargetPicker } from '../pickers';
@@ -18,6 +18,20 @@ const STATUSES = [
 ] as const;
 
 const num = (s: string) => (s.trim() === '' ? undefined : Number(s));
+
+/**
+ * How tools wrapped with the Kalibra SDK behave during the run (sent to the app as the
+ * x-kalibra-tools header; see docs/design/sdk-and-traces.md §6).
+ */
+const TOOL_MODES = [
+  { value: 'live', label: 'Live', hint: 'Call the real tools' },
+  { value: 'record', label: 'Record', hint: 'Call them and save each answer for replay' },
+  { value: 'replay', label: 'Replay', hint: 'Use saved answers; call for real when none was saved' },
+  { value: 'replay-strict', label: 'Replay only', hint: 'Use saved answers; fail when one is missing' },
+  { value: 'fault:timeout', label: 'Simulate timeouts', hint: 'Every tool times out' },
+  { value: 'fault:error', label: 'Simulate errors', hint: 'Every tool fails' },
+  { value: 'fault:empty', label: 'Simulate empty results', hint: 'Every tool returns nothing' },
+];
 
 /** Start a run: dataset × target × suite. Optional: compare several variants, multi-turn conversations, execution settings. */
 export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; onOpenChange: (o: boolean) => void; initial?: { dataset?: string; target?: string; suite?: string } }) {
@@ -37,6 +51,9 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
   const [delayMs, setDelayMs] = useState('0');
   const [statuses, setStatuses] = useState<string[]>(['approved', 'needs_review', 'draft']);
   const [tags, setTags] = useState<string[]>([]);
+  const [tools, setTools] = useState('live');
+  const [collectTraces, setCollectTraces] = useState(false);
+  const [traceWait, setTraceWait] = useState('1500');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const hint = useConversationHint(dataset);
@@ -68,6 +85,8 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
     includeStatuses: statuses,
     tags: tags.length ? tags : undefined,
     conversation: toConversation(conversation),
+    ...(tools !== 'live' ? { tools } : {}),
+    ...(collectTraces ? { collectTraces: true, traceWaitMs: num(traceWait) ?? 1500 } : {}),
   });
 
   const variantsReady = variants.length >= 2 && variants.every((v) => !!v.target);
@@ -168,8 +187,8 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
             help="Concurrency, retries, repetitions and which rows to include."
             open={section === 'advanced'}
             onToggle={() => toggle('advanced')}
-            on={false}
-            summary={`${concurrency || 4} at a time · ${retries || 2} retries${limit ? ` · first ${limit} rows` : ''}`}
+            on={tools !== 'live' || collectTraces}
+            summary={`${concurrency || 4} at a time · ${retries || 2} retries${limit ? ` · first ${limit} rows` : ''}${tools !== 'live' ? ` · tools: ${TOOL_MODES.find((m) => m.value === tools)?.label.toLowerCase()}` : ''}${collectTraces ? ' · app traces' : ''}`}
           >
             <div className="grid grid-cols-2 gap-x-4 gap-y-3.5">
               <Field label="Concurrency" help="How many rows are sent at the same time. Lower it if your app or provider rate-limits you. Each variant of a comparison uses this many.">
@@ -189,6 +208,32 @@ export function NewRunDialog({ open, onOpenChange, initial }: { open: boolean; o
               </Field>
               <Field label="Only rows tagged" help="Run only rows that have at least one of these tags. Leave empty for all rows.">
                 <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
+              </Field>
+              <Field
+                label="Tools"
+                help="For apps that wrap their tools with the Kalibra SDK. Record real tool answers once, then replay them so runs are fast, free and never send real emails or payments. Or simulate failures to see how your agent copes."
+              >
+                <Select value={tools} onChange={setTools} options={TOOL_MODES} aria-label="Tools mode" />
+              </Field>
+              <Field
+                label="Collect traces from my app"
+                help="When your app uses the Kalibra SDK or OpenTelemetry, each row's trace (tool calls, retrieved documents, model calls) is attached to its result, so agent and RAG checks can see the steps. Kalibra waits this long after each response for the trace to arrive."
+              >
+                <div className="flex items-center gap-3">
+                  <Switch checked={collectTraces} onChange={setCollectTraces} label="Collect traces from my app" />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={30000}
+                    step={250}
+                    className="w-28"
+                    value={traceWait}
+                    disabled={!collectTraces}
+                    aria-label="Wait for the trace (ms)"
+                    onChange={(e) => setTraceWait(e.target.value)}
+                  />
+                  <span className="text-[0.78125rem] text-ink-faint">ms wait</span>
+                </div>
               </Field>
               <Field label="Include rows that are" className="col-span-2" help="Rows waiting for review or still drafts can be left out, so only approved test cases count.">
                 <div className="flex flex-wrap gap-4">

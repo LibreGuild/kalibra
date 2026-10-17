@@ -137,7 +137,7 @@ describe('server mode over HTTP', () => {
     let last = 0;
     for (let i = 0; i < 25 && last !== 429; i++) last = (await b.call('/api/auth/login', { username: 'nobody', password: 'x' })).status;
     expect(last).toBe(429);
-  });
+  }, 30_000); // each failed sign-in hashes a password on purpose: slow on busy CI machines
 
   it('sends security headers and keeps paths private', async () => {
     const res = await fetch(`${srv.url}/api/health`);

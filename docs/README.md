@@ -5,7 +5,7 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 | File | What it covers |
 |---|---|
 | [overview.md](overview.md) | What Kalibra is, the core loop, and the principles behind it |
-| [architecture.md](architecture.md) | Packages, how they talk, process layouts, where state lives |
+| [architecture.md](architecture.md) | Packages, how they talk, process layouts, where state lives, and **Where is…?** (which file to open for a change) |
 | [engine.md](engine.md) | Operations, actors, events, jobs, the runner (preflight, overrides, conversations, comparisons), checks, summaries, templates, scripts, providers, embeddings, sharing |
 | [data-model.md](data-model.md) | SQLite tables, versioning, blobs, secrets, workspace folder |
 | [users-and-projects.md](users-and-projects.md) | Projects, roles, sign-in (passwords, SSO, GitHub, gateways), tokens, running a team server |
@@ -22,3 +22,5 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 | [research/market-and-product-analysis.md](research/market-and-product-analysis.md) | The original market research and product analysis |
 
 End-user guides live inside the app (sidebar → **Docs**).
+
+**Package code maps:** [core](../packages/core/README.md) · [core/src](../packages/core/src/README.md) · [server](../packages/server/README.md) · [cli](../packages/cli/src/README.md) · [web](../packages/web/README.md) · [desktop](../packages/desktop/README.md) · [demo](../packages/demo/README.md)

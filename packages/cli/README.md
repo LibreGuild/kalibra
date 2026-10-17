@@ -30,3 +30,5 @@ Data lives in `~/Kalibra/default` (change it with `--dir` or `KALIBRA_DIR`). A t
 Docs: https://github.com/LibreGuild/kalibra/tree/main/docs
 
 MIT licensed.
+
+Working on the CLI itself? See the code map in [src/README.md](src/README.md).

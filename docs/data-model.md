@@ -13,11 +13,13 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 | `defs` + `def_versions` | targets, suites, connections (kind + spec JSON), every saved version |
 | `runs` | dataset version, target/suite versions, settings (incl. `overrides`, `conversation`), status, summary JSON, `group_id` + `variant_label` for comparisons |
 | `run_groups` | comparisons: name, dataset, suite, settings with the variant list |
-| `results` | one per row × repetition: input, request, response, outputs, checks, metrics, logs |
+| `results` | one per row × repetition: input, request, response, outputs, checks, metrics, logs, `steps` (the app's trace steps, when it sent one) |
 | `blobs` | file metadata (hash, size, mime, name) |
 | `labels` | human pass/fail per result and check (calibration) |
 | `insights` | saved analyses by `kind` + subject (e.g. `failure_themes` per run); the latest wins |
 | `meta` | workspace settings, e.g. the Git sync folder |
+| `traces` + `spans` | what apps sent (SDK, OpenTelemetry, OpenAI proxy): name, source, status, input/output, metadata, `run_id`/`result_id` when joined to a run row; spans with kind (`llm`/`tool`/`retrieval`/`agent`/`step`), parent, timing, attributes. Pruned after `retentionDays` (meta `traces`), except traces of runs |
+| `tool_recordings` | tool responses by `(tool, args_hash)` for replay; `args_hash` = SHA-256 of canonical JSON (sorted keys, no spaces) |
 | `activity` | who changed what (actor + op + summary) |
 
 ## Versioning rules
@@ -41,7 +43,7 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 ## Data folder
 
 ```
-hub.db                       accounts, sessions, tokens, projects, members, groups, settings, audit (src/hub/schema.ts)
+hub.db                       accounts, sessions, tokens, ingest keys, projects, members, groups, settings, audit (src/hub/schema.ts)
 hub-secrets.json             client secrets of sign-in providers made in the app (servers)
 kalibra.db  blobs/  secrets.json (or secrets.enc)     the default project
 projects/<id>/kalibra.db  blobs/  secrets.*           every other project

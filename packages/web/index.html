@@ -4,20 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Kalibra</title>
-    <script>
-      (function () {
-        try {
-          var root = document.documentElement;
-          var t = localStorage.getItem('kalibra.theme') || 'system';
-          var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-          root.dataset.theme = dark ? 'dark' : 'light';
-          root.dataset.font = localStorage.getItem('kalibra.font') || 'atkinson';
-          root.dataset.accent = localStorage.getItem('kalibra.accent') || 'clay';
-          root.style.setProperty('--k-scale', localStorage.getItem('kalibra.scale') || '1');
-        } catch (e) {}
-      })();
-    </script>
+    <!-- Applies theme, font, accent and text size before the first paint. An external file, because the UI's Content-Security-Policy allows no inline scripts. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

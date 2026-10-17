@@ -13,6 +13,7 @@ import { randomSecret } from './passwords.js';
 import { DEFAULT_PROJECT, Projects } from './projects.js';
 import { Providers } from './providers.js';
 import { SsoService } from './sso.js';
+import { IngestKeys } from './ingest-keys.js';
 import { HUB_MIGRATIONS } from './schema.js';
 import { actorOf, LOCAL_ACCOUNT, type HubMode, type Principal, type Project, type User } from './types.js';
 
@@ -80,6 +81,8 @@ export class Hub {
   readonly projects: Projects;
   readonly providers: Providers;
   readonly sso: SsoService;
+  /** Keys apps use to send traces to one project (SDK, OpenTelemetry, proxy). */
+  readonly ingestKeys: IngestKeys;
   readonly registry = new Registry<HubOpContext, HubOpDef>({
     authorize: (def, ctx) => {
       if (def.serverOnly && this.mode === 'local') throw new KalibraError('unavailable', `${def.title} is only available on a team server`);
@@ -104,6 +107,7 @@ export class Hub {
     this.projects = new Projects(this.db);
     this.providers = new Providers(this.db, opts.hubSecrets ?? new FileSecretStore(join(this.dir, 'hub-secrets.json')), opts.authProviders);
     this.sso = new SsoService(this);
+    this.ingestKeys = new IngestKeys(this.db);
     this.projects.ensureDefault(this.mode === 'local' ? 'My project' : 'Default');
     this.registry.add(...HUB_OPS);
     this.accounts.pruneSessions();

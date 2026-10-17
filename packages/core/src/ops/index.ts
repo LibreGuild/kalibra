@@ -13,5 +13,7 @@ import { qualityOps } from './quality.js';
 import { themesOps } from './themes.js';
 import { playgroundOps } from './playground.js';
 import { sharingOps } from './sharing.js';
+import { codeRunOps } from './coderuns.js';
+import { traceOps } from './traces.js';
 
-export const ALL_OPS: OpDef<any, any>[] = [...workspaceOps, ...datasetOps, ...mediaOps, ...safetyOps, ...defOpsAll, ...runOps, ...groupsOps, ...conversationsOps, ...insightOps, ...themesOps, ...labelOps, ...qualityOps, ...playgroundOps, ...sharingOps];
+export const ALL_OPS: OpDef<any, any>[] = [...workspaceOps, ...datasetOps, ...mediaOps, ...safetyOps, ...defOpsAll, ...runOps, ...groupsOps, ...conversationsOps, ...insightOps, ...themesOps, ...labelOps, ...qualityOps, ...playgroundOps, ...sharingOps, ...codeRunOps, ...traceOps];

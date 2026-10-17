@@ -11,3 +11,11 @@ export { actorOf, LOCAL_ACCOUNT, type HubMode, type Principal, type User, type P
 export { TOKEN_PREFIX } from './hub/accounts.js';
 export { providersFromEnv, AuthProviderConfig } from './hub/providers.js';
 export { PROJECT_ROLES, roleAtLeast, ALL_CAPABILITIES, type ProjectRole, type Capabilities } from './registry.js';
+export { compareToBaseline, renderEvalReport, REPORT_MARKER, type EvalReport } from './runner/report.js';
+export { GitInfoInput, type GitInfo } from './repo/runs.js';
+export { INGEST_KEY_PREFIX } from './hub/ingest-keys.js';
+export { INGEST_LIMITS } from './traces/ingest.js';
+export { otlpToTraces } from './traces/otlp.js';
+export { traceFromProxy, type ProxyExchange } from './traces/proxy.js';
+export { argsHash, canonicalJson } from './traces/hash.js';
+export type { Trace, Span, Step, Source, ToolCall } from './traces/types.js';

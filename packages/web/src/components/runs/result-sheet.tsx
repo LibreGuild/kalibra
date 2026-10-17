@@ -6,6 +6,9 @@ import { CellValue } from '../ui/media';
 import { useOp } from '../../lib/api';
 import { dateTime, ms } from '../../lib/format';
 import { formatMetric } from './format';
+import { Link } from '../../lib/nav';
+import { SourcesList, SpanTree, ToolCallsList } from '../traces/span-tree';
+import { stepsDigest, type Span } from '../traces/types';
 
 export interface CheckResultView {
   id: string;
@@ -248,10 +251,75 @@ function Transcript({ outputs }: { outputs: Record<string, any> }) {
   );
 }
 
+/** The steps the app reported for this row (SDK / OpenTelemetry), stored as a list of spans. */
+function resultSteps(r: any): Span[] {
+  const raw = r?.steps;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** Expected document ids from the row (e.g. an `expected_sources` column), to mark them in the list. */
+function expectedSources(input: Record<string, unknown> | undefined): string[] {
+  const v = input?.expected_sources ?? input?.expected_source_ids;
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v === 'string') return v.split(/[,\s]+/).filter(Boolean);
+  return [];
+}
+
+/** What happened inside the app for this row: tool calls, retrieved documents and the step waterfall. */
+function StepsPanel({ r }: { r: any }) {
+  const steps = resultSteps(r);
+  const { sources, toolCalls } = stepsDigest(steps, r.outputs);
+  // Steps from a trace carry its id; steps the target returned itself are marked "outputs".
+  const traceIds = [...new Set(steps.map((s) => s.traceId).filter((id): id is string => !!id && id !== 'outputs'))];
+  return (
+    <div className="flex flex-col gap-6">
+      {traceIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-raised px-3 py-2 text-[0.8125rem] text-ink-muted">
+          Reported by your app through the SDK or OpenTelemetry.
+          {traceIds.slice(0, 5).map((id, i) => (
+            <Link key={id} to={`/traces/${encodeURIComponent(id)}`} className="font-medium text-accent-ink hover:underline">
+              {traceIds.length === 1 ? 'Open the trace' : `Trace ${i + 1}`}
+            </Link>
+          ))}
+        </div>
+      )}
+      {toolCalls.length > 0 && (
+        <Section title={`Tool calls (${toolCalls.length})`}>
+          <ToolCallsList calls={toolCalls} />
+        </Section>
+      )}
+      {sources.length > 0 && (
+        <Section title={`Retrieved documents (${sources.length})`}>
+          <SourcesList sources={sources} expected={expectedSources(r.input)} />
+        </Section>
+      )}
+      {steps.length > 0 && (
+        <Section title={`All steps (${steps.length})`}>
+          <SpanTree spans={steps} />
+        </Section>
+      )}
+    </div>
+  );
+}
+
 export function ResultSheet({ resultId, onClose, title }: { resultId: string | null; onClose: () => void; title?: string }) {
   const [tab, setTab] = useState('overview');
   const q = useOp<any>('get_result', { resultId }, { enabled: !!resultId });
   const r = q.data;
+  const digest = r ? stepsDigest(resultSteps(r), r.outputs) : { sources: [], toolCalls: [] };
+  const stepCount = r ? resultSteps(r).length : 0;
+  const hasSteps = stepCount > 0 || digest.sources.length > 0 || digest.toolCalls.length > 0;
+  // A result without steps never shows the Steps tab; fall back to Overview if it was open.
+  const activeTab = tab === 'steps' && !hasSteps ? 'overview' : tab;
   return (
     <Sheet
       open={!!resultId}
@@ -266,10 +334,11 @@ export function ResultSheet({ resultId, onClose, title }: { resultId: string | n
       ) : (
         <div className="px-5 py-4">
           <Tabs
-            value={tab}
+            value={activeTab}
             onChange={setTab}
             tabs={[
               { value: 'overview', label: 'Overview' },
+              ...(hasSteps ? [{ value: 'steps', label: 'Steps', count: stepCount || digest.toolCalls.length + digest.sources.length }] : []),
               { value: 'request', label: 'Request' },
               { value: 'response', label: 'Response' },
               { value: 'metrics', label: 'Metrics' },
@@ -293,6 +362,11 @@ export function ResultSheet({ resultId, onClose, title }: { resultId: string | n
                 <KeyValues data={r.input ?? {}} />
               </Section>
             </TabPanel>
+            {hasSteps && (
+              <TabPanel value="steps" className="pt-4">
+                <StepsPanel r={r} />
+              </TabPanel>
+            )}
             <TabPanel value="request" className="pt-4">
               <CodeBlock value={r.request ?? 'No request recorded (imported outputs).'} maxHeight={600} />
             </TabPanel>

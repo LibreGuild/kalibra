@@ -17,6 +17,7 @@ import { KalibraError, nowIso } from './util.js';
 import { ALL_OPS } from './ops/index.js';
 import { withCall } from './policy.js';
 import { Jobs } from './jobs.js';
+import { TraceStore } from './traces/store.js';
 
 export interface EngineOptions {
   /** Workspace directory: holds kalibra.db and blobs/. */
@@ -48,6 +49,8 @@ export class Engine {
   embeddings: Embedder = new Embeddings(() => ({ getConnection: (id) => ConnectionSpec.parse(this.repos.defs.get('connection', id).spec), secrets: this.secrets }));
   /** Background jobs (media generation, augmentation, …). */
   readonly jobs: Jobs;
+  /** Traces the app sends (SDK, OpenTelemetry, proxy), tool recordings, and joining them to eval rows. */
+  readonly traces: TraceStore;
   /** Operations currently executing. */
   private inFlight = 0;
 
@@ -60,6 +63,8 @@ export class Engine {
     this.repos = { datasets: new DatasetRepo(this.db), defs: new DefRepo(this.db), runs: new RunRepo(this.db) };
     this.llm = createLlmClient((id) => ConnectionSpec.parse(this.repos.defs.get('connection', id).spec), this.secrets);
     this.jobs = new Jobs(this.events);
+    this.traces = new TraceStore(this);
+    this.traces.prune();
     this.registry.add(...ALL_OPS);
     this.runner = new Runner(this);
     this.runner.recover();
@@ -90,7 +95,7 @@ export class Engine {
 
   /** Nothing running, no operation executing and nobody listening: safe to close to free its files. */
   isIdle() {
-    return this.inFlight === 0 && this.runner.activeCount() === 0 && this.jobs.activeCount() === 0 && this.events.listenerCount() === 0;
+    return this.inFlight === 0 && this.runner.activeCount() === 0 && this.jobs.activeCount() === 0 && this.events.listenerCount() === 0 && this.traces.pending() === 0;
   }
 
   templateEnv(): TemplateEnv {
@@ -106,6 +111,7 @@ export class Engine {
   close() {
     this.jobs.cancelAll();
     for (const r of this.db.all("SELECT id FROM runs WHERE status = 'running'")) this.runner.cancel(r.id);
+    this.traces.close();
     this.db.close();
   }
 }
