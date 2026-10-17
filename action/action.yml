@@ -90,11 +90,14 @@ runs:
         IN_MIN_PASS: ${{ inputs.min-pass }}
         IN_BASELINE: ${{ inputs.baseline }}
         IN_VERSION: ${{ inputs.kalibra-version }}
+        # On pull requests GITHUB_SHA is the temporary merge commit; report the branch's own head instead.
+        IN_COMMIT: ${{ github.event.pull_request.head.sha }}
       run: |
         report="$RUNNER_TEMP/kalibra-report.md"
         args=(run --dataset "$IN_DATASET" --target "$IN_TARGET" --suite "$IN_SUITE" --baseline "$IN_BASELINE" --report markdown)
         [ -n "$IN_NAME" ] && args+=(--name "$IN_NAME")
         [ -n "$IN_MIN_PASS" ] && args+=(--min-pass "$IN_MIN_PASS")
+        [ -n "$IN_COMMIT" ] && args+=(--git-commit "$IN_COMMIT")
         set +e
         npx -y "kalibra@$IN_VERSION" "${args[@]}" > "$report"
         code=$?

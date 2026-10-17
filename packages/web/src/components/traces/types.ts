@@ -77,7 +77,10 @@ export interface ToolCall {
 
 /** Normalizes whatever a retrieval returned (strings, {id,text}, {pageContent,metadata}…) into sources. */
 export function toSources(value: unknown): Source[] {
-  const list = Array.isArray(value) ? value : value && typeof value === 'object' && Array.isArray((value as any).documents) ? (value as any).documents : [];
+  // Same shapes the engine's checks accept: a list, or { documents | results | sources | matches }.
+  const holder = value && typeof value === 'object' && !Array.isArray(value) ? (value as any) : undefined;
+  const inner = holder ? (holder.documents ?? holder.results ?? holder.sources ?? holder.matches) : undefined;
+  const list = Array.isArray(value) ? value : Array.isArray(inner) ? inner : [];
   return list.map((d: any, i: number): Source => {
     if (typeof d === 'string') return { id: String(i + 1), text: d };
     const id = d?.id ?? d?.doc_id ?? d?.metadata?.id ?? d?.metadata?.source ?? String(i + 1);
@@ -90,7 +93,15 @@ export function toToolCalls(value: unknown): ToolCall[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((c) => c && typeof c === 'object')
-    .map((c: any) => ({ name: String(c.name ?? c.tool ?? c.function?.name ?? 'tool'), args: c.args ?? c.arguments ?? c.function?.arguments ?? c.input, output: c.output ?? c.result, error: c.error ?? null }));
+    .map((c: any) => ({ name: String(c.name ?? c.tool ?? c.function?.name ?? 'tool'), args: c.args ?? c.arguments ?? c.function?.arguments ?? c.input, output: c.output ?? c.result, error: errorText(c.error) }));
+}
+
+/** An app's error field as text ({ message } objects included), so it can be shown as-is. */
+function errorText(e: unknown): string | null {
+  if (e === undefined || e === null || e === false || e === '') return null;
+  if (typeof e === 'string') return e;
+  if (typeof (e as any)?.message === 'string') return (e as any).message;
+  return JSON.stringify(e);
 }
 
 /** Sources and tool calls of a result: from its spans first, else from the app's own output fields. */

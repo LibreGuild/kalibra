@@ -45,7 +45,7 @@ export function ConnectPage() {
         <div className="flex min-w-0 flex-col gap-6">
           <Card>
             <SectionTitle help="An ingest key lets an app send traces and tool recordings to this project only. It cannot read datasets, runs or anything else.">1. Create a key</SectionTitle>
-            <IngestKeys project={project} canEdit={!info || info.canEdit} onCreated={setKey} />
+            <IngestKeys project={project} canEdit={!info || info.canEdit} onKeyChange={setKey} />
           </Card>
 
           <Card>

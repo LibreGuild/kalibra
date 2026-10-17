@@ -1,4 +1,5 @@
-# Typecheck, test and build on every push and pull request.
+# Typecheck, test and build (compile only, no installers) on pull requests and pushes to main.
+# Installers, images and npm releases come only from release.yml, on a version tag.
 name: CI
 
 on:

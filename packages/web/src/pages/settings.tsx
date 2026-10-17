@@ -40,6 +40,7 @@ function AccentPicker({ value, onChange }: { value: AccentChoice; onChange: (a: 
     <div className="flex flex-wrap justify-end gap-1.5" role="radiogroup" aria-label="Accent colour">
       {ACCENTS.map((a, i) => {
         const checked = value === a.id;
+        const tabStop = checked || (i === 0 && !ACCENTS.some((x) => x.id === value));
         return (
           <button
             key={a.id}
@@ -49,7 +50,7 @@ function AccentPicker({ value, onChange }: { value: AccentChoice; onChange: (a: 
             type="button"
             role="radio"
             aria-checked={checked}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={tabStop ? 0 : -1}
             onClick={() => onChange(a.id)}
             onKeyDown={(e) => onKeyDown(e, i)}
             className={clsx(

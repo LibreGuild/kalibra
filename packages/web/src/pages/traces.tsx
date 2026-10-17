@@ -84,7 +84,11 @@ export function TracesPage() {
   });
   const rows = useMemo(() => traces.data?.pages.flatMap((p) => p.traces) ?? [], [traces.data]);
   const total = traces.data?.pages[0]?.total ?? 0;
-  const names = useMemo(() => [...new Set(rows.map((t) => t.name))].sort(), [rows]);
+  // Names seen so far (filtering by one name must not hide the others from this list).
+  const [seenNames, setSeenNames] = useState<string[]>([]);
+  useEffect(() => setSeenNames([]), [project]);
+  useEffect(() => setSeenNames((cur) => (rows.every((t) => cur.includes(t.name)) ? cur : [...new Set([...cur, ...rows.map((t) => t.name)])].sort())), [rows]);
+  const names = seenNames;
   // Forget selections that are no longer listed (after filtering or deleting).
   useEffect(() => setSelected((cur) => new Set([...cur].filter((id) => rows.some((r) => r.id === id)))), [rows]);
 

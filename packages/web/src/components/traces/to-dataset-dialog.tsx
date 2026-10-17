@@ -62,8 +62,11 @@ export function AddToDatasetDialog({ open, onOpenChange, traceIds, onDone }: { o
     }
   }, [open]);
 
+  // Built from the current dataset's columns, so a mapping left over from the previous dataset (while
+  // the new one's columns load) is never sent.
   const resolved = Object.fromEntries(
-    Object.entries(mapping)
+    columns
+      .map((c) => [c.key, mapping[c.key]] as const)
       .map(([col, choice]) => [col, choice === CUSTOM ? (custom[col] ?? '').trim() : choice] as const)
       .filter(([, path]) => path && path !== NONE),
   );

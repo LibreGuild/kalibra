@@ -19,7 +19,7 @@ const KIND: Record<string, { icon: LucideIcon; label: string; bar: string; text:
   agent: { icon: Bot, label: 'Agent', bar: 'bg-warn', text: 'text-warn' },
   step: { icon: CircleDot, label: 'Step', bar: 'bg-ink-faint', text: 'text-ink-muted' },
 };
-export const kindStyle = (kind: string) => KIND[kind] ?? KIND.step;
+export const kindStyle = (kind: string) => (Object.hasOwn(KIND, kind) ? KIND[kind] : KIND.step);
 
 export function KindIcon({ kind, className }: { kind: string; className?: string }) {
   const k = kindStyle(kind);

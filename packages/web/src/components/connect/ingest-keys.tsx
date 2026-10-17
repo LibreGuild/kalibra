@@ -26,16 +26,29 @@ export interface IngestKey {
   lastUsedAt?: string | null;
 }
 
-export function IngestKeys({ project, canEdit, onCreated }: { project: string; canEdit: boolean; onCreated: (key: string) => void }) {
+/** `onKeyChange` gets the key just made (for the snippets), or undefined once that key is revoked. */
+export function IngestKeys({ project, canEdit, onKeyChange }: { project: string; canEdit: boolean; onKeyChange: (key?: string) => void }) {
   const keys = useHubOp<IngestKey[]>('list_ingest_keys', { project });
   const [creating, setCreating] = useState(false);
-  const [fresh, setFresh] = useState<{ name: string; key: string } | null>(null);
+  const [fresh, setFresh] = useState<{ id?: string; name: string; key: string } | null>(null);
   const confirm = useConfirm();
   const revoke = useHubMutation('revoke_ingest_key', { invalidate: ['list_ingest_keys'] });
 
   const remove = async (k: IngestKey) => {
     if (!(await confirm.ask(`Revoke “${k.name}”?`, 'Apps using this key stop sending traces. This cannot be undone.', 'Revoke'))) return;
-    revoke.mutate({ project, id: k.id }, { onError: (e) => toastError(e, 'Could not revoke the key') });
+    revoke.mutate(
+      { project, id: k.id },
+      {
+        onSuccess: () => {
+          // A revoked key must not stay on screen or in the snippets as if it still worked.
+          if (fresh?.id === k.id) {
+            setFresh(null);
+            onKeyChange(undefined);
+          }
+        },
+        onError: (e) => toastError(e, 'Could not revoke the key'),
+      },
+    );
   };
 
   if (keys.isLoading) return <Loading />;
@@ -100,9 +113,9 @@ export function IngestKeys({ project, canEdit, onCreated }: { project: string; c
         open={creating}
         onOpenChange={setCreating}
         project={project}
-        onCreated={(name, key) => {
-          setFresh({ name, key });
-          onCreated(key);
+        onCreated={(id, name, key) => {
+          setFresh({ id, name, key });
+          onKeyChange(key);
         }}
       />
       {confirm.element}
@@ -110,14 +123,14 @@ export function IngestKeys({ project, canEdit, onCreated }: { project: string; c
   );
 }
 
-function NewKeyDialog({ open, onOpenChange, project, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; project: string; onCreated: (name: string, key: string) => void }) {
+function NewKeyDialog({ open, onOpenChange, project, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; project: string; onCreated: (id: string | undefined, name: string, key: string) => void }) {
   const [name, setName] = useState('');
   const create = useHubMutation<{ project: string; name: string }, any>('create_ingest_key', {
     invalidate: ['list_ingest_keys'],
     onSuccess: (res, input) => {
       onOpenChange(false);
       setName('');
-      onCreated(input.name, String(res?.key ?? ''));
+      onCreated(res?.id, input.name, String(res?.key ?? ''));
     },
   });
   useEffect(() => {
