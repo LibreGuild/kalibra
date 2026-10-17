@@ -106,6 +106,19 @@ describe('sending', () => {
     await ex.shutdown();
   });
 
+  it('counts request size in UTF-8 bytes, so non-Latin text never goes over the limit', async () => {
+    const ex = new Exporter(cfg());
+    // 30 traces of ~30 000 Devanagari characters: 0.9 M characters (under the limit as a count)
+    // but ~2.4 MB of UTF-8, more than the server takes in one request.
+    for (let i = 0; i < 30; i++) ex.enqueue(mk(i, 0, { input: 'नमस्ते '.repeat(4300) }));
+    await ex.flush();
+    const sizes = ingest().map((r) => Buffer.byteLength(JSON.stringify(r.body), 'utf8'));
+    expect(sizes.length).toBeGreaterThan(1);
+    for (const n of sizes) expect(n).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(fake.traces()).toHaveLength(30);
+    await ex.shutdown();
+  });
+
   it('flush() waits for a send another flush already started', async () => {
     const ex = new Exporter(cfg());
     for (let i = 0; i < 700; i++) ex.enqueue(mk(i)); // starts sends on its own at 200, 400, 600

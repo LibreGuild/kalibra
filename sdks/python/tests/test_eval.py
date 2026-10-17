@@ -50,19 +50,25 @@ class EvaluateTest(SdkTestCase):
         self.assertEqual(len([n for n, _ in self.fake.ops if n == "submit_code_results"]), 3)
 
     def test_traces_made_by_the_task_are_linked_to_their_row(self) -> None:
-        self.start()
+        self.start(flush_interval=60)  # no timer help: evaluate itself sends traces before results
 
         @kalibra.trace("answer")
         def answer(q):
             with kalibra.step("llm", kind="llm"):
                 return q.upper()
 
-        self.run_eval(lambda row: answer(row["question"]))
+        @kalibra.trace("classify")
+        def classify(q):
+            return "question"
+
+        self.run_eval(lambda row: (classify(row["question"]), answer(row["question"]))[1], batch_size=2)
         traces = self.fake.traces()
-        self.assertEqual(len(traces), 3)
+        self.assertEqual(len(traces), 6)
+        self.assertEqual(len({t["id"] for t in traces}), 6)  # two traces per row, each its own id
         self.assertEqual({t["runId"] for t in traces}, {"run_code_1"})
         submitted = {r["traceId"] for r in self.fake.submitted}
-        self.assertEqual(submitted, {t["id"] for t in traces})
+        self.assertEqual(submitted, {t["id"] for t in traces if t["name"] == "classify"})  # the row's first trace
+        self.assertEqual(self.fake.unlinked, 0)
 
     def test_async_tasks(self) -> None:
         async def task(row):

@@ -144,6 +144,21 @@ describe('tools', () => {
     expect(calls).toBe(2);
   });
 
+  it('replays large arguments and results exactly (no trace-size shortening)', async () => {
+    on();
+    let calls = 0;
+    const docs = Array.from({ length: 20 }, (_, i) => ({ id: `kb-${i}`, text: 'é'.repeat(4000), score: i / 10, when: new Date(0) }));
+    const retrieve = tool('retrieve', async (q: { query: string; filters: Map<string, string> | undefined; n: number }) => (calls++, docs.slice(0, q.n)));
+    const args = { query: 'refund policy '.repeat(1000), filters: undefined, n: 20 }; // a 14 KB argument
+    process.env.KALIBRA_TOOLS = 'record';
+    await retrieve(args);
+    await flush();
+    process.env.KALIBRA_TOOLS = 'replay-strict';
+    const replayed = await retrieve({ n: 20, query: args.query, filters: undefined });
+    expect(calls).toBe(1);
+    expect(replayed).toEqual(JSON.parse(JSON.stringify(docs))); // the full 80 KB result, as JSON
+  });
+
   it('replays recorded errors as errors', async () => {
     on();
     const failing = tool('charge', async (_id: string) => {

@@ -115,6 +115,24 @@ describe('evaluate (evals as code)', () => {
     init({ enabled: false });
   });
 
+  it('sends the traces of every batch before its results, so Kalibra can link them', async () => {
+    init({ url: fake.url, key: 'kik_test_key_123456789012345', project: 'Support bot', warnings: false });
+    // Like the server: a result links to its trace only if the trace has already arrived.
+    let unlinked = 0;
+    fake.ops.submit_code_results = (input) => {
+      const received = new Set(fake.traces().map((t) => t.id));
+      unlinked += input.results.filter((r: any) => r.traceId && !received.has(r.traceId)).length;
+      submitted.push(input.results);
+      return { accepted: input.results.length };
+    };
+    const answer = trace('answer', async (q: string) => `answer ${q}`);
+    await evaluate({ ...base(), concurrency: 8, task: (row) => answer(row.question) });
+    expect(submitted.length).toBeGreaterThan(1); // 120 rows: several batches while rows still run
+    expect(submitted.flat().filter((r) => r.traceId)).toHaveLength(120);
+    expect(unlinked).toBe(0);
+    init({ enabled: false });
+  });
+
   it('fails rows that take too long, without stopping the run', async () => {
     const run = await evaluate({ ...base(), limit: 4, timeoutMs: 30, task: async (row) => (row.n === 1 ? new Promise(() => {}) : 'ok') });
     expect(submitted.flat().find((r) => r.rowId === 'row_1').error).toBe('Error: Timed out after 30 ms');

@@ -91,7 +91,9 @@ def _record(name: str, args: Any, digest: str, output: Any, error: Optional[str]
     t = _core._state.transport
     if t is None:
         return
-    rec: Dict[str, Any] = {"tool": name, "args": _serialize.normalize(args), "argsHash": digest}
+    # Exact values, never the shortened copies traces keep: Kalibra stores the recording under its
+    # own hash of ``args``, and replay must return the real result.
+    rec: Dict[str, Any] = {"tool": name, "args": _serialize.normalize(args, None), "argsHash": digest}
     if error is not None:
         rec["error"] = error
     else:

@@ -38,6 +38,7 @@ class FakeKalibra:
             {"id": "row_3", "data": {"question": "c", "expected": "C"}},
         ]
         self.submitted: List[Dict[str, Any]] = []
+        self.unlinked = 0  # submitted traceIds whose trace had not arrived yet
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -90,7 +91,8 @@ class FakeKalibra:
                 if u.path.endswith("/ingest/tools"):
                     with fake.lock:
                         fake.tool_posts.append(body)
-                        fake.recordings[(body["tool"], body["argsHash"])] = body
+                        # Like the server: stored under its own hash of the posted args, not the claimed argsHash.
+                        fake.recordings[(body["tool"], kalibra.args_hash(body.get("args")))] = body
                     return self._send(200, {"ok": True})
                 if "/ops/" in u.path:
                     name = u.path.rsplit("/", 1)[1]
@@ -111,7 +113,10 @@ class FakeKalibra:
             rows = self.rows[: body["limit"]] if body.get("limit") else self.rows
             return {"runId": "run_code_1", "rows": rows}
         if name == "submit_code_results":
+            # Like the server: a result links to its trace only if the trace has already arrived.
+            received = {t["id"] for t in self.traces()}
             with self.lock:
+                self.unlinked += len([r for r in body["results"] if r.get("traceId") and r["traceId"] not in received])
                 self.submitted.extend(body["results"])
             return {"accepted": len(body["results"])}
         if name == "finish_code_run":
@@ -145,6 +150,7 @@ class FakeKalibra:
             self.headers.clear()
             self.paths.clear()
             self.submitted.clear()
+            self.unlinked = 0
             self.fail_next = 0
             self.reject_status = None
 

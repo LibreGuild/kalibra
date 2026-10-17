@@ -13,7 +13,7 @@ import { resolveConfig, killSwitch, type KalibraOptions, type ResolvedConfig } f
 import { current, storage, type Ctx, type RunLink } from './context.js';
 import { Exporter, type SpanIn, type TraceIn } from './exporter.js';
 import { newSpanId, newTraceId, nowIso } from './ids.js';
-import { describeError, toJsonSafe } from './serialize.js';
+import { describeError, MAX_FIELD_BYTES, toJsonSafe } from './serialize.js';
 import { setWarnings, warnOnce } from './warn.js';
 
 declare const __KALIBRA_SDK_VERSION__: string | undefined;
@@ -207,7 +207,15 @@ export function runSpan<R>(name: string, kind: SpanKind, input: () => unknown, o
     if (!ctx?.trace) {
       const link = ctx?.link;
       const sampled = !!(link?.resultId || link?.rowId) || state.config.sampleRate >= 1 || Math.random() < state.config.sampleRate;
-      if (!sampled) return storage.run({ ...ctx, unsampled: true }, () => call(NOOP_SPAN));
+      if (!sampled) {
+        const quiet: Ctx = { ...ctx, unsampled: true };
+        return storage.run(quiet, () => {
+          const result = call(NOOP_SPAN);
+          const gen = generatorKind(result);
+          // A generator's body runs later: it needs the "not sampled" context then, too.
+          return gen ? (traceGenerator(result, gen, quiet) as R) : result;
+        });
+      }
       const t = newTrace(name, link, input, extra);
       frame = { kind: 'trace', t };
       next = { ...ctx, trace: t, span: undefined };
@@ -231,8 +239,9 @@ export function runSpan<R>(name: string, kind: SpanKind, input: () => unknown, o
   }
 
   const f = frame;
+  const scope = next!;
   const handle = f.kind === 'trace' ? traceHandle(f.t) : spanHandle(f.s);
-  return storage.run(next, () => {
+  return storage.run(scope, () => {
     let result: R;
     try {
       result = call(handle);
@@ -252,12 +261,98 @@ export function runSpan<R>(name: string, kind: SpanKind, input: () => unknown, o
         },
       ) as R;
     }
+    const gen = generatorKind(result);
+    if (gen) return traceGenerator(result, gen, scope, f, output) as R;
     end(f, result, undefined, output);
     return result;
   });
 }
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> => !!v && (typeof v === 'object' || typeof v === 'function') && typeof (v as any).then === 'function';
+
+const generatorKind = (v: unknown): 'sync' | 'async' | undefined => {
+  if (!v || typeof v !== 'object') return undefined;
+  const tag = Object.prototype.toString.call(v);
+  return tag === '[object AsyncGenerator]' ? 'async' : tag === '[object Generator]' ? 'sync' : undefined;
+};
+
+/** What a generator yielded, as its step's output: text chunks joined (LLM streams), else a count and the first items. */
+class Yielded {
+  private count = 0;
+  private text: string[] | undefined = [];
+  private size = 0;
+  private first: unknown[] = [];
+
+  add(v: unknown) {
+    this.count++;
+    if (this.first.length < 5) this.first.push(toJsonSafe(v, 4096));
+    if (!this.text) return;
+    if (typeof v !== 'string') this.text = undefined;
+    else if (this.size < MAX_FIELD_BYTES) (this.text.push(v), (this.size += v.length));
+  }
+
+  summary(): unknown {
+    if (!this.count) return { items: 0 };
+    return this.text ? this.text.join('') : { items: this.count, first: this.first };
+  }
+}
+
+/**
+ * A generator runs its body only while it is consumed, so its step stays open (with the trace
+ * context set for each resume) until iteration ends: done, an error, or an early `return()` (a
+ * `break` in `for await`, not an error). Without a frame (an unsampled trace) it only carries the
+ * context. Native generators only; other iterables (e.g. SDK stream objects) are returned as they
+ * are, so their own methods keep working.
+ */
+function traceGenerator(gen: any, kind: 'sync' | 'async', ctx: Ctx, f?: Frame, output?: ((r: any) => unknown) | false): unknown {
+  const seen = new Yielded();
+  let open = !!f;
+  const finish = (error?: unknown) => {
+    if (!open) return;
+    open = false;
+    end(f!, seen.summary(), error, output);
+  };
+  const settle = (r: IteratorResult<unknown>) => {
+    if (!open) return r;
+    try {
+      if (r.done) finish();
+      else seen.add(r.value);
+    } catch {
+      /* recording only; the value goes to the caller regardless */
+    }
+    return r;
+  };
+  const fail = (e: unknown): never => {
+    finish(e ?? new Error('generator threw undefined'));
+    throw e;
+  };
+  const resume = (method: 'next' | 'return' | 'throw', arg: unknown) => storage.run(ctx, () => gen[method](arg));
+  if (kind === 'async') {
+    const it: AsyncGenerator = {
+      next: (v?: unknown) => resume('next', v).then(settle, fail),
+      return: (v?: unknown) => resume('return', v).then(settle, fail),
+      throw: (e?: unknown) => resume('throw', e).then(settle, fail),
+      [Symbol.asyncIterator]: () => it,
+    } as unknown as AsyncGenerator;
+    return it;
+  }
+  const step = (method: 'next' | 'return' | 'throw', arg: unknown) => {
+    let r: IteratorResult<unknown>;
+    try {
+      r = resume(method, arg);
+    } catch (e) {
+      return fail(e);
+    }
+    return settle(r);
+  };
+  const it: Generator = {
+    next: (v?: unknown) => step('next', v),
+    return: (v?: unknown) => step('return', v),
+    throw: (e?: unknown) => step('throw', e),
+    [Symbol.iterator]: () => it,
+  } as unknown as Generator;
+  return it;
+}
 
 function safeInput(input: () => unknown): unknown {
   try {

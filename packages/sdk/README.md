@@ -97,6 +97,7 @@ const reply = await kalibra.step('claude', async (span) => {
 
 - **Inside a trace**, a traced function becomes a child span; **outside**, it starts its own trace.
 - `kalibra.trace.run(name, fn)` runs a block now as a trace.
+- **Streaming:** a traced generator (`async function*` or `function*`) stays open while the caller consumes it, so its duration and the steps inside it are right. Its output is the yielded text joined (or the number of items and the first few). Stream objects from other SDKs are returned untouched; record what they produced with `span.setOutput()`.
 - Use `kalibra.currentTrace().setMetadata({ user, session })` / `.addTags('beta')` to label the current trace.
 
 ## Tools: record, replay, break on purpose
@@ -119,6 +120,8 @@ const searchOrders = kalibra.tool('search_orders', realSearchOrders);
 3. `live`.
 
 Modes other than `live` return a Promise.
+
+Recordings keep the exact arguments and result (as JSON), not the shortened copies traces keep, and they are not redacted: replay has to return the real values, and Kalibra finds a recording by its arguments. Only `record` mode makes them, so record with data you are fine storing in your Kalibra.
 
 Recordings are looked up by tool name plus **sha256 of the canonical JSON of the arguments**:
 - the arguments are the single argument, or the argument list when there are several;
@@ -176,7 +179,7 @@ Measured on an M-series laptop (`npx vitest run packages/sdk`):
 | Sending 10 000 traces | runs in the background, batched (≤ 1000 traces / 5000 spans / ~2 MB per request) |
 
 **Limits that keep it predictable:**
-- each recorded value is at most 32 KB (larger values become a preview);
+- each value in a trace is at most 32 KB (larger values become a preview);
 - at most 256 spans per trace;
 - the queue holds at most 10 000 spans (the oldest are dropped when Kalibra is unreachable or slow);
 - sending retries twice, then drops;
@@ -193,6 +196,8 @@ For serverless functions, call `await kalibra.flush()` before returning. Pending
 - common API keys (`sk-…`, `AKIA…`, `ghp_…`, `xox…`, `kal_…`, `kik_…`).
 
 `redact: false` sends values as they are. Or pass your own `redact: (value) => value`.
+
+Redaction applies to traces. Tool recordings are sent exactly as they are (see [Tools](#tools-record-replay-break-on-purpose)).
 
 ## Environment variables
 

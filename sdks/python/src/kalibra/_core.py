@@ -238,14 +238,11 @@ def parse_traceparent(value: Optional[str]) -> Tuple[Optional[str], Optional[str
 
 
 def incoming_from_headers(headers: Any) -> Incoming:
-    tid, pid = parse_traceparent(_header(headers, "traceparent"))
-    return Incoming(
-        trace_id=tid,
-        parent_id=pid,
-        run_id=_header(headers, "x-kalibra-run"),
-        result_id=_header(headers, "x-kalibra-result"),
-        tools=_header(headers, "x-kalibra-tools"),
-    )
+    run_id, result_id, tools = _header(headers, "x-kalibra-run"), _header(headers, "x-kalibra-result"), _header(headers, "x-kalibra-tools")
+    # A traceparent alone is ordinary distributed tracing, not a Kalibra run: keep our own ids then
+    # (another service's trace id would make two services' traces overwrite each other).
+    tid, pid = parse_traceparent(_header(headers, "traceparent")) if run_id or result_id or tools else (None, None)
+    return Incoming(trace_id=tid, parent_id=pid, run_id=run_id, result_id=result_id, tools=tools)
 
 
 class _IncomingScope:
@@ -340,7 +337,9 @@ class Trace:
     """One interaction with your app (a request, a job, a chat turn) and its steps."""
 
     def __init__(self, name: str, inc: Optional[Incoming]) -> None:
-        self.id = inc.trace_id if inc is not None and inc.trace_id else _trace_id()
+        # Only the first trace of a request takes Kalibra's trace id; later ones need their own, or
+        # Kalibra would store them over the first.
+        self.id = inc.trace_id if inc is not None and inc.trace_id and not inc.used else _trace_id()
         self.name = name
         self.started_at = _now_iso()
         self._t0 = time.perf_counter()

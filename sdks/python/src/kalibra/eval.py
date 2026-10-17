@@ -197,6 +197,12 @@ def _start(client: _Client, dataset: str, suite: str, name: Optional[str], limit
     return started
 
 
+def _submit(client: _Client, run_id: str, results: List[Dict[str, Any]]) -> None:
+    # Kalibra links a row to its trace when the results arrive, so the traces go first.
+    _core.flush(timeout=5.0)
+    client.op("submit_code_results", {"runId": run_id, "results": results})
+
+
 def _finish(client: _Client, run_id: str, baseline: Optional[str]) -> EvalResult:
     _core.flush(timeout=5.0)  # traces of the rows should arrive before scoring
     body: Dict[str, Any] = {"runId": run_id}
@@ -273,10 +279,10 @@ def evaluate(
         for fut in as_completed([pool.submit(one, r) for r in rows]):
             pending.append(fut.result())
             if len(pending) >= batch_size:
-                client.op("submit_code_results", {"runId": run_id, "results": pending})
+                _submit(client, run_id, pending)
                 pending = []
     if pending:
-        client.op("submit_code_results", {"runId": run_id, "results": pending})
+        _submit(client, run_id, pending)
     return _finish(client, run_id, baseline)
 
 
@@ -323,7 +329,7 @@ async def evaluate_async(
         pending.append(await coro)
         if len(pending) >= batch_size:
             batch, pending = pending, []
-            await asyncio.to_thread(client.op, "submit_code_results", {"runId": run_id, "results": batch})
+            await asyncio.to_thread(_submit, client, run_id, batch)
     if pending:
-        await asyncio.to_thread(client.op, "submit_code_results", {"runId": run_id, "results": pending})
+        await asyncio.to_thread(_submit, client, run_id, pending)
     return await asyncio.to_thread(_finish, client, run_id, baseline)

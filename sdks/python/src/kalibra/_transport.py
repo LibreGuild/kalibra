@@ -267,9 +267,10 @@ class Transport:
             self.dropped += count
 
     def _send_tools(self, tools: List[Dict[str, Any]]) -> None:
+        # Not redacted: a recording is found by a hash of its exact arguments, and replay returns
+        # its exact result. Redaction is for traces.
         for rec in tools:
-            body = rec if self.redact is None else _serialize.redact(rec, self.redact)
-            self._post(self.tools_url, json.dumps(body, ensure_ascii=False).encode("utf-8"))
+            self._post(self.tools_url, json.dumps(rec, ensure_ascii=False).encode("utf-8"))
 
     def _post(self, url: str, body: bytes) -> bool:
         for attempt in range(len(RETRY_DELAYS) + 1):

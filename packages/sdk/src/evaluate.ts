@@ -173,8 +173,9 @@ export async function evaluate(options: EvaluateOptions): Promise<EvaluateResult
   let batch: any[] = [];
   let sending = Promise.resolve();
   // Batches go out one after another while rows keep running; a failure surfaces at the end.
+  // Kalibra links a row to its trace when the results arrive, so the traces go first.
   const send = (results: any[]) => {
-    sending = sending.then(() => call('submit_code_results', { runId, results }).then(() => undefined));
+    sending = sending.then(() => flush()).then(() => call('submit_code_results', { runId, results }).then(() => undefined));
     sending.catch(() => {});
   };
 
@@ -207,8 +208,6 @@ export async function evaluate(options: EvaluateOptions): Promise<EvaluateResult
     for (let row = queue.shift(); row; row = queue.shift()) await runRow(row);
   });
   await Promise.all(workers);
-  // Traces first, so Kalibra can attach them to the rows.
-  await flush();
   if (batch.length) void send(batch);
   await sending;
 

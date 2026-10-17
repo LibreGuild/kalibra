@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { kalibra, init, trace, step, currentTrace, flush, shutdown, isEnabled } from '../src/index.js';
 import { MAX_SPANS_PER_TRACE } from '../src/tracer.js';
 import { fakeKalibra, type FakeKalibra } from './fake-kalibra.js';
@@ -125,6 +125,47 @@ describe('recording traces', () => {
     expect(b).toMatchObject({ name: 'sync-fails', status: 'error' });
   });
 
+  it('keeps a generator step open while it is consumed, with steps inside it as children', async () => {
+    on();
+    const tokens = trace('stream_answer', async function* (q: string) {
+      const docs = await step('retrieve', async () => [`doc for ${q}`], { kind: 'retrieval' });
+      for (const t of ['Refunds ', 'take ', '5 days.']) {
+        await new Promise((r) => setTimeout(r, 5));
+        yield t;
+      }
+      return docs.length;
+    });
+    let text = '';
+    for await (const t of tokens('refunds')) text += t;
+    expect(text).toBe('Refunds take 5 days.');
+
+    const numbers = trace('numbers', function* () {
+      yield 1;
+      yield 2;
+      yield 3;
+    });
+    for (const n of numbers()) if (n === 2) break; // an early stop is not an error
+
+    const broken = trace('broken', async function* () {
+      yield 'a';
+      throw new Error('upstream closed');
+    });
+    await expect(
+      (async () => {
+        for await (const _ of broken());
+      })(),
+    ).rejects.toThrow('upstream closed');
+
+    await flush();
+    const [answer, nums, failed] = fake.traces();
+    expect(answer).toMatchObject({ name: 'stream_answer', status: 'ok', input: 'refunds', output: 'Refunds take 5 days.' });
+    expect(answer.durationMs).toBeGreaterThanOrEqual(10);
+    expect(answer.spans).toEqual([expect.objectContaining({ name: 'retrieve', kind: 'retrieval', output: ['doc for refunds'] })]);
+    expect(answer.spans[0].parentId).toBeUndefined(); // a direct child of the trace
+    expect(nums).toMatchObject({ name: 'numbers', status: 'ok', output: { items: 2, first: [1, 2] } });
+    expect(failed).toMatchObject({ name: 'broken', status: 'error', error: 'Error: upstream closed' });
+  });
+
   it('makes a trace inside a trace a child span', async () => {
     on();
     const search = trace('search', async (q: string) => [q], { kind: 'retrieval' });
@@ -201,6 +242,20 @@ describe('sampling', () => {
     await flush();
     expect(stepRan).toBe(40);
     expect(fake.traces()).toEqual([]);
+  });
+
+  it('an unsampled generator trace stays unsampled while it is consumed', async () => {
+    on({ sampleRate: 0.5 });
+    const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0.9).mockReturnValue(0.1); // not sampled, then sampled
+    const tokens = trace('stream', async function* () {
+      yield await step('llm', async () => 'hi', { kind: 'llm' });
+    });
+    const out: string[] = [];
+    for await (const t of tokens()) out.push(t);
+    random.mockRestore();
+    await flush();
+    expect(out).toEqual(['hi']);
+    expect(fake.traces()).toEqual([]); // the step did not start a trace of its own
   });
 
   it('keeps roughly the configured share', async () => {

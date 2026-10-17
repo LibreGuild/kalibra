@@ -53,6 +53,24 @@ class HeadersTest(SdkTestCase):
         [t] = self.sent()
         self.assertEqual((t["id"], t["runId"], t["resultId"]), (TP_TRACE, "run_42", "res_7"))
 
+    def test_each_trace_of_a_request_has_its_own_id(self) -> None:
+        self.start()
+        with kalibra.from_headers(HEADERS):
+            with kalibra.trace("classify"):
+                pass
+            with kalibra.trace("answer"):
+                pass
+        # A traceparent without Kalibra headers is someone else's distributed trace: not reused.
+        with kalibra.from_headers({"traceparent": HEADERS["traceparent"]}) as inc:
+            self.assertIsNone(inc.trace_id)
+            with kalibra.trace("plain"):
+                pass
+        first, second, plain = self.sent()
+        self.assertEqual(first["id"], TP_TRACE)
+        self.assertNotEqual(second["id"], TP_TRACE)
+        self.assertEqual((second["runId"], second["resultId"]), ("run_42", "res_7"))
+        self.assertNotEqual(plain["id"], TP_TRACE)
+
     def test_asgi_middleware(self) -> None:
         self.start()
         seen = {}
@@ -243,11 +261,27 @@ class ToolsTest(SdkTestCase):
 
         self.assertEqual(asyncio.run(main()), ("live", "recorded"))
 
-    def test_recordings_are_redacted_too(self) -> None:
+    def test_recordings_are_exact_so_replay_works(self) -> None:
+        # Personal data and big values: the recording keeps them as they are (Kalibra finds it by a
+        # hash of the exact arguments, and replay returns the exact result); the trace is redacted.
         self.start()
+        calls = []
+        docs = [{"id": f"kb-{i}", "text": "é" * 4000} for i in range(20)]
+
+        @kalibra.tool("lookup_user")
+        def lookup_user(email, note):
+            calls.append(email)
+            return {"email": email, "plan": "pro", "docs": docs}
+
+        note = "refund policy " * 1000  # a 14 KB argument
         os.environ["KALIBRA_TOOLS"] = "record"
-        kalibra.tool("lookup_user")(lambda email: {"email": email, "plan": "pro"})("jo@example.com")
+        with kalibra.trace("agent"):
+            lookup_user("jo@example.com", note)
         kalibra.flush()
-        rec = self.fake.tool_posts[0]
-        self.assertEqual(json.dumps(rec).count("jo@example.com"), 0)
-        self.assertEqual(rec["output"]["plan"], "pro")
+        [rec] = self.fake.tool_posts
+        self.assertEqual(rec["args"], ["jo@example.com", note])
+        self.assertEqual(json.dumps(self.sent()).count("jo@example.com"), 0)
+
+        os.environ["KALIBRA_TOOLS"] = "replay-strict"
+        self.assertEqual(lookup_user("jo@example.com", note), {"email": "jo@example.com", "plan": "pro", "docs": docs})
+        self.assertEqual(calls, ["jo@example.com"])

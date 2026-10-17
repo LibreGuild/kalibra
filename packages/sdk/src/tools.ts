@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto';
 import { envToolMode } from './config.js';
 import { current } from './context.js';
-import { describeError, toJsonSafe } from './serialize.js';
+import { describeError } from './serialize.js';
 import { getConfig, isEnabled, offForGood, onFlush, runSpan } from './tracer.js';
 import { warnOnce } from './warn.js';
 
@@ -112,8 +112,22 @@ async function lookup(tool: string, hash: string) {
   return found;
 }
 
+/** A value as plain JSON data, in full (BigInt as a string). Throws on cycles. */
+function plainJson(value: unknown): unknown {
+  const text = JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  return text === undefined ? undefined : JSON.parse(text);
+}
+
 function record(tool: string, args: unknown, hash: string, output: unknown, error?: string) {
-  const body = JSON.stringify({ tool, args: toJsonSafe(args), argsHash: hash, output: toJsonSafe(output), error });
+  // Exact values, not the shortened copies traces keep (serialize.ts): the server stores the
+  // recording under its own hash of `args`, and replay must hand back the real result.
+  let body: string;
+  try {
+    body = JSON.stringify({ tool, args: JSON.parse(canonicalJson(args)), argsHash: hash, output: plainJson(output), error });
+  } catch (e: any) {
+    warnOnce(`record-json-${tool}`, `Could not save a recording of ${tool}: its result is not plain JSON (${e?.message ?? e})`);
+    return;
+  }
   const p = fetch(endpoint(), { method: 'POST', headers: headers(), body, signal: AbortSignal.timeout(10_000) })
     .then((res) => {
       if (!res.ok) warnOnce(`record-${res.status}`, `Kalibra did not save a tool recording (HTTP ${res.status})`);

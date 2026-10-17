@@ -183,19 +183,21 @@ export class Exporter {
       } catch {
         continue;
       }
-      if (json.length > MAX_BYTES_PER_REQUEST) {
+      // Bytes, not characters: non-Latin text takes 2–4 bytes per character in the UTF-8 body.
+      const size = Buffer.byteLength(json, 'utf8');
+      if (size > MAX_BYTES_PER_REQUEST) {
         warnOnce('trace-too-big', `Dropped a trace over ${Math.round(MAX_BYTES_PER_REQUEST / 1024)} KB ("${t.name}")`);
         continue;
       }
       const w = weight(t);
-      if (part.length && (part.length >= MAX_TRACES_PER_REQUEST || spans + w > MAX_SPANS_PER_REQUEST || bytes + json.length > MAX_BYTES_PER_REQUEST)) {
+      if (part.length && (part.length >= MAX_TRACES_PER_REQUEST || spans + w > MAX_SPANS_PER_REQUEST || bytes + size > MAX_BYTES_PER_REQUEST)) {
         yield `{"traces":[${part.join(',')}]}`;
         part = [];
         bytes = 0;
         spans = 0;
       }
       part.push(json);
-      bytes += json.length + 1;
+      bytes += size + 1;
       spans += w;
     }
     if (part.length) yield `{"traces":[${part.join(',')}]}`;

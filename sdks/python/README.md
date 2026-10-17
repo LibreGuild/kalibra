@@ -142,6 +142,8 @@ refund = kalibra.tool("refund_order")(payments.refund)
 
 The mode comes from the request's `x-kalibra-tools` header (set by the run's **Tools** setting in Kalibra), else `KALIBRA_TOOLS`, else `live`. Replay makes evals fast, free and repeatable, and they never send real emails or refunds.
 
+Recordings keep the exact arguments and result, not the shortened copies traces keep, and they are not redacted: replay has to return the real values, and Kalibra finds a recording by its arguments. Only `record` mode makes them, so record with data you are fine storing in your Kalibra.
+
 **Tool arguments hash.** Recordings are found by tool name and the SHA-256 of the arguments' canonical JSON. That's byte-for-byte what the JS SDK computes, so recordings are shared between Node and Python services.
 - **Arguments as one value:** a single argument is the value itself, keyword arguments alone are one object, anything else is a list (with keyword arguments as a trailing object). `search({"q": "x"})`, `search(q="x")` and JS `search({ q: "x" })` all give `{"q":"x"}`.
 - **Canonical JSON:**
@@ -183,7 +185,7 @@ def test_support_bot():
 | `project` | `KALIBRA_PROJECT` | `default` (id or name) |
 | `sample_rate` | `KALIBRA_SAMPLE_RATE` | `1` |
 | `environment`, `release` | `KALIBRA_ENVIRONMENT`, `KALIBRA_RELEASE` | none (added to each trace's metadata) |
-| `redact` | | `True`: emails, phone and card numbers, API keys → `[redacted]`. Or a function applied to every string, or `False` |
+| `redact` | | `True`: emails, phone and card numbers, API keys → `[redacted]` in traces (not in tool recordings). Or a function applied to every string, or `False` |
 | `flush_interval`, `timeout` | | `1.0` s, `5.0` s |
 
 `kalibra.flush()` sends what is queued (call it before a serverless function returns). `kalibra.shutdown()` also stops the sender. Both run at exit on their own.

@@ -3,6 +3,9 @@
  * tool-recording and code-run endpoints the SDK uses (docs/design/sdk-and-traces.md §2–§3).
  */
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+// The server's own hash, as packages/server/src/ingest.ts uses it: recordings are stored under the
+// hash of the `args` the SDK posts, not the `argsHash` it claims.
+import { argsHash as serverHash } from '../../core/src/traces/hash.js';
 
 export interface Received {
   method: string;
@@ -54,8 +57,9 @@ export async function fakeKalibra(): Promise<FakeKalibra> {
     }
     if (url.pathname.endsWith('/ingest/tools')) {
       if (req.method === 'POST') {
-        recordings.set(`${body.tool}:${body.argsHash}`, { output: body.output, error: body.error, args: body.args });
-        return json(200, { data: { recorded: true } });
+        const hash = serverHash(body.args ?? null);
+        recordings.set(`${body.tool}:${hash}`, { output: body.output, error: body.error, args: body.args });
+        return json(200, { data: { stored: true, argsHash: hash } });
       }
       const hit = recordings.get(`${url.searchParams.get('tool')}:${url.searchParams.get('argsHash')}`);
       return json(200, { data: hit ? { found: true, output: hit.output, error: hit.error } : { found: false } });
