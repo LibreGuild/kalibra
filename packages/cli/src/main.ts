@@ -8,6 +8,7 @@ import { providersFromEnv } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
 import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
 import { runMcp } from './mcp.js';
+import { backup } from './backup.js';
 
 // node:sqlite prints an ExperimentalWarning on load; it is expected and noisy for CLI users.
 const emit = process.emitWarning;
@@ -29,6 +30,7 @@ Usage:
   kalibra op <name> ['<json input>']          Call any operation
   kalibra users <list|create|reset-password|make-admin> [username] [--password P]
                                               Manage accounts of a team server from its machine (recovery)
+  kalibra backup <folder>                     Consistent copy of all data, safe while Kalibra runs
 
 Options:
   --dir <path>         Data folder (default: $KALIBRA_DIR or ~/Kalibra/default)
@@ -84,6 +86,11 @@ async function main() {
   if (cmd === 'serve') return serveLocal(dir, values);
   if (cmd === 'mcp') return runMcp(dir, { server: values.server, project: values.project });
   if (cmd === 'users') return users(dir, rest, values.password);
+  if (cmd === 'backup') {
+    if (!rest[0]) throw new Error('Usage: kalibra backup <folder>');
+    const r = backup(dir, rest[0]);
+    return void console.log(`Backed up ${r.databases} database${r.databases === 1 ? '' : 's'} and ${r.files} files to ${r.out}`);
+  }
 
   const client = await connect(dir, { kind: 'cli', id: 'cli' }, { server: values.server, project: values.project });
   try {

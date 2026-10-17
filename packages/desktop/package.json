@@ -1,18 +1,22 @@
 {
   "name": "@kalibra/desktop",
+  "productName": "Kalibra",
   "version": "0.1.0",
   "private": true,
+  "description": "Kalibra desktop app: local-first evaluation for AI applications",
+  "author": "LibreGuild",
+  "license": "MIT",
+  "homepage": "https://github.com/LibreGuild/kalibra",
   "main": "dist/main.cjs",
   "scripts": {
     "build": "node build.mjs",
-    "start": "electron ."
-  },
-  "dependencies": {
-    "@kalibra/core": "0.1.0",
-    "@kalibra/server": "0.1.0"
+    "start": "electron .",
+    "dist": "node build.mjs && electron-builder --config electron-builder.yml --publish never"
   },
   "devDependencies": {
-    "electron": "^44.8.0"
-  },
-  "description": "Kalibra desktop app"
+    "@kalibra/core": "0.1.0",
+    "@kalibra/server": "0.1.0",
+    "electron": "44.8.0",
+    "electron-builder": "26.17.0"
+  }
 }

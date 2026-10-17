@@ -1,0 +1,37 @@
+# Typecheck, test and build on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The desktop app's Electron binary is only needed by the release workflow.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build the web UI and the CLI bundle
+        run: npm run build -w @kalibra/web && npm run build -w kalibra
+      - name: Smoke-test the CLI bundle
+        run: |
+          node packages/cli/dist/kalibra.mjs --help
+          node packages/cli/dist/kalibra.mjs users list --dir "$RUNNER_TEMP/kalibra"

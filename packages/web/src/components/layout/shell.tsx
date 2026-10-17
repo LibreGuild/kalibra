@@ -4,7 +4,7 @@ import { NavLink } from '../../lib/nav';
 import clsx from 'clsx';
 import { BookOpen, Bot, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { authCall, forgetProject, useOp } from '../../lib/api';
+import { authCall, forgetProject, useHubOp, useOp } from '../../lib/api';
 import { ProjectProvider, useProject, useSession } from '../../lib/session';
 import { Menu, MenuItem, MenuSeparator, Tip } from '../ui/overlay';
 import { toastError } from '../ui/toast';
@@ -77,6 +77,10 @@ export function AppShell() {
 function Shell() {
   const session = useSession();
   const project = useProject();
+  // Someone who is in no project yet (e.g. just signed in for the first time) gets a pointer to
+  // Projects instead of project pages that would only say "not found".
+  const projects = useHubOp<{ id: string }[]>('list_projects', {}, { staleTime: 30_000 });
+  const noProjects = !project && projects.data?.length === 0;
   // Rows waiting for review in the current project (none on pages outside a project).
   const datasets = useOp<any[]>('list_datasets', {}, { retry: false, enabled: !!project });
   const review = (datasets.data ?? []).reduce((n, d) => n + (d.reviewCount ?? 0), 0);
@@ -154,14 +158,26 @@ function Shell() {
         <div className="mb-3">
           <ProjectSwitcher collapsed={collapsed} />
         </div>
-        <nav className="flex flex-col gap-0.5">
-          {NAV.map((n) => (
-            <NavItem key={n.to} {...n} collapsed={collapsed} count={n.to === '/datasets' ? review : undefined} />
-          ))}
-        </nav>
+        {noProjects ? (
+          !collapsed && (
+            <div className="rounded-lg border border-dashed border-line-strong px-3 py-3 text-[0.8125rem] text-ink-muted">
+              You are not in a project yet.{' '}
+              <NavLink to="/projects" className="font-medium text-accent-ink hover:underline">
+                {session.isServer ? 'Create one or ask to be added' : 'Create one'}
+              </NavLink>
+              .
+            </div>
+          )
+        ) : (
+          <nav className="flex flex-col gap-0.5">
+            {NAV.map((n) => (
+              <NavItem key={n.to} {...n} collapsed={collapsed} count={n.to === '/datasets' ? review : undefined} />
+            ))}
+          </nav>
+        )}
         <div className="my-3 h-px bg-line" />
         <nav className="flex flex-col gap-0.5">
-          {NAV2.map((n) => (
+          {NAV2.filter((n) => !noProjects || n.to === '/agents').map((n) => (
             <NavItem key={n.to} {...n} collapsed={collapsed} />
           ))}
         </nav>

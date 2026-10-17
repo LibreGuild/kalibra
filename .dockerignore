@@ -1,0 +1,10 @@
+.git
+node_modules
+**/node_modules
+**/dist
+.kalibra-dev
+.env
+.env.*
+*.log
+.DS_Store
+packages/demo/fixtures/audio

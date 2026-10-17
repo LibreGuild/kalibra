@@ -1,0 +1,38 @@
+# Desktop installers. Unsigned for now: macOS asks to confirm on first open (right-click → Open),
+# Windows SmartScreen shows "More info → Run anyway".
+appId: org.libreguild.kalibra
+productName: Kalibra
+copyright: Copyright © 2026 LibreGuild
+directories:
+  output: release
+  buildResources: build
+# main.cjs has the engine and server bundled in; the built UI sits next to it.
+files:
+  - dist/**/*
+  - "!dist/**/*.map"
+  - "!dist/cli/**"
+  - package.json
+# The CLI runs outside the app archive: coding agents start it as the MCP bridge with Electron's Node.
+extraResources:
+  - from: dist/cli
+    to: cli
+artifactName: Kalibra-${version}-${os}-${arch}.${ext}
+mac:
+  category: public.app-category.developer-tools
+  target: [dmg, zip]
+  identity: null
+  hardenedRuntime: false
+dmg:
+  title: Kalibra ${version}
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Kalibra-${version}-win-${arch}-setup.${ext}
+linux:
+  target: [AppImage]
+  category: Development
+  synopsis: Local-first evaluation for AI applications
+publish: null

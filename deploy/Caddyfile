@@ -1,0 +1,8 @@
+# Replace with your server's DNS name. Caddy gets and renews the HTTPS certificate.
+kalibra.example.com {
+	encode gzip
+	reverse_proxy kalibra:4317 {
+		# Live updates use a long-lived event stream.
+		flush_interval -1
+	}
+}

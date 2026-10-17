@@ -1,0 +1,40 @@
+# Kalibra team server behind Caddy (automatic HTTPS from Let's Encrypt).
+#
+#   1. Point a DNS name at this machine and put it in Caddyfile and KALIBRA_PUBLIC_URL below.
+#   2. cp .env.example .env   and fill in what you need (sign-in providers, first administrator).
+#   3. docker compose up -d   then   docker compose logs kalibra   for the one-time setup link.
+#
+# Back up (safe while running):  docker compose exec kalibra node /app/kalibra.mjs backup /backups/$(date +%F)
+# then copy it off the machine:  docker compose cp kalibra:/backups ./backups
+services:
+  kalibra:
+    image: ghcr.io/libreguild/kalibra:next
+    restart: unless-stopped
+    environment:
+      KALIBRA_PUBLIC_URL: https://kalibra.example.com
+      KALIBRA_TRUST_PROXY: "1"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - kalibra-data:/data
+      - kalibra-backups:/backups
+    expose:
+      - "4317"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - kalibra
+
+volumes:
+  kalibra-data:
+  kalibra-backups:
+  caddy-data:

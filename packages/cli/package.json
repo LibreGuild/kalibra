@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "description": "Local-first, open-source evaluation for AI applications: datasets, HTTP/WebSocket targets, layered checks (WER, LLM judge, \u2026), runs and comparisons. Run with `npx kalibra`.",
   "license": "MIT",
+  "author": "LibreGuild",
+  "homepage": "https://github.com/LibreGuild/kalibra#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LibreGuild/kalibra.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/LibreGuild/kalibra/issues"
+  },
   "type": "module",
   "bin": {
     "kalibra": "dist/kalibra.mjs"

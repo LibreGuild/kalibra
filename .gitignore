@@ -7,3 +7,10 @@ out/
 packages/demo/fixtures/audio/
 *.log
 packages/cli/LICENSE
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+release/

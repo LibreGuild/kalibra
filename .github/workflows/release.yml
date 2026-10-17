@@ -1,0 +1,171 @@
+# Releases from a version tag:  git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1
+#
+#   desktop  unsigned installers for macOS (dmg, zip), Windows (setup.exe) and Linux (AppImage)
+#   github   a GitHub release with those files (marked pre-release for -beta/-rc tags)
+#   docker   ghcr.io/libreguild/kalibra:<version> (+ :next for pre-releases, :latest otherwise), amd64 and arm64
+#   npm      the `kalibra` package (dist-tag `next` for pre-releases, `latest` otherwise)
+#
+# npm publishing uses npm trusted publishing (OIDC, no token) once it is set up for this repo on
+# npmjs.com; until then it uses the NPM_TOKEN secret if present, and is skipped otherwise.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release again (e.g. v0.1.0-beta.1)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      channel: ${{ steps.v.outputs.channel }}
+    steps:
+      - id: v
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then echo "Not a version tag: $TAG"; exit 1; fi
+          if [[ "$VERSION" == *-* ]]; then PRE=true; CHANNEL=next; else PRE=false; CHANNEL=latest; fi
+          { echo "tag=$TAG"; echo "version=$VERSION"; echo "prerelease=$PRE"; echo "channel=$CHANNEL"; } >> "$GITHUB_OUTPUT"
+
+  desktop:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac --arm64 --x64
+          - os: windows-latest
+            args: --win --x64
+          - os: ubuntu-latest
+            args: --linux --x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/set-version.mjs ${{ needs.meta.outputs.version }}
+      - run: npm run build -w @kalibra/web
+      - run: npm run build -w kalibra
+      - name: Build installers (unsigned)
+        run: npm run dist -w @kalibra/desktop -- ${{ matrix.args }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+            packages/desktop/release/*.exe
+            packages/desktop/release/*.AppImage
+          if-no-files-found: error
+
+  github:
+    needs: [meta, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          PRE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          cd dist && sha256sum * > SHA256SUMS.txt && ls -l
+          flags=(--repo "$GITHUB_REPOSITORY" --title "Kalibra $TAG" --generate-notes --verify-tag)
+          if [ "$PRE" = "true" ]; then flags+=(--prerelease); fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            && gh release upload "$TAG" * --clobber --repo "$GITHUB_REPOSITORY" \
+            || gh release create "$TAG" * "${flags[@]}"
+
+  docker:
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Image name (lowercase)
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.img.outputs.name }}:${{ needs.meta.outputs.version }}
+            ${{ steps.img.outputs.name }}:${{ needs.meta.outputs.channel }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  npm:
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@11.20.0
+      - run: npm ci
+      - run: node scripts/set-version.mjs ${{ needs.meta.outputs.version }}
+      - run: npm run build -w @kalibra/web
+      - name: Publish to npm
+        working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          if npm view "kalibra@$VERSION" version >/dev/null 2>&1; then echo "kalibra@$VERSION is already on npm"; exit 0; fi
+          npm publish --tag "$CHANNEL" --access public || {
+            echo "::warning::npm publish failed. Set up trusted publishing for this repo on npmjs.com (package kalibra → Settings) or add an NPM_TOKEN secret."
+            exit 1
+          }

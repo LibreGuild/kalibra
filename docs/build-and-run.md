@@ -68,11 +68,8 @@ npm publish                 # maintainer only, with your npm account
 
 Users then run `npx kalibra`. No installer, no code-signing prompts.
 
-## Desktop installers (later)
+## Desktop installers
 
-Planned with electron-builder: `.dmg` (macOS), `.exe`/NSIS (Windows), AppImage (Linux). Without code signing:
+`npm run dist -w @kalibra/desktop -- --mac` (or `--win`, `--linux`) after building the web UI and CLI writes unsigned installers to `packages/desktop/release/` (electron-builder: `.dmg` and `.zip`, NSIS `setup.exe`, AppImage). Releases build all three in GitHub Actions; see [deploy.md](deploy.md).
 
-- macOS Gatekeeper says the app "can't be opened"; users right-click → **Open** once.
-- Windows SmartScreen shows "Windows protected your PC"; users click **More info → Run anyway**.
-
-`npx kalibra` avoids both, which is why it is the recommended install for developers.
+`npx kalibra` avoids unsigned-app warnings, which is why it is the recommended install for developers.
