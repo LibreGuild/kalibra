@@ -3,10 +3,11 @@
 #   desktop  unsigned installers for macOS (dmg, zip), Windows (setup.exe) and Linux (AppImage)
 #   github   a GitHub release with those files (marked pre-release for -beta/-rc tags)
 #   docker   ghcr.io/libreguild/kalibra:<version> (+ :next for pre-releases, :latest otherwise), amd64 and arm64
-#   npm      the `kalibra` package (dist-tag `next` for pre-releases, `latest` otherwise)
+#   npm      the `kalibra` package, STAGED (dist-tag `next` for pre-releases, `latest` otherwise):
+#            a maintainer approves it on npmjs.com (Staged Packages) with 2FA, then it goes live.
 #
-# npm publishing uses npm trusted publishing (OIDC, no token) once it is set up for this repo on
-# npmjs.com; until then it uses the NPM_TOKEN secret if present, and is skipped otherwise.
+# npm uses trusted publishing (OIDC, no token): the package trusts this repo's release.yml for
+# `npm stage publish` only, so a workflow on its own can never put a version live.
 name: Release
 
 on:
@@ -159,15 +160,12 @@ jobs:
       - run: npm ci
       - run: node scripts/set-version.mjs ${{ needs.meta.outputs.version }}
       - run: npm run build -w @kalibra/web
-      - name: Publish to npm
+      - name: Stage on npm (approve on npmjs.com → Staged Packages)
         working-directory: packages/cli
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           CHANNEL: ${{ needs.meta.outputs.channel }}
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
           if npm view "kalibra@$VERSION" version >/dev/null 2>&1; then echo "kalibra@$VERSION is already on npm"; exit 0; fi
-          npm publish --tag "$CHANNEL" --access public || {
-            echo "::warning::npm publish failed. Set up trusted publishing for this repo on npmjs.com (package kalibra → Settings) or add an NPM_TOKEN secret."
-            exit 1
-          }
+          npm stage publish . --tag "$CHANNEL" --access public
+          echo "::notice::kalibra@$VERSION is staged. Approve it at https://www.npmjs.com (avatar → Staged Packages) to publish it." 

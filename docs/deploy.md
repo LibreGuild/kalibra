@@ -68,12 +68,14 @@ docker compose cp kalibra:/backups ./backups
    - builds the desktop installers on macOS (arm64 and x64), Windows and Linux;
    - creates the GitHub release with the installers and `SHA256SUMS.txt`, marked pre-release for `-beta` / `-rc`;
    - pushes the Docker image to GHCR;
-   - publishes `kalibra` to npm (dist-tag `next` for pre-releases, `latest` otherwise).
-3. Rerun a release: Actions → Release → Run workflow → enter the tag.
+   - **stages** `kalibra` on npm (dist-tag `next` for pre-releases, `latest` otherwise).
+3. **Approve the npm release:** on npmjs.com open avatar → **Staged Packages**, check the version, and approve it with 2FA. Only then does it go live; reject it to drop it.
+4. Rerun a release: Actions → Release → Run workflow → enter the tag.
 
-**npm publishing** uses npm's trusted publishing (OIDC), so no token is stored:
-- On npmjs.com, open the `kalibra` package → Settings → Trusted publishing → GitHub Actions. Enter organization `LibreGuild`, repository `kalibra`, workflow `release.yml`.
-- The package must exist first: publish the first version by hand (`npm publish -w kalibra --tag next`), or add an `NPM_TOKEN` repository secret instead.
+**npm publishing** uses trusted publishing (OIDC), so no npm token is stored anywhere:
+- The `kalibra` package trusts `LibreGuild/kalibra` → `release.yml` (npmjs.com → kalibra → Settings → Trusted Publisher).
+- That trust is limited to `npm stage publish`. A workflow, even a compromised one, can only propose a version; a maintainer with 2FA puts it live. This is npm's recommended setup. To let CI publish directly, delete the connection and create it again with "Allow npm publish" ticked.
+- The very first version (`0.1.0-beta.1`) was published by hand, because npm only allows trusted publishing for packages that already exist.
 
 **Docker image visibility:** images from a private repository start private on GHCR. To let anyone pull without logging in, open GitHub → LibreGuild → Packages → kalibra → Package settings → Change visibility → Public.
 
