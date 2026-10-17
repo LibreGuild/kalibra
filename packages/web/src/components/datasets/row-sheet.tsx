@@ -4,6 +4,7 @@ import { Upload } from 'lucide-react';
 import { ApiError, op, uploadFile } from '../../lib/api';
 import { actorLabel, dateTime } from '../../lib/format';
 import { Button } from '../ui/button';
+import { useCanEdit } from '../../lib/session';
 import { CodeEditor } from '../ui/code';
 import { ErrorBox } from '../ui/display';
 import { Field, Input, Select, Switch, TagInput, Textarea } from '../ui/form';
@@ -171,6 +172,7 @@ export function RowSheet({
   columns: ColumnDef[];
   row: RowRecord | null;
 }) {
+  const canEdit = useCanEdit();
   const qc = useQueryClient();
   const [current, setCurrent] = useState<RowRecord | null>(row);
   const [draft, setDraft] = useState<Draft>({});
@@ -236,9 +238,11 @@ export function RowSheet({
       subtitle={current ? current.id : 'Fill in the columns, then add the row'}
       width={640}
       actions={
-        <Button variant="primary" size="sm" loading={saving} onClick={save}>
-          {current ? 'Save' : 'Add row'}
-        </Button>
+        canEdit && (
+          <Button variant="primary" size="sm" loading={saving} onClick={save}>
+            {current ? 'Save' : 'Add row'}
+          </Button>
+        )
       }
     >
       <div className="flex flex-col gap-5 px-5 py-4">

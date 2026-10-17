@@ -144,6 +144,7 @@ export class Hub {
       throw new KalibraError('forbidden', 'The setup code is wrong. Use the link printed when the server started.');
     }
     const user = await this.accounts.create({ ...input, role: 'admin' }, 'setup');
+    this.accounts.markLogin(user.id);
     this.setup = undefined;
     this.audit({ kind: 'user', id: user.id, name: user.name }, 'setup.completed', user.username, {}, ip);
     return user;

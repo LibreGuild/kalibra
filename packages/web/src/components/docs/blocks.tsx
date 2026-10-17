@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link } from '../../lib/nav';
 import clsx from 'clsx';
 import {
   ArrowLeftRight,
@@ -37,6 +37,7 @@ import {
   MessagesSquare,
   Share2,
   Trophy,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 import { buttonClass } from '../ui/button';
@@ -48,7 +49,7 @@ import { Inline } from './inline';
 export const ICONS: Record<string, LucideIcon> = {
   ArrowLeftRight, BookA, Bot, ChartColumn, Code2, Crosshair, Database, FileInput, Gavel, GitCompare, Image, ListChecks,
   MessageCircleQuestion, Mic, Play, Plug, Radio, Rocket, Scale, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, Wand2, Waves,
-  FlaskConical, Gauge, Layers, MessagesSquare, Share2, Trophy,
+  FlaskConical, Gauge, Layers, MessagesSquare, Share2, Trophy, Users,
 };
 
 export const headingId = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

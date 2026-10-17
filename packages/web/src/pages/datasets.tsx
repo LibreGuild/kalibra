@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
+import { useNavigate } from '../lib/nav';
+import { useCanEdit } from '../lib/session';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { AudioLines, Bot, Captions, Check, Database, Download, Ellipsis, FileSpreadsheet, Image as ImageIcon, Plus, Save, Search, ShieldAlert, Sparkles, Trash2, Undo2, Upload, Waves, X } from 'lucide-react';
 import { ApiError, fileUrl, op, useOp } from '../lib/api';
@@ -25,6 +27,7 @@ import type { ColumnDef, DatasetSchemaResp, RowRecord, RowStatus } from '../comp
 /* Datasets list ──────────────────────────────────────────────────────────── */
 
 export function DatasetsPage() {
+  const canEdit = useCanEdit();
   const navigate = useNavigate();
   const q = useOp<any[]>('list_datasets');
   const [creating, setCreating] = useState(false);
@@ -67,17 +70,19 @@ export function DatasetsPage() {
       title="Datasets"
       description="Test cases for your AI app: inputs, expected answers, recordings and images. Every column can be sent to your app and compared against."
       actions={
-        <>
-          <Button icon={<FileSpreadsheet className="size-4" />} onClick={() => setImporting(true)}>
-            Import
-          </Button>
-          <Button icon={<ShieldAlert className="size-4" />} onClick={() => setSafety(true)}>
-            Safety pack
-          </Button>
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-            New dataset
-          </Button>
-        </>
+        canEdit && (
+          <>
+            <Button icon={<FileSpreadsheet className="size-4" />} onClick={() => setImporting(true)}>
+              Import
+            </Button>
+            <Button icon={<ShieldAlert className="size-4" />} onClick={() => setSafety(true)}>
+              Safety pack
+            </Button>
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+              New dataset
+            </Button>
+          </>
+        )
       }
     >
       {q.isLoading ? (
@@ -89,9 +94,11 @@ export function DatasetsPage() {
           icon={<Database />}
           title="No datasets yet"
           action={
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              Create your first dataset
-            </Button>
+            canEdit && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                Create your first dataset
+              </Button>
+            )
           }
         >
           A dataset is a table of test cases. Fill it by hand, import a CSV, upload recordings, generate rows with a model, or let your coding agent write them.
@@ -111,6 +118,7 @@ export function DatasetsPage() {
 type Dlg = null | 'upload' | 'import' | 'generate' | 'version' | 'images' | 'speech' | 'variants' | 'transcribe';
 
 export function DatasetDetailPage() {
+  const canEdit = useCanEdit();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -164,52 +172,56 @@ export function DatasetDetailPage() {
       badge={<Badge>{ds.stats.total} rows</Badge>}
       actions={
         <>
-          <Menu
-            align="start"
-            trigger={
-              <Button variant="primary" icon={<Plus className="size-4" />}>
-                Add rows
-              </Button>
-            }
-          >
-            <MenuItem icon={<Plus />} hint="Fill in one row in a form" onSelect={() => (setSheetRow(null), setSheetOpen(true))}>
-              Add a row
-            </MenuItem>
-            <MenuItem icon={<Upload />} hint="One row per file, plus an optional labels CSV" onSelect={() => setDialog('upload')}>
-              Upload audio or image files
-            </MenuItem>
-            <MenuItem icon={<FileSpreadsheet />} hint="CSV, JSONL or JSON" onSelect={() => setDialog('import')}>
-              Import a file
-            </MenuItem>
-          </Menu>
-          <Menu
-            align="start"
-            trigger={
-              <Button icon={<Sparkles className="size-4" />}>
-                Generate
-              </Button>
-            }
-          >
-            <MenuItem icon={<Sparkles />} hint="Write new rows with one of your model connections" onSelect={() => setDialog('generate')}>
-              Rows with a model
-            </MenuItem>
-            <MenuItem icon={<Bot />} hint="Claude Code, Codex, Cursor… through MCP, using your own plan" onSelect={() => navigate('/agents')}>
-              Rows with a coding agent
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem icon={<ImageIcon />} hint="GPT Image, Imagen… one image per row or prompt" onSelect={() => setDialog('images')}>
-              Images
-            </MenuItem>
-            <MenuItem icon={<AudioLines />} hint="Read text aloud with a text-to-speech model" onSelect={() => setDialog('speech')}>
-              Speech (TTS)
-            </MenuItem>
-            <MenuItem icon={<Waves />} hint="Noise, phone line, echo, fast speech…" onSelect={() => setDialog('variants')}>
-              Audio variants
-            </MenuItem>
-            <MenuItem icon={<Captions />} hint="Fill a text column from the audio" onSelect={() => setDialog('transcribe')}>
-              Transcripts from audio
-            </MenuItem>
-          </Menu>
+          {canEdit && (
+            <Menu
+              align="start"
+              trigger={
+                <Button variant="primary" icon={<Plus className="size-4" />}>
+                  Add rows
+                </Button>
+              }
+            >
+              <MenuItem icon={<Plus />} hint="Fill in one row in a form" onSelect={() => (setSheetRow(null), setSheetOpen(true))}>
+                Add a row
+              </MenuItem>
+              <MenuItem icon={<Upload />} hint="One row per file, plus an optional labels CSV" onSelect={() => setDialog('upload')}>
+                Upload audio or image files
+              </MenuItem>
+              <MenuItem icon={<FileSpreadsheet />} hint="CSV, JSONL or JSON" onSelect={() => setDialog('import')}>
+                Import a file
+              </MenuItem>
+            </Menu>
+          )}
+          {canEdit && (
+            <Menu
+              align="start"
+              trigger={
+                <Button icon={<Sparkles className="size-4" />}>
+                  Generate
+                </Button>
+              }
+            >
+              <MenuItem icon={<Sparkles />} hint="Write new rows with one of your model connections" onSelect={() => setDialog('generate')}>
+                Rows with a model
+              </MenuItem>
+              <MenuItem icon={<Bot />} hint="Claude Code, Codex, Cursor… through MCP, using your own plan" onSelect={() => navigate('/agents')}>
+                Rows with a coding agent
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem icon={<ImageIcon />} hint="GPT Image, Imagen… one image per row or prompt" onSelect={() => setDialog('images')}>
+                Images
+              </MenuItem>
+              <MenuItem icon={<AudioLines />} hint="Read text aloud with a text-to-speech model" onSelect={() => setDialog('speech')}>
+                Speech (TTS)
+              </MenuItem>
+              <MenuItem icon={<Waves />} hint="Noise, phone line, echo, fast speech…" onSelect={() => setDialog('variants')}>
+                Audio variants
+              </MenuItem>
+              <MenuItem icon={<Captions />} hint="Fill a text column from the audio" onSelect={() => setDialog('transcribe')}>
+                Transcripts from audio
+              </MenuItem>
+            </Menu>
+          )}
           <Menu align="start" trigger={<Button icon={<Download className="size-4" />}>Export</Button>}>
             <MenuItem hint="Opens in spreadsheets; files export as names" onSelect={() => exportAs('csv')}>
               CSV
@@ -222,21 +234,23 @@ export function DatasetDetailPage() {
               Bundle (with media)
             </MenuItem>
           </Menu>
-          <Menu
-            trigger={
-              <Button size="icon" aria-label="More actions">
-                <Ellipsis className="size-4" />
-              </Button>
-            }
-          >
-            <MenuItem icon={<Save />} hint="Freeze the current rows as a numbered version" onSelect={() => setDialog('version')}>
-              Save version
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem icon={<Trash2 />} danger onSelect={remove}>
-              Delete dataset
-            </MenuItem>
-          </Menu>
+          {canEdit && (
+            <Menu
+              trigger={
+                <Button size="icon" aria-label="More actions">
+                  <Ellipsis className="size-4" />
+                </Button>
+              }
+            >
+              <MenuItem icon={<Save />} hint="Freeze the current rows as a numbered version" onSelect={() => setDialog('version')}>
+                Save version
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem icon={<Trash2 />} danger onSelect={remove}>
+                Delete dataset
+              </MenuItem>
+            </Menu>
+          )}
         </>
       }
     >
@@ -321,6 +335,7 @@ function RowsTab({
   onUpload: () => void;
   onSelectionChange?: (ids: string[]) => void;
 }) {
+  const canEdit = useCanEdit();
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [params] = useSearchParams();
@@ -510,14 +525,18 @@ function RowsTab({
           rowKey={(r) => r.id}
           onRowClick={onOpenRow}
           rowHeight={46}
-          selected={selected}
-          onToggleSelect={(k) => {
-            const next = new Set(selected);
-            if (next.has(k)) next.delete(k);
-            else next.add(k);
-            setSelected(next);
-          }}
-          onToggleAll={() => setSelected(rows.length && rows.every((r) => selected.has(r.id)) ? new Set() : new Set(rows.map((r) => r.id)))}
+          selected={canEdit ? selected : undefined}
+          onToggleSelect={
+            canEdit
+              ? (k) => {
+                  const next = new Set(selected);
+                  if (next.has(k)) next.delete(k);
+                  else next.add(k);
+                  setSelected(next);
+                }
+              : undefined
+          }
+          onToggleAll={canEdit ? () => setSelected(rows.length && rows.every((r) => selected.has(r.id)) ? new Set() : new Set(rows.map((r) => r.id))) : undefined}
           empty={rowsQ.isLoading ? 'Loading rows…' : 'No rows match these filters.'}
           footer={
             <div className="flex items-center justify-between">

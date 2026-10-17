@@ -1,9 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, Outlet } from 'react-router';
+import { Outlet, useNavigate as useRawNavigate } from 'react-router';
+import { NavLink } from '../../lib/nav';
 import clsx from 'clsx';
-import { BookOpen, Bot, Crosshair, Database, FlaskConical, Home, ListChecks, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings } from 'lucide-react';
-import { useLiveEvents, useOp } from '../../lib/api';
-import { Tip } from '../ui/overlay';
+import { BookOpen, Bot, Crosshair, Database, Eye, FlaskConical, Home, KeyRound, ListChecks, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plug, Settings, Shield } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { authCall, useOp } from '../../lib/api';
+import { ProjectProvider, useProject, useSession } from '../../lib/session';
+import { Menu, MenuItem, MenuSeparator, Tip } from '../ui/overlay';
+import { toastError } from '../ui/toast';
+import { ProjectSwitcher } from './project-switcher';
 
 const NAV = [
   { to: '/', label: 'Overview', icon: Home, end: true, hint: 'Getting started and recent activity' },
@@ -19,7 +24,7 @@ const NAV2 = [
 ];
 const NAV3 = [
   { to: '/docs', label: 'Docs', icon: BookOpen, hint: 'Short, illustrated guides to every feature' },
-  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, reading font, text size, workspace, sharing' },
+  { to: '/settings', label: 'Settings', icon: Settings, hint: 'Theme, reading font and text size' },
 ];
 
 function NavItem({ to, label, icon: Icon, end, hint, count, collapsed }: { to: string; label: string; icon: any; end?: boolean; hint: string; count?: number; collapsed: boolean }) {
@@ -62,8 +67,17 @@ const readCollapsed = () => {
 };
 
 export function AppShell() {
-  useLiveEvents();
-  const datasets = useOp<any[]>('list_datasets');
+  return (
+    <ProjectProvider>
+      <Shell />
+    </ProjectProvider>
+  );
+}
+
+function Shell() {
+  const session = useSession();
+  const project = useProject();
+  const datasets = useOp<any[]>('list_datasets', {}, { retry: false });
   const review = (datasets.data ?? []).reduce((n, d) => n + (d.reviewCount ?? 0), 0);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggle = () =>
@@ -90,10 +104,13 @@ export function AppShell() {
 
   return (
     <div className="flex h-full">
-      <aside className={clsx('flex shrink-0 flex-col border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
-        <div className={clsx('mb-5 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
+      <aside className={clsx('flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
+        <div className={clsx('mb-4 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
           <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent text-[0.9375rem] font-bold text-on-accent">K</div>
           {!collapsed && <span className="text-[1.0625rem] font-bold tracking-tight">Kalibra</span>}
+        </div>
+        <div className="mb-3">
+          <ProjectSwitcher collapsed={collapsed} />
         </div>
         <nav className="flex flex-col gap-0.5">
           {NAV.map((n) => (
@@ -111,6 +128,7 @@ export function AppShell() {
             <NavItem key={n.to} {...n} collapsed={collapsed} />
           ))}
         </nav>
+        {session.isServer && session.user && <UserMenu collapsed={collapsed} />}
         <div className="mt-1.5">
           <Tip content={collapsed ? 'Expand sidebar (⌘\\)' : 'Collapse sidebar (⌘\\)'} side="right">
             <button
@@ -126,8 +144,72 @@ export function AppShell() {
         </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto">
+        {project && !project.canEdit && <ViewOnlyBar />}
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+/** Quiet note for viewers: they can look around, but changes are for editors. */
+function ViewOnlyBar() {
+  return (
+    <div className="flex items-center justify-center gap-2 border-b border-line bg-raised px-4 py-1.5 text-[0.78125rem] text-ink-muted">
+      <Eye className="size-3.5" /> View only — you can look at everything in this project; ask an owner for the editor role to make changes.
+    </div>
+  );
+}
+
+/** Bottom of the sidebar on a team server: who you are, your account, administration, sign out. */
+function UserMenu({ collapsed }: { collapsed: boolean }) {
+  const { user, isAdmin } = useSession();
+  const navigate = useRawNavigate();
+  const qc = useQueryClient();
+  if (!user) return null;
+  const signOut = async () => {
+    try {
+      await authCall('logout');
+    } catch (e) {
+      toastError(e, 'Could not sign out');
+      return;
+    }
+    qc.clear();
+    window.location.assign('/login');
+  };
+  const initial = (user.name || user.username).slice(0, 1).toUpperCase();
+  return (
+    <div className="mt-1.5 border-t border-line pt-1.5">
+      <Menu
+        align="start"
+        trigger={
+          <button
+            type="button"
+            aria-label={`Account: ${user.name}`}
+            className={clsx('flex h-9 w-full items-center rounded-lg text-left text-[0.8125rem] hover:bg-hover', collapsed ? 'justify-center' : 'gap-2.5 px-2')}
+          >
+            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[0.6875rem] font-bold text-accent-ink">{initial}</span>
+            {!collapsed && (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium leading-tight">{user.name}</span>
+                <span className="block truncate text-[0.6875rem] leading-tight text-ink-faint">{isAdmin ? 'Administrator' : user.username}</span>
+              </span>
+            )}
+          </button>
+        }
+      >
+        <MenuItem icon={<KeyRound />} onSelect={() => navigate('/account')} hint="Password, access tokens, sign-ins">
+          Your account
+        </MenuItem>
+        {isAdmin && (
+          <MenuItem icon={<Shield />} onSelect={() => navigate('/admin/users')} hint="Users, groups, sign-in, settings">
+            Administration
+          </MenuItem>
+        )}
+        <MenuSeparator />
+        <MenuItem icon={<LogOut />} onSelect={signOut}>
+          Sign out
+        </MenuItem>
+      </Menu>
     </div>
   );
 }

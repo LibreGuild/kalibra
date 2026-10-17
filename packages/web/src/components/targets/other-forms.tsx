@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link } from '../../lib/nav';
 import { useOp } from '../../lib/api';
 import { ConnectionPicker } from '../pickers';
 import { CodeEditor } from '../ui/code';

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from '../../lib/nav';
 import clsx from 'clsx';
 import { ShieldAlert } from 'lucide-react';
 import { ConnectionPicker } from '../pickers';

@@ -10,6 +10,7 @@ import { AudioPlayer } from '../components/ui/media';
 import { toast, toastError } from '../components/ui/toast';
 import { fileUrl, op, useOp, useOpMutation } from '../lib/api';
 import { timeAgo } from '../lib/format';
+import { useProject } from '../lib/session';
 
 interface ConnSpec {
   provider: string;
@@ -102,6 +103,10 @@ function describe(s: ConnSpec) {
 }
 
 export function ConnectionsPage() {
+  // Connections and secrets belong to project owners; editors use them (in checks, targets, tests).
+  const project = useProject();
+  const isOwner = !project || project.isOwner;
+  const canTest = !project || project.canEdit;
   const list = useOp<any[]>('list_connections');
   const providers = useOp<ProviderInfo[]>('list_providers');
   const secrets = useOp<string[]>('list_secrets');
@@ -125,11 +130,17 @@ export function ConnectionsPage() {
   return (
     <Page
       title="Connections"
-      description="Model providers Kalibra uses for LLM judges, model targets and data generation. Your app under test is configured under Targets, not here."
+      description={
+        isOwner
+          ? 'Model providers Kalibra uses for LLM judges, model targets and data generation. Your app under test is configured under Targets, not here.'
+          : 'Model providers this project uses for LLM judges, model targets and data generation. Project owners add and change them; you can use them.'
+      }
       actions={
-        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing({ name: '', spec: EMPTY })}>
-          Add connection
-        </Button>
+        isOwner && (
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing({ name: '', spec: EMPTY })}>
+            Add connection
+          </Button>
+        )
       }
     >
       {confirm.element}
@@ -143,9 +154,11 @@ export function ConnectionsPage() {
             icon={<Plug />}
             title="No connections yet"
             action={
-              <Button variant="primary" onClick={() => setEditing({ name: '', spec: EMPTY })}>
-                Add connection
-              </Button>
+              isOwner && (
+                <Button variant="primary" onClick={() => setEditing({ name: '', spec: EMPTY })}>
+                  Add connection
+                </Button>
+              )
             }
           >
             Add OpenAI, Anthropic, Gemini, Azure, AWS Bedrock, Google Vertex AI, or any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, xAI, Groq, a LiteLLM proxy…). You can also skip this and let your coding agent generate data through MCP.
@@ -170,7 +183,7 @@ export function ConnectionsPage() {
                       )}
                     </div>
                   </div>
-                  <Menu trigger={<Button variant="ghost" size="icon-sm" aria-label="More"><MoreHorizontal className="size-4" /></Button>}>
+                  {isOwner && <Menu trigger={<Button variant="ghost" size="icon-sm" aria-label="More"><MoreHorizontal className="size-4" /></Button>}>
                     <MenuItem icon={<Pencil />} onSelect={() => setEditing(c)}>Edit</MenuItem>
                     <MenuSeparator />
                     <MenuItem
@@ -182,14 +195,16 @@ export function ConnectionsPage() {
                     >
                       Delete
                     </MenuItem>
-                  </Menu>
+                  </Menu>}
                 </div>
                 <div className="truncate font-mono text-[0.75rem] text-ink-muted">{describe(c.spec)}</div>
                 <div className="mt-auto flex items-center justify-between border-t border-line pt-3">
                   <span className="text-[0.75rem] text-ink-faint">Updated {timeAgo(c.updatedAt)}</span>
-                  <Button size="sm" icon={<Zap className="size-3.5" />} onClick={() => test(c)}>
-                    Test
-                  </Button>
+                  {canTest && (
+                    <Button size="sm" icon={<Zap className="size-3.5" />} onClick={() => test(c)}>
+                      Test
+                    </Button>
+                  )}
                 </div>
               </Card>
             ))}
@@ -200,9 +215,11 @@ export function ConnectionsPage() {
           <SectionTitle
             help="Secrets are stored outside the workspace, encrypted with your OS keychain in the desktop app. Use them anywhere in targets as {{secret.name}} — the value never appears in definitions, exports or MCP."
             action={
-              <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setSecretOpen(true)}>
-                Add secret
-              </Button>
+              isOwner && (
+                <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setSecretOpen(true)}>
+                  Add secret
+                </Button>
+              )
             }
           >
             Secrets
@@ -217,7 +234,7 @@ export function ConnectionsPage() {
                     <KeyRound className="size-3.5 text-ink-faint" />
                     {`{{secret.${s}}}`}
                   </span>
-                  <Button
+                  {isOwner && <Button
                     variant="ghost"
                     size="icon-sm"
                     aria-label={`Delete ${s}`}
@@ -226,7 +243,7 @@ export function ConnectionsPage() {
                     }}
                   >
                     <Trash2 className="size-3.5" />
-                  </Button>
+                  </Button>}
                 </li>
               ))}
             </ul>

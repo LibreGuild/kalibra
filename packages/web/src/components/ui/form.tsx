@@ -75,6 +75,7 @@ export function Select({
   className,
   disabled,
   size = 'md',
+  'aria-label': ariaLabel,
 }: {
   value: string | undefined;
   onChange: (v: string) => void;
@@ -83,8 +84,9 @@ export function Select({
   className?: string;
   disabled?: boolean;
   size?: 'sm' | 'md';
+  'aria-label'?: string;
 }) {
-  const named = useFieldLabel({});
+  const named = { ...useFieldLabel({ 'aria-label': ariaLabel }), ...(ariaLabel ? { 'aria-label': ariaLabel } : {}) };
   return (
     <S.Root value={value || undefined} onValueChange={onChange} disabled={disabled}>
       <S.Trigger {...named} className={clsx(control, 'flex items-center justify-between gap-2 text-left', size === 'sm' ? 'h-7 text-[0.8125rem]' : 'h-8.5', className)}>

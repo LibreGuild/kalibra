@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate } from '../../lib/nav';
 import clsx from 'clsx';
 import { FileUp, KeyRound } from 'lucide-react';
 import { Button } from '../ui/button';

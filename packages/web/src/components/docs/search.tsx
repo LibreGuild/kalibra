@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from '../../lib/nav';
 import clsx from 'clsx';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { GUIDES, guideText } from '../../docs/content';

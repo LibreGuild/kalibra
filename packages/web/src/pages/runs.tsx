@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
+import { useNavigate } from '../lib/nav';
+import { useCanEdit } from '../lib/session';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { FileUp, GitCompare, Pause, Play, Plus, RotateCcw, Scale, Search, Trash2, X } from 'lucide-react';
@@ -131,6 +133,7 @@ function PassRateCell({ s }: { s: Summary }) {
 /* ── Runs list ────────────────────────────────────────────────────────────── */
 
 export function RunsPage() {
+  const canEdit = useCanEdit();
   const navigate = useNavigate();
   const [newRun, setNewRun] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -156,16 +159,18 @@ export function RunsPage() {
       title="Runs"
       description="A run sends every dataset row to a target and scores the results with a suite. Each run pins the exact dataset, target and suite versions it used."
       actions={
-        <>
-          <Tip content="Already have outputs from your own pipeline? Score them without calling any target.">
-            <Button icon={<FileUp className="size-4" />} onClick={() => setImporting(true)}>
-              Score outputs from a file
+        canEdit && (
+          <>
+            <Tip content="Already have outputs from your own pipeline? Score them without calling any target.">
+              <Button icon={<FileUp className="size-4" />} onClick={() => setImporting(true)}>
+                Score outputs from a file
+              </Button>
+            </Tip>
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setNewRun(true)}>
+              New run
             </Button>
-          </Tip>
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setNewRun(true)}>
-            New run
-          </Button>
-        </>
+          </>
+        )
       }
     >
       {runs.isLoading || comparisons.isLoading ? (
@@ -177,14 +182,16 @@ export function RunsPage() {
           icon={<Play />}
           title="No runs yet"
           action={
-            <div className="flex gap-2">
-              <Button icon={<FileUp className="size-4" />} onClick={() => setImporting(true)}>
-                Score outputs from a file
-              </Button>
-              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setNewRun(true)}>
-                Start a run
-              </Button>
-            </div>
+            canEdit && (
+              <div className="flex gap-2">
+                <Button icon={<FileUp className="size-4" />} onClick={() => setImporting(true)}>
+                  Score outputs from a file
+                </Button>
+                <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setNewRun(true)}>
+                  Start a run
+                </Button>
+              </div>
+            )
           }
         >
           Pick a dataset, the target to test and a suite of checks. Compare several targets or models side by side, or import outputs you produced elsewhere.
@@ -308,6 +315,7 @@ function CheckPills({ checks }: { checks: ResultLite['checks'] }) {
 }
 
 export function RunDetailPage() {
+  const canEdit = useCanEdit();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -431,12 +439,12 @@ export function RunDetailPage() {
       }
       actions={
         <>
-          {active && (
+          {canEdit && active && (
             <Button icon={<Pause className="size-4" />} onClick={() => act('cancel_run', 'Cancelling run…')}>
               Cancel
             </Button>
           )}
-          {!active && (r.status === 'cancelled' || r.status === 'interrupted' || r.status === 'failed') && (
+          {canEdit && !active && (r.status === 'cancelled' || r.status === 'interrupted' || r.status === 'failed') && (
             <Tip content="Continue with the rows that have not finished yet">
               <Button icon={<RotateCcw className="size-4" />} onClick={() => act('resume_run', 'Run resumed')}>
                 Resume
@@ -461,11 +469,13 @@ export function RunDetailPage() {
               </MenuItem>
             ))}
           </Menu>
-          <Tip content="Delete this run">
-            <Button variant="ghost" size="icon" onClick={remove} aria-label="Delete run">
-              <Trash2 className="size-4" />
-            </Button>
-          </Tip>
+          {canEdit && (
+            <Tip content="Delete this run">
+              <Button variant="ghost" size="icon" onClick={remove} aria-label="Delete run">
+                <Trash2 className="size-4" />
+              </Button>
+            </Tip>
+          )}
         </>
       }
     >

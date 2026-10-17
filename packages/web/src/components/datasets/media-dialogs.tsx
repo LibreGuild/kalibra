@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
+import { Link } from '../../lib/nav';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleStop, LoaderCircle } from 'lucide-react';
 import { op, useOp } from '../../lib/api';

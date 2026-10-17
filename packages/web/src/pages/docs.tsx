@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useParams } from 'react-router';
+import { Link, useNavigate } from '../lib/nav';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Clock, Search } from 'lucide-react';
 import { Page } from '../components/layout/shell';

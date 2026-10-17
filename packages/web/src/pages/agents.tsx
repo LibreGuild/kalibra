@@ -3,8 +3,10 @@ import { Bot, Eye, Trash2 } from 'lucide-react';
 import { Page } from '../components/layout/shell';
 import { Badge, Card, CodeBlock, CopyButton, ErrorBox, Loading, SectionTitle, Tabs } from '../components/ui/display';
 import { Tip } from '../components/ui/overlay';
-import { useMeta, useOp } from '../lib/api';
-import { timeAgo } from '../lib/format';
+import { useHubOp, useMeta, useOp, useProjectId } from '../lib/api';
+import { Link } from '../lib/nav';
+import { useSession } from '../lib/session';
+import { actorLabel, timeAgo } from '../lib/format';
 
 const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
@@ -33,11 +35,21 @@ const EXAMPLES = [
 
 export function AgentsPage() {
   const meta = useMeta();
+  const { isServer } = useSession();
+  const projectId = useProjectId();
+  const projects = useHubOp<any[]>('list_projects');
+  const project = (projects.data ?? []).find((p) => p.id === projectId);
   const ops = useOp<any[]>('list_operations');
   const activity = useOp<any[]>('list_activity', { limit: 20, actorKind: 'agent' });
   const [client, setClient] = useState('claude');
 
-  const snip = meta.data?.mcp ? snippets(meta.data.mcp) : null;
+  // The bridge starts in this project; the agent can switch with list_projects / use_project.
+  const cmd = isServer
+    ? { command: 'npx', args: ['-y', 'kalibra', 'mcp', '--server', meta.data?.publicUrl || location.origin, '--project', project?.name ?? projectId], env: { KALIBRA_TOKEN: '<your access token>' } }
+    : meta.data?.mcp
+      ? { ...meta.data.mcp, args: [...meta.data.mcp.args, ...(projectId !== 'default' ? ['--project', projectId] : [])] }
+      : null;
+  const snip = cmd ? snippets(cmd) : null;
   const tools = useMemo(() => {
     const groups = new Map<string, any[]>();
     for (const o of (ops.data ?? []).filter((o) => o.mcp)) {
@@ -56,6 +68,19 @@ export function AgentsPage() {
         <div className="flex min-w-0 flex-col gap-6">
           <Card>
             <SectionTitle help="The command starts a small MCP bridge that talks to this running Kalibra. Run the setup once per agent.">1. Connect your agent</SectionTitle>
+            {isServer && (
+              <ol className="mb-3 list-decimal space-y-1 pl-5 text-[0.8125rem] text-ink-muted">
+                <li>
+                  Create an access token in <Link to="/account" className="text-accent-ink underline">your account</Link> (one per agent or machine).
+                </li>
+                <li>Add Kalibra to your agent with the command below, putting the token where it says. The agent then acts as you, with your role in each project.</li>
+              </ol>
+            )}
+            {project && (
+              <p className="mb-3 text-[0.78125rem] text-ink-faint">
+                Starts in <b className="text-ink-muted">{project.name}</b>. Ask the agent to switch projects any time (it can list them).
+              </p>
+            )}
             {meta.error ? (
               <ErrorBox error={meta.error} />
             ) : !snip ? (
@@ -134,7 +159,7 @@ export function AgentsPage() {
                 <li key={a.id} className="min-w-0">
                   <div className="truncate text-[0.8125rem]">{a.summary}</div>
                   <div className="flex items-center gap-1.5 text-[0.75rem] text-ink-faint">
-                    <Badge tone="accent">{a.actor?.client ?? 'agent'}</Badge> {timeAgo(a.at)}
+                    <Badge tone="accent">{actorLabel(a.actor)}</Badge> {timeAgo(a.at)}
                   </div>
                 </li>
               ))}

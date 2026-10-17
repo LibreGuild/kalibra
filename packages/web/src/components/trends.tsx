@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link } from '../lib/nav';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import { Card, SectionTitle } from './ui/display';
 import { Tip } from './ui/overlay';

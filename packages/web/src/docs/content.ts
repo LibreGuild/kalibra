@@ -612,6 +612,40 @@ export const GUIDES: Guide[] = [
       { type: 'note', title: 'Why Kalibra never runs your agent', text: 'You type the prompt, in your own agent, on your own plan. Kalibra only answers. Clean, safe, no surprise bills.' },
       { type: 'gotcha', text: 'Agents never see secret values, and destructive tools ask before they act. Everything they touch is labeled with their name.' },
     ],
+    next: 'projects',
+  },
+  {
+    slug: 'projects',
+    title: 'Projects & teams',
+    promise: 'Keep work apart, and invite people with the right role.',
+    group: 'Connect',
+    icon: 'Users',
+    minutes: 3,
+    blocks: [
+      { type: 'lead', text: 'A **project** holds its own datasets, targets, suites, runs, connections and secrets. Switch projects from the menu at the top of the sidebar.' },
+      {
+        type: 'defs',
+        items: [
+          { term: 'On your computer', text: 'The desktop app and `npx kalibra`: no sign-in, every project is yours.' },
+          { term: 'Team server', text: '`kalibra server`: everyone signs in, and each project has members.' },
+          { term: 'Viewer', text: 'Sees everything in the project; changes nothing.' },
+          { term: 'Editor', text: 'Creates, edits and runs, and uses the project’s connections.' },
+          { term: 'Owner', text: 'Also members, connections, secrets and deleting the project.' },
+        ],
+      },
+      {
+        type: 'steps',
+        title: 'Do this',
+        items: [
+          { text: 'Project menu → **New project**. Your existing data lives in the first project.', link: { to: '/projects', label: 'All projects' } },
+          { text: 'On a team server: **Project settings** → **Members** → **Add people**. Add a whole group at once.', link: { to: '/project-settings', label: 'Project settings' } },
+          { text: 'Coding agents: **Your account** → **Access tokens** → **New token**, then connect the agent with `--server` and `--project`.', link: { to: '/agents', label: 'Coding agents' } },
+          { text: 'Administrators: **Administration** → **Users**, **Groups**, and **Sign-in** for Google, GitHub (including GitHub Enterprise), company SSO or a login gateway.' },
+        ],
+      },
+      { type: 'code', label: 'Run a team server', code: 'npx kalibra server --public-url https://kalibra.example.com\n# open the setup link it prints to create the first administrator' },
+      { type: 'gotcha', text: 'Editors can use the project’s secrets through targets they write. Give the editor role to people you would trust with those keys.' },
+    ],
     next: 'sharing',
   },
   {
@@ -634,7 +668,7 @@ export const GUIDES: Guide[] = [
         type: 'steps',
         title: 'Do this',
         items: [
-          { text: 'Settings → **Share with your team** → **Send a bundle**: **Everything** or **Choose…**, then **Export bundle**. For one dataset: **Export** → **Bundle (with media)**.', link: { to: '/settings', label: 'Open Settings' } },
+          { text: 'Project settings (the project menu at the top of the sidebar) → **Share with your team** → **Send a bundle**: **Everything** or **Choose…**, then **Export bundle**. For one dataset: **Export** → **Bundle (with media)**.', link: { to: '/project-settings', label: 'Open project settings' } },
           { text: 'Your teammate: Datasets → **Import**, drop the file. If something already exists: **Keep both**, **Skip** or **Update mine**.' },
           { text: 'Git: **Sync with a folder (Git)** → an absolute folder path → **Export to folder**. Commit it.' },
           { text: 'After a `git pull`: **Check for changes**, read the list, **Apply changes**.' },

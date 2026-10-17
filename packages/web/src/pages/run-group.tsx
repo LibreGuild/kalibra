@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useParams } from 'react-router';
+import { useNavigate } from '../lib/nav';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Pause, Trash2 } from 'lucide-react';
@@ -15,6 +16,7 @@ import { ResultSheet } from '../components/runs/result-sheet';
 import { firstPreviewValue } from '../components/runs/format';
 import { op, useOp } from '../lib/api';
 import { actorLabel, ms, pct, preview, timeAgo } from '../lib/format';
+import { useCanEdit } from '../lib/session';
 
 /* Shapes returned by get_comparison / compare_rows (core/src/ops/groups.ts). */
 
@@ -145,6 +147,7 @@ function OutputCell({ v, onOpen }: { v?: Cell; onOpen: (id: string) => void }) {
 }
 
 export function RunGroupPage() {
+  const canEdit = useCanEdit();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -228,16 +231,18 @@ export function RunGroupPage() {
       }
       actions={
         <>
-          {running && (
+          {canEdit && running && (
             <Button icon={<Pause className="size-4" />} onClick={cancel}>
               Cancel
             </Button>
           )}
-          <Tip content="Delete this comparison and its runs">
-            <Button variant="ghost" size="icon" onClick={remove} aria-label="Delete comparison">
-              <Trash2 className="size-4" />
-            </Button>
-          </Tip>
+          {canEdit && (
+            <Tip content="Delete this comparison and its runs">
+              <Button variant="ghost" size="icon" onClick={remove} aria-label="Delete comparison">
+                <Trash2 className="size-4" />
+              </Button>
+            </Tip>
+          )}
         </>
       }
     >

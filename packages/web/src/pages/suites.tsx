@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useBeforeUnload, useBlocker, useNavigate, useParams } from 'react-router';
+import { useBeforeUnload, useBlocker, useParams } from 'react-router';
+import { useNavigate } from '../lib/nav';
+import { useCanEdit } from '../lib/session';
 import clsx from 'clsx';
 import { ListChecks, Plus, Save, Trash2 } from 'lucide-react';
 import { BackLink, Page } from '../components/layout/shell';
@@ -33,6 +35,7 @@ const useCatalog = () => useOp<CheckCatalog>('list_check_types', {}, { staleTime
 /* ── List ─────────────────────────────────────────────────────────────────── */
 
 export function SuitesPage() {
+  const canEdit = useCanEdit();
   const navigate = useNavigate();
   const suites = useOp<SuiteRecord[]>('list_suites');
   const catalog = useCatalog();
@@ -45,9 +48,11 @@ export function SuitesPage() {
       title="Suites"
       description="A suite is an ordered set of checks that scores every result: cheap structural gates first, then content, reference metrics and judges."
       actions={
-        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-          New suite
-        </Button>
+        canEdit && (
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+            New suite
+          </Button>
+        )
       }
     >
       {suites.isLoading ? (
@@ -59,9 +64,11 @@ export function SuitesPage() {
           icon={<ListChecks />}
           title="No suites yet"
           action={
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              Create a suite
-            </Button>
+            canEdit && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                Create a suite
+              </Button>
+            )
           }
         >
           Start from a template for HTTP JSON APIs, speech-to-text or LLM output quality, then adjust the checks.
@@ -181,6 +188,7 @@ function NewSuiteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
 /* ── Editor ───────────────────────────────────────────────────────────────── */
 
 export function SuiteEditorPage() {
+  const canEdit = useCanEdit();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const suite = useOp<SuiteRecord>('get_suite', { id });
@@ -190,6 +198,8 @@ export function SuiteEditorPage() {
   // The server copy the draft started from. Saves send its version, so edits made elsewhere meanwhile conflict instead of being overwritten.
   const [base, setBase] = useState<SuiteRecord | null>(null);
   const [conflict, setConflict] = useState(false);
+  // Why the server refused the last save (e.g. only administrators may change code here).
+  const [blocked, setBlocked] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -214,7 +224,7 @@ export function SuiteEditorPage() {
 
   const dirty = !!draft && !!base && !sameContent(draft, base);
 
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => !leaving.current && dirty && currentLocation.pathname !== nextLocation.pathname);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => canEdit && !leaving.current && dirty && currentLocation.pathname !== nextLocation.pathname);
   useBeforeUnload(
     useCallback(
       (e: BeforeUnloadEvent) => {
@@ -243,13 +253,15 @@ export function SuiteEditorPage() {
     try {
       const saved = await op<SuiteRecord>('update_suite', { id: draft.id, name: draft.name, description: draft.description, spec: draft.spec, baseVersion: base.version });
       adopt(saved);
+      setBlocked(null);
       suite.refetch();
       toast.success('Suite saved', `Version ${saved.version}`);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') {
         setConflict(true);
         toast.error('This suite was changed elsewhere', 'Reload to see the latest version, then re-apply your edits.');
-      } else toastError(e, 'Could not save the suite');
+      } else if (e instanceof ApiError && e.code === 'forbidden') setBlocked(e.message);
+      else toastError(e, 'Could not save the suite');
     } finally {
       setSaving(false);
     }
@@ -298,17 +310,28 @@ export function SuiteEditorPage() {
       }
       actions={
         <>
-          <Tip content="Move this suite to the trash">
-            <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={remove}>
-              Delete
-            </Button>
-          </Tip>
-          <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={save}>
-            Save
-          </Button>
+          {canEdit && (
+            <>
+              <Tip content="Move this suite to the trash">
+                <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={remove}>
+                  Delete
+                </Button>
+              </Tip>
+              <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={save}>
+                Save
+              </Button>
+            </>
+          )}
         </>
       }
     >
+      {blocked && (
+        <div className="mb-5 rounded-xl border border-bad/30 bg-bad-soft px-4 py-3 text-[0.8125rem] text-bad">
+          <div className="font-semibold">Not saved</div>
+          <div className="mt-0.5">{blocked}</div>
+          {/administrators/i.test(blocked) && <div className="mt-1 text-ink-muted">Remove or undo the code change to save the rest, or ask an administrator to add the code.</div>}
+        </div>
+      )}
       {conflict && (
         <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 text-[0.8125rem] text-warn">
           <span>This suite was changed elsewhere (in another window, the CLI or by a coding agent). Reload to see the latest version; your unsaved edits will be replaced.</span>

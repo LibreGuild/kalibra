@@ -1,3 +1,5 @@
+import { getCurrentUserId } from './api';
+
 export const pct = (v: number | null | undefined, digits = 1) => (v == null || Number.isNaN(v) ? '–' : `${(v * 100).toFixed(digits)}%`);
 
 export const ms = (v: number | null | undefined) => {
@@ -42,10 +44,17 @@ export function preview(v: unknown, max = 140): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-export const actorLabel = (a: { kind?: string; client?: string; id?: string } | undefined) => {
+/**
+ * Who did something, for history lines: "You", a teammate's name, or an agent with the person it
+ * acted for ("claude-code via Priya"). Entries from before projects had names fall back gracefully.
+ */
+export const actorLabel = (a: { kind?: string; client?: string; id?: string; name?: string } | undefined) => {
   if (!a) return 'unknown';
-  if (a.kind === 'agent') return a.client ?? a.id ?? 'agent';
-  if (a.kind === 'cli') return 'CLI';
+  // Agent and CLI entries from before accounts existed carry the client as id and no name: they were you.
+  const me = a.id === getCurrentUserId() || a.id === 'local' || ((a.kind === 'agent' || a.kind === 'cli') && !a.name);
+  const person = me ? 'you' : (a.name ?? a.id ?? 'someone');
+  if (a.kind === 'agent') return me ? (a.client ?? 'agent') : `${a.client ?? 'agent'} via ${person}`;
+  if (a.kind === 'cli') return me ? 'CLI' : `CLI via ${person}`;
   if (a.kind === 'system') return 'Kalibra';
-  return 'You';
+  return me ? 'You' : (a.name ?? a.id ?? 'someone');
 };

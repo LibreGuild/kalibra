@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from '../lib/nav';
+import { useCanEdit } from '../lib/session';
 import { CircleStop, FlaskConical, Play } from 'lucide-react';
 import { Page } from '../components/layout/shell';
 import { DatasetPicker, SuitePicker } from '../components/pickers';
@@ -53,6 +54,7 @@ function loadDraft(): Draft {
 }
 
 export function PlaygroundPage() {
+  const canEdit = useCanEdit();
   const navigate = useNavigate();
   const [d, setD] = useState<Draft>(loadDraft);
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
@@ -176,8 +178,8 @@ export function PlaygroundPage() {
       description="Try a prompt on a few rows with up to four models side by side. When one works, save it as a target."
       width="wide"
       actions={
-        <Tip content={<>Run <Kbd>⌘</Kbd> <Kbd>↵</Kbd></>}>
-          <Button variant="primary" icon={<Play className="size-4" />} loading={!!running} disabled={!ready} onClick={run}>
+        <Tip content={canEdit ? <>Run <Kbd>⌘</Kbd> <Kbd>↵</Kbd></> : 'Running calls models with the project’s keys, so it needs the editor role'}>
+          <Button variant="primary" icon={<Play className="size-4" />} loading={!!running} disabled={!ready || !canEdit} onClick={run}>
             Run
           </Button>
         </Tip>

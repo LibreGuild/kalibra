@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
-import { Link } from 'react-router';
+import { Link } from '../../lib/nav';
 
 /** Tiny inline markup for docs text: `code`, **bold** and [label](/route). */
 export function Inline({ text }: { text: string }) {

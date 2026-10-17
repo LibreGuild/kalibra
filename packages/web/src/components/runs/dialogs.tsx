@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from '../../lib/nav';
 import { Upload } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ErrorBox } from '../ui/display';

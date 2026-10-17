@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, Link } from '../../lib/nav';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { CircleAlert, CircleCheck, FileSpreadsheet, LoaderCircle, Upload, X } from 'lucide-react';

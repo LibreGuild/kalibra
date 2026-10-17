@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link } from '../lib/nav';
 import clsx from 'clsx';
 import { ArrowRight, Bot, CheckCircle2, Circle, Crosshair, Database, ListChecks, Play, Terminal, User } from 'lucide-react';
 import { Page } from '../components/layout/shell';

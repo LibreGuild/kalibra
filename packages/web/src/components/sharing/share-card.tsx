@@ -8,6 +8,7 @@ import { HelpTip } from '../ui/overlay';
 import { toast } from '../ui/toast';
 import { op, useOp } from '../../lib/api';
 import { timeAgo } from '../../lib/format';
+import { useProject, useSession } from '../../lib/session';
 import { exportAndDownloadBundle } from './download';
 
 /*
@@ -254,13 +255,29 @@ function FolderSection() {
 }
 
 export function ShareCard() {
+  const { isServer } = useSession();
+  const project = useProject();
+  // Folder sync reads and writes folders on the machine Kalibra runs on, so it is for project owners.
+  const isOwner = !project || project.isOwner;
   return (
     <Card>
-      <SectionTitle help="Share without a server: send a bundle, or keep a folder in Git that everyone syncs.">Share with your team</SectionTitle>
+      <SectionTitle
+        help={
+          isServer
+            ? 'Copy work to another project or server with a bundle file, or keep it in a Git folder. Folders live on the server’s disk, so an administrator has to allow folder sync.'
+            : 'Share without a server: send a bundle, or keep a folder in Git that everyone syncs.'
+        }
+      >
+        {isServer ? 'Bundles and Git' : 'Share with your team'}
+      </SectionTitle>
       <div className="flex flex-col gap-6">
         <BundleSection />
-        <div className="h-px bg-line" />
-        <FolderSection />
+        {isOwner && (
+          <>
+            <div className="h-px bg-line" />
+            <FolderSection />
+          </>
+        )}
       </div>
     </Card>
   );

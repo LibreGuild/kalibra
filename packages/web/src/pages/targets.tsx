@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useBeforeUnload, useBlocker, useNavigate, useParams } from 'react-router';
+import { useBeforeUnload, useBlocker, useParams } from 'react-router';
+import { useNavigate } from '../lib/nav';
+import { useCanEdit } from '../lib/session';
 import clsx from 'clsx';
 import { Bot, Code2, Crosshair, Globe, History, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { ApiError, op, useOp, useOpMutation } from '../lib/api';
@@ -31,6 +33,7 @@ import {
 /* List ─────────────────────────────────────────────────────────────────── */
 
 export function TargetsPage() {
+  const canEdit = useCanEdit();
   const targets = useOp<TargetRecord[]>('list_targets');
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -40,9 +43,11 @@ export function TargetsPage() {
       title="Targets"
       description="The AI application under test. A target describes how to call it for each dataset row and which parts of the response to keep."
       actions={
-        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-          New target
-        </Button>
+        canEdit && (
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+            New target
+          </Button>
+        )
       }
     >
       {targets.isLoading ? (
@@ -54,9 +59,11 @@ export function TargetsPage() {
           icon={<Crosshair />}
           title="No targets yet"
           action={
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              New target
-            </Button>
+            canEdit && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                New target
+              </Button>
+            )
           }
         >
           A target is your app as Kalibra sees it: an HTTP endpoint, a WebSocket service, a model with a prompt, or a script that calls anything you like.
@@ -191,6 +198,7 @@ const snapshot = (t: TargetRecord): Draft => ({ name: t.name, description: t.des
 const same = (a: Draft | null, b: Draft | null) => JSON.stringify(a) === JSON.stringify(b);
 
 export function TargetEditorPage() {
+  const canEdit = useCanEdit();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const target = useOp<TargetRecord>('get_target', { id });
@@ -198,6 +206,8 @@ export function TargetEditorPage() {
   const [base, setBase] = useState<{ version: number; draft: Draft } | null>(null);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
+  // Why the server refused the last save (e.g. only administrators may change code here).
+  const [blocked, setBlocked] = useState<string | null>(null);
   const confirm = useConfirm();
   const leaving = useRef(false);
 
@@ -230,19 +240,22 @@ export function TargetEditorPage() {
 
   const save = useCallback(async () => {
     if (!draft || !base || saving) return;
+    setBlocked(null);
     setSaving(true);
     try {
       const t = await op<TargetRecord>('update_target', { id, name: draft.name.trim(), description: draft.description, spec: draft.spec, baseVersion: base.version });
       setBase({ version: t.version, draft: snapshot(t) });
       setDraft(snapshot(t));
       setConflict(false);
+      setBlocked(null);
       target.refetch();
       toast.success(t.version === base.version ? 'Nothing changed' : `Saved as version ${t.version}`);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') {
         setConflict(true);
         toast.error('Someone else changed this target', 'Reload to see their version, then re-apply your edits.');
-      } else toastError(e, 'Could not save');
+      } else if (e instanceof ApiError && e.code === 'forbidden') setBlocked(e.message);
+      else toastError(e, 'Could not save');
     } finally {
       setSaving(false);
     }
@@ -260,7 +273,7 @@ export function TargetEditorPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [dirty, save]);
 
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => !leaving.current && dirty && currentLocation.pathname !== nextLocation.pathname);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => canEdit && !leaving.current && dirty && currentLocation.pathname !== nextLocation.pathname);
   useBeforeUnload(
     useCallback(
       (e: BeforeUnloadEvent) => {
@@ -322,19 +335,30 @@ export function TargetEditorPage() {
               toast.info(`Loaded version ${version}`, 'Save to make it the current version.');
             }}
           />
-          <Tip content="Delete target">
-            <Button variant="ghost" size="icon" aria-label="Delete target" onClick={remove}>
-              <Trash2 className="size-4" />
-            </Button>
-          </Tip>
-          <Tip content="Save (⌘S)">
-            <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={save}>
-              Save
-            </Button>
-          </Tip>
+          {canEdit && (
+            <>
+              <Tip content="Delete target">
+                <Button variant="ghost" size="icon" aria-label="Delete target" onClick={remove}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </Tip>
+              <Tip content="Save (⌘S)">
+                <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={save}>
+                  Save
+                </Button>
+              </Tip>
+            </>
+          )}
         </>
       }
     >
+      {blocked && (
+        <div className="mb-5 rounded-xl border border-bad/30 bg-bad-soft px-4 py-3 text-[0.8125rem] text-bad">
+          <div className="font-semibold">Not saved</div>
+          <div className="mt-0.5">{blocked}</div>
+          {/administrators/i.test(blocked) && <div className="mt-1 text-ink-muted">Remove or undo the code change to save the rest, or ask an administrator to add the code.</div>}
+        </div>
+      )}
       {conflict && (
         <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 text-[0.8125rem] text-warn">
           <span>This target was changed elsewhere (in another window, the CLI or by a coding agent). Reload to see the latest version; your unsaved edits will be replaced.</span>
