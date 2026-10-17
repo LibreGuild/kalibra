@@ -60,7 +60,7 @@ export const GUIDES: Guide[] = [
         type: 'defs',
         items: [
           { term: 'Installed', text: '`npm i -g kalibra`, then `kalibra`. Same app, starts without npx.' },
-          { term: 'Docker', text: '`docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next` for a team server.' },
+          { term: 'Docker', text: '`docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next` for a team server, then open `http://localhost:4317/kalibra/`.' },
           { term: 'Dev mode', text: '`npm run dev` from the repo: engine, UI with hot reload, and the demo apps.' },
           { term: 'Headless', text: '`kalibra serve` on a box; `kalibra run` in CI.' },
         ],

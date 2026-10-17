@@ -29,7 +29,7 @@ That starts Kalibra on your machine and opens it in the browser. No account, not
 | Prefer… | Use |
 |---|---|
 | A command you keep | `npm i -g kalibra@next`, then `kalibra` (same data folder as npx) |
-| A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next` ([deploy guide](docs/deploy.md)) |
+| A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next`, then open `http://localhost:4317/kalibra/` ([deploy guide](docs/deploy.md)) |
 
 ## What it does
 
