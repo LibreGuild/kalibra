@@ -13,4 +13,3 @@ packages/cli/LICENSE
 .env.*
 !.env.example
 
-release/

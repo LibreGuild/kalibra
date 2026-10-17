@@ -37,7 +37,7 @@ SQLite via Node's built-in `node:sqlite` (no native modules), WAL mode. Migratio
 
 ## Secrets
 
-- `SecretStore` interface. Desktop: encrypted file with an OS-keychain key (Electron `safeStorage`). CLI/dev: `secrets.json` with 0600 permissions.
+- `SecretStore` interface. Default: `secrets.json` in the project folder with 0600 permissions (a team server can plug in Vault/KMS behind the same interface).
 - Definitions only contain names. Values never appear in exports, logs (masked as `••••`) or MCP.
 
 ## Data folder

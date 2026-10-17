@@ -104,7 +104,7 @@ export const sharingOps: OpDef<any, any>[] = [
     name: 'export_to_folder',
     title: 'Export to a folder',
     description:
-      'Writes targets, suites, connections (no secrets) and datasets as small, stable text files in a folder your team keeps in Git. Re-exporting only changes files whose content changed. Takes an absolute path on this computer (desktop/CLI).',
+      'Writes targets, suites, connections (no secrets) and datasets as small, stable text files in a folder your team keeps in Git. Re-exporting only changes files whose content changed. Takes an absolute path on the computer Kalibra runs on.',
     category: 'workspace',
     // Writes to a folder on the engine's machine.
     access: 'owner',

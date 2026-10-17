@@ -19,7 +19,7 @@ import {
  * Who is signed in and which project you are in.
  *
  *   AuthGate      – the whole app: sends you to setup, sign-in or "choose a new password" on a
- *                   team server; does nothing on the desktop (local mode).
+ *                   team server; does nothing in local mode (`npx kalibra`).
  *   ProjectScope  – everything under /p/<id>: loads the project and your role in it, points
  *                   API calls at it, and subscribes to its live events.
  */
@@ -136,7 +136,7 @@ export function useCanEdit(): boolean {
 
 /**
  * Whether you may add or change JavaScript (script targets, hooks, script checks). Team servers
- * keep that with administrators unless they open it up; the desktop always allows it.
+ * keep that with administrators unless they open it up; local mode always allows it.
  */
 export function useCanWriteCode(): boolean {
   const { isServer } = useSession();

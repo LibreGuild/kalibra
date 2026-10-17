@@ -256,7 +256,7 @@ export function useLiveEvents(project: string, enabled = true) {
 export interface ServerMeta {
   mcp?: { command: string; args: string[]; env?: Record<string, string> };
   version?: string;
-  mode?: 'desktop' | 'cli' | 'dev' | 'server';
+  mode?: 'cli' | 'dev' | 'server';
   hubMode?: 'local' | 'server';
   dir?: string;
   publicUrl?: string;
@@ -293,7 +293,7 @@ export interface AuthStatus {
 
 export const fetchAuthStatus = () => request<AuthStatus>('/api/auth/status');
 
-/** Sign-in state: local (desktop) or team server, and who is signed in. */
+/** Sign-in state: local (`npx kalibra`) or team server, and who is signed in. */
 export function useAuthStatus() {
   return useQuery<AuthStatus>({ queryKey: ['auth-status'], queryFn: fetchAuthStatus, staleTime: Infinity, retry: 1 });
 }

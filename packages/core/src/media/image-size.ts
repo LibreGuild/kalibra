@@ -9,7 +9,7 @@ import { PNG } from 'pngjs';
  *   1. at the current size, try quality 30 (the floor); if that is still too big, shrink the image
  *      (by the square root of how far off it was, and at least ×0.85) and try again, down to 64 px;
  *   2. once quality 30 fits, binary-search the highest quality (≤ 95) that still fits.
- * Pure JavaScript (jpeg-js, pngjs), so it bundles into the single-file CLI and the desktop app.
+ * Pure JavaScript (jpeg-js, pngjs), so it bundles into the single-file CLI.
  *
  * Sizes are in bytes; "KB" in the UI means 1000 bytes, so a "50 KB" file also shows as 50 KB or
  * less in Finder and Explorer.

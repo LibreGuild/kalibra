@@ -53,7 +53,7 @@ export interface HubOptions {
   /** The hub folder (KALIBRA_DIR, or ~/Kalibra/default). */
   dir: string;
   mode: HubMode;
-  /** Secret store for a project folder. Defaults to a 0600 file in the folder; the desktop passes an OS-keychain one. */
+  /** Secret store for a project folder. Defaults to a 0600 file in the folder. */
   secretsFor?: (projectDir: string) => SecretStore;
   /** Server only: folder sync may only use folders inside this one. Unset turns folder sync off on servers. */
   folderRoot?: string;
@@ -185,7 +185,7 @@ export class Hub {
 
   // ── Who is calling ────────────────────────────────────────────────────────
 
-  /** The principal for local mode (desktop / npx), where the per-launch token already proved who it is. */
+  /** The principal for local mode (`npx kalibra`), where the per-launch token already proved who it is. */
   localPrincipal(via: Principal['via'] = 'user', client?: string, model?: string): Principal {
     if (this.mode !== 'local') throw new KalibraError('forbidden', 'Sign in required');
     return { user: LOCAL_ACCOUNT, via, ...(client ? { client } : {}), ...(model ? { model } : {}) };

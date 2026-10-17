@@ -8,9 +8,9 @@
 
 Build test data, point Kalibra at your real app, score every answer with checks you can trust, and see what got better or worse.
 
-[![npm](https://img.shields.io/npm/v/kalibra/next?label=npm%20%40next&color=0f766e)](https://www.npmjs.com/package/kalibra)
-[![License: MIT](https://img.shields.io/badge/license-MIT-0f766e)](LICENSE)
-[![Node 22.13+](https://img.shields.io/badge/node-22.13%2B-0f766e)](https://nodejs.org)
+[![npm](https://img.shields.io/npm/v/kalibra/next?label=npm%20%40next&color=5b4bdb)](https://www.npmjs.com/package/kalibra)
+[![License: MIT](https://img.shields.io/badge/license-MIT-5b4bdb)](LICENSE)
+[![Node 22.13+](https://img.shields.io/badge/node-22.13%2B-5b4bdb)](https://nodejs.org)
 
 [Quick start](#quick-start) · [What it does](#what-it-does) · [Connect your app](#connect-your-app) · [Teams](#teams) · [Docs](docs/README.md)
 
@@ -28,7 +28,7 @@ That starts Kalibra on your machine and opens it in the browser. No account, not
 
 | Prefer… | Use |
 |---|---|
-| An app | Desktop installers for macOS (Apple Silicon and Intel), Windows and Linux from [Releases](https://github.com/LibreGuild/kalibra/releases) (unsigned for now; see [first open](docs/deploy.md#ways-to-run)) |
+| A command you keep | `npm i -g kalibra@next`, then `kalibra` (same data folder as npx) |
 | A team server | `docker run -p 4317:4317 -v kalibra-data:/data ghcr.io/libreguild/kalibra:next` ([deploy guide](docs/deploy.md)) |
 
 ## What it does
@@ -92,7 +92,7 @@ claude mcp add kalibra -- npx -y kalibra@next mcp
 
 ## Teams
 
-- **Desktop / npx:** projects on your machine, no sign-in.
+- **On your machine** (`npx kalibra` or `kalibra`): projects in a local folder, no sign-in.
 - **Team server** (`kalibra server` or Docker):
   - sign-in with passwords, any OIDC/SSO (Google, Microsoft, Okta, company SSO), GitHub and GitHub Enterprise, or a login gateway;
   - viewer, editor and owner roles per project, and groups;
@@ -123,7 +123,6 @@ packages/
   server/    HTTP API, sign-in, live events, ingest, files
   web/       React UI
   cli/       kalibra serve | server | run | mcp | backup  (npm: kalibra)
-  desktop/   Electron app
   sdk/       JavaScript SDK (npm: kalibra-sdk)
   demo/      mock apps under test + demo data
 sdks/python/ Python SDK (PyPI: kalibra-sdk)

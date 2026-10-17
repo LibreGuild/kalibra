@@ -2,7 +2,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, statSync }
 import { dirname, join, resolve } from 'node:path';
 
 /**
- * A consistent copy of the data folder, safe while a server or the desktop app is running:
+ * A consistent copy of the data folder, safe while Kalibra is running:
  * databases are copied with SQLite's VACUUM INTO (a snapshot, never a half-written file); files
  * are content-addressed and never change, so they are copied as they are. Restore by stopping
  * Kalibra and putting the folder back (or pointing --dir / KALIBRA_DIR at it).

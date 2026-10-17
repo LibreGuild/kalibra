@@ -1,6 +1,6 @@
 # @kalibra/server
 
-The HTTP API in front of the engine. It serves the built web UI, authenticates every request, and hands each call to the hub (`Hub.callProject` / `Hub.call`), which decides access. One server serves both local mode (desktop, `npx kalibra`: a per-launch token) and team-server mode (sessions, access tokens, sign-in providers).
+The HTTP API in front of the engine. It serves the built web UI, authenticates every request, and hands each call to the hub (`Hub.callProject` / `Hub.call`), which decides access. One server serves both local mode (`npx kalibra`: a per-launch token) and team-server mode (sessions, access tokens, sign-in providers).
 
 ## Code map
 
@@ -14,7 +14,7 @@ New features rarely need a route: add an operation in `packages/core/src/ops/` a
 
 ## Run and test
 
-- Started by the CLI (`kalibra serve`, `kalibra server`) and the desktop app. For development: `npm run dev` from the repo root.
+- Started by the CLI (`kalibra serve`, `kalibra server`). For development: `npm run dev` from the repo root.
 - Tests: `npx vitest run packages/server` (in `test/`):
   - `server.test.ts`: local-mode hardening;
   - `server-mode.test.ts`: sign-in, CSRF, roles over HTTP;

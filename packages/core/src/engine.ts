@@ -22,7 +22,7 @@ import { TraceStore } from './traces/store.js';
 export interface EngineOptions {
   /** Workspace directory: holds kalibra.db and blobs/. */
   dir: string;
-  /** Desktop passes an OS-keychain-backed store; defaults to a 0600 file in the workspace. */
+  /** Where secret values live; defaults to a 0600 file in the workspace. */
   secrets?: SecretStore;
 }
 
@@ -72,7 +72,7 @@ export class Engine {
 
   /**
    * Calls an operation as `actor`. Every change is logged with its actor and broadcast to listeners.
-   * `role` and `caps` default to full access (the desktop's single user); the hub passes the caller's
+   * `role` and `caps` default to full access (local mode's single user); the hub passes the caller's
    * real role and the server's capabilities.
    */
   async call<T = any>(name: string, input: unknown, actor: Actor = LOCAL_USER, access: { role?: ProjectRole; caps?: Capabilities } = {}): Promise<T> {

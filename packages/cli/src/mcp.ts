@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Actor } from '@kalibra/core';
 import { connect, type ConnectOptions, type OpsClient } from './engine-client.js';
+import { VERSION } from './version.js';
 
 /*
  * MCP bridge. Tools are generated from the operation registries (project operations plus hub
@@ -72,7 +73,7 @@ Map the main response field to an output named "output" with a JSONPath extracto
 export async function runMcp(dir: string, connectOpts: ConnectOptions = {}) {
   let client: OpsClient | undefined;
   const server = new Server(
-    { name: 'kalibra', version: '0.1.0' },
+    { name: 'kalibra', version: VERSION },
     {
       capabilities: { tools: {}, prompts: {} },
       instructions:

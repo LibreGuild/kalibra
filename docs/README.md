@@ -9,10 +9,10 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 | [engine.md](engine.md) | Operations, actors, events, jobs, the runner (preflight, overrides, conversations, comparisons), checks, summaries, templates, scripts, providers, embeddings, sharing |
 | [data-model.md](data-model.md) | SQLite tables, versioning, blobs, secrets, workspace folder |
 | [users-and-projects.md](users-and-projects.md) | Projects, roles, sign-in (passwords, SSO, GitHub, gateways), tokens, running a team server |
-| [deploy.md](deploy.md) | Desktop installers, npx, Docker and Compose, backups and upgrades, how a release is made |
-| [setup-log.md](setup-log.md) | What was set up on GitHub and Google Cloud for the real sign-in tests, and how to undo it |
+| [deploy.md](deploy.md) | npx and npm, Docker and Compose, backups and upgrades, how a release is made |
+| [setup-log.md](setup-log.md) | What was set up on GitHub, Google Cloud and npm (sign-in tests, distribution), and how to undo it |
 | [targets-and-checks.md](targets-and-checks.md) | Every target kind and every check type, one line each |
-| [build-and-run.md](build-and-run.md) | Install, dev mode, demo data, builds, desktop, CLI, npm publishing |
+| [build-and-run.md](build-and-run.md) | Install, dev mode, demo data, builds, CLI, npm publishing |
 | [testing.md](testing.md) | Test layout, running subsets, what the demo apps simulate |
 | [mcp-and-agents.md](mcp-and-agents.md) | The MCP bridge, client setup, tools, provenance, security |
 | [contributing.md](contributing.md) | Code style and how to add an operation, check, target kind or page |
@@ -23,4 +23,4 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 
 End-user guides live inside the app (sidebar → **Docs**).
 
-**Package code maps:** [core](../packages/core/README.md) · [core/src](../packages/core/src/README.md) · [server](../packages/server/README.md) · [cli](../packages/cli/src/README.md) · [web](../packages/web/README.md) · [desktop](../packages/desktop/README.md) · [demo](../packages/demo/README.md)
+**Package code maps:** [core](../packages/core/README.md) · [core/src](../packages/core/src/README.md) · [server](../packages/server/README.md) · [cli](../packages/cli/src/README.md) · [web](../packages/web/README.md) · [demo](../packages/demo/README.md)

@@ -10,6 +10,7 @@ import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from '
 import { runMcp } from './mcp.js';
 import { backup } from './backup.js';
 import { detectGit, runUrl } from './report.js';
+import { VERSION } from './version.js';
 
 // node:sqlite prints an ExperimentalWarning on load; it is expected and noisy for CLI users.
 const emit = process.emitWarning;
@@ -50,8 +51,6 @@ Team server (kalibra server, or kalibra serve with KALIBRA_MODE=server):
   --folder-root <dir>  Allow folder sync inside this folder only ($KALIBRA_FOLDER_ROOT; off otherwise)
   KALIBRA_ADMIN_USERNAME / KALIBRA_ADMIN_PASSWORD create the first administrator at start.
 `;
-
-const VERSION = '0.1.0-beta.3';
 
 async function main() {
   if (typeof (process as any).getBuiltinModule !== 'function' || !(process as any).getBuiltinModule('node:sqlite')) {
@@ -165,7 +164,7 @@ const staticUi = () => {
   return [join(here, 'web'), join(here, '../../web/dist')].find((d) => existsSync(join(d, 'index.html')));
 };
 
-/** Single-user Kalibra on this computer (what `npx kalibra` and the desktop app run). */
+/** Single-user Kalibra on this computer (what `npx kalibra` runs). */
 async function serveLocal(dir: string, values: Flags) {
   const hub = openHub(dir, 'local');
   hub.openAll();

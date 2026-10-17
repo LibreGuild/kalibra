@@ -34,6 +34,8 @@
   - MCP "sampling", where the server asks the client's model to generate, is deprecated in the current MCP spec (2026-07-28). Claude Code never supported it.
   - Anthropic's terms forbid third-party apps from sending requests through a user's Claude subscription credentials.
   - A user who drives their own Claude Code against our MCP server is fine.
+> **Update, 17 Oct 2026:** the Electron desktop app and its installers were dropped. Kalibra is for developers, so it ships as the npm package (`npx kalibra`, `npm i -g kalibra`, which open the same UI in the browser) and the Docker image. Mentions of a desktop app below are the original plan.
+
 - **Direction (decided 16 Oct 2026: Electron, TypeScript, MIT, STT in the first release, name Kalibra):**
   - **One engine.** A local-first desktop app built on one TypeScript engine. The engine runs as a local HTTP service, and the desktop UI, the CLI and the MCP server are all clients of it.
   - **Full agent parity.** Every feature is one engine operation, so a coding agent driven by the user can do through MCP anything the UI can do.

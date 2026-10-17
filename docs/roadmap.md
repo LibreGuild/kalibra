@@ -5,7 +5,6 @@ Prioritized by user value and by how many competitors already have it (see [comp
 ## Shipped (October 2026)
 - ✅ **Projects, users and permissions**: projects everywhere (one database each), viewer/editor/owner roles, groups, team server mode with sign-in, access tokens for agents, audit log, recovery CLI.
 - ✅ **Sign-in providers**: any OIDC provider (Google, Microsoft, Okta, Keycloak, company SSO), GitHub and GitHub Enterprise, login gateways (IAP, Cloudflare Access, oauth2-proxy); invite-only or automatic accounts, domain/group rules, admin and mirrored groups.
-- ✅ **Desktop ↔ team servers**: connect the desktop app to servers, each in its own window.
 - ✅ **Multi-turn conversations & simulated users**: scripted turns or a model playing a persona with a goal; goal / mentions / turn-count checks.
 - ✅ **Comparisons**: 2–8 targets or model variants on one dataset version, leaderboard with significance against the best.
 - ✅ **Embedding similarity**: free local model (offline) or any connection's embedding model.
@@ -24,7 +23,6 @@ Prioritized by user value and by how many competitors already have it (see [comp
 - **GitHub Action + PR comment**: makes CI usage one line.
 
 ## Next
-- **Installers + auto-update** (electron-builder, unsigned first): for people without Node.
 - **Annotation queues for teams**: assign rows, multiple annotators, agreement between people.
 - **Dynamic red-team attacks** (multi-turn crescendo, GOAT-style attacker models, built on the simulated user): static prompts miss adaptive jailbreaks.
 - **Python plugin runtime**: custom Python checks and heavy ML metrics without bloating the app.

@@ -59,10 +59,11 @@ The browser assistant cannot click on Google's or GitHub's sign-in and consent p
 ## GitHub
 
 - **Repository:** `LibreGuild/kalibra`, **private**, created with `gh repo create`; default branch `main`.
-- **CI** (`.github/workflows/ci.yml`) runs on every push and pull request. The first run passed.
+- **CI** (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main`: typecheck and tests only.
 - **Releases** (`.github/workflows/release.yml`) run on a `v*` tag.
 - **`v0.1.0-beta.1`:** a pre-release with the macOS (arm64 and x64) dmg/zip, the Windows setup.exe, the Linux AppImage and `SHA256SUMS.txt`. It took three tries: fixes for the Linux executable name and for which artifacts to download. The tag was moved before anything was public.
-- **`v0.1.0-beta.2`:** the end-to-end test of staged npm publishing.
+- **`v0.1.0-beta.2`:** the end-to-end test of staged npm publishing. Its staged version was rejected on npmjs.com.
+- **Installers dropped (2026-10-17):** Kalibra ships as the npm package and the Docker image only. The desktop app (Electron) was removed from the code, `release.yml` no longer builds installers (its GitHub releases carry install notes only), and the installer files attached to the `v0.1.0-beta.1` and `v0.1.0-beta.2` releases were deleted.
 - **Docker image:** `ghcr.io/libreguild/kalibra:<version>` and `:next` (amd64 and arm64), **private** like the repo. To make it public: GitHub → LibreGuild → Packages → kalibra → Package settings → Change visibility.
 
 ## npm (account `sujithappikatla`)

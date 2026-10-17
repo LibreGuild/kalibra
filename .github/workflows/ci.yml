@@ -1,5 +1,5 @@
-# Typecheck, test and build (compile only, no installers) on pull requests and pushes to main.
-# Installers, images and npm releases come only from release.yml, on a version tag.
+# Typecheck, test and build (compile only) on pull requests and pushes to main.
+# The Docker image and npm releases come only from release.yml, on a version tag.
 name: CI
 
 on:
@@ -18,9 +18,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      # The desktop app's Electron binary is only needed by the release workflow.
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

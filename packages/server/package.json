@@ -1,12 +1,12 @@
 {
   "name": "@kalibra/server",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.1-beta.1",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@kalibra/core": "0.1.0-beta.3"
+    "@kalibra/core": "0.1.1-beta.1"
   }
 }

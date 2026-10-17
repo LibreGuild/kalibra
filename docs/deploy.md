@@ -6,14 +6,11 @@ Ways to run Kalibra, and how a release is made. Sign-in and roles: [users-and-pr
 
 | | For | Get it |
 |---|---|---|
-| Desktop app | one person, no sign-in | installers from the GitHub release (unsigned for now) |
 | `npx kalibra@next` | one person, in a browser, no install | npm (needs Node 22.13+) |
+| `npm i -g kalibra@next`, then `kalibra` | the same, as a command you keep | npm |
 | Docker / `kalibra server` | a team, with sign-in | `ghcr.io/libreguild/kalibra:next` |
 
-**Unsigned installers:**
-- **macOS:** the first time, right-click the app → **Open** → Open. Or run `xattr -dr com.apple.quarantine /Applications/Kalibra.app`.
-- **Windows:** SmartScreen shows "Windows protected your PC". Click **More info → Run anyway**.
-- **Linux:** `chmod +x Kalibra-*.AppImage`, then run it.
+Kalibra is for developers, so it ships as the npm package and the Docker image only. There are no desktop installers (they were dropped on 2026-10-17).
 
 ## Docker
 
@@ -62,13 +59,12 @@ docker compose cp kalibra:/backups ./backups
 
 1. Push a version tag; the tag is the version:
    ```sh
-   git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1
+   git tag v0.1.1-beta.1 && git push origin v0.1.1-beta.1
    ```
 2. `.github/workflows/release.yml` then:
-   - builds the desktop installers on macOS (arm64 and x64), Windows and Linux;
-   - creates the GitHub release with the installers and `SHA256SUMS.txt`, marked pre-release for `-beta` / `-rc`;
-   - pushes the Docker image to GHCR;
-   - **stages** `kalibra` on npm (dist-tag `next` for pre-releases, `latest` otherwise).
+   - **stages** `kalibra` on npm (dist-tag `next` for pre-releases, `latest` otherwise);
+   - pushes the Docker image to GHCR (amd64 and arm64);
+   - creates the GitHub release with install notes for npm and Docker (no files), marked pre-release for `-beta` / `-rc`.
 3. **Approve the npm release:** on npmjs.com open avatar → **Staged Packages**, check the version, and approve it with 2FA. Only then does it go live; reject it to drop it.
 4. Rerun a release: Actions → Release → Run workflow → enter the tag.
 
@@ -84,12 +80,10 @@ docker compose cp kalibra:/backups ./backups
 | What | Command |
 |---|---|
 | Image | `docker build -t kalibra:local .` |
-| Installers for this machine | `npm run build -w @kalibra/web && npm run build -w kalibra && npm run dist -w @kalibra/desktop -- --mac` (or `--win`, `--linux`); files land in `packages/desktop/release/` |
 | npm package contents | `npm pack -w kalibra --dry-run` |
-| Set a version everywhere | `node scripts/set-version.mjs 0.1.0-beta.2` (CI does this from the tag) |
+| Set a version everywhere | `node scripts/set-version.mjs 0.1.1-beta.1` (CI does this from the tag; also sets the Python SDK's `0.1.1b1`) |
 
 ## Limits for now
 
-- **Installers are unsigned:** see the first-open steps above. Signing needs an Apple Developer ID and a Windows code-signing certificate.
-- **No auto-update:** download new releases by hand.
-- **The local embedding model in the desktop app** downloads its runtime with npm, so it needs Node.js installed. Without it, use an embedding model from a connection instead.
+- **No auto-update:** `npx kalibra@next` always runs the newest `next`; a global install updates with `npm i -g kalibra@next`; Docker with `docker pull`.
+- **The local embedding model** downloads its runtime with npm the first time, so it needs network access once. Without it, use an embedding model from a connection instead.

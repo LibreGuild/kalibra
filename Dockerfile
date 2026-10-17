@@ -9,14 +9,12 @@
 # ── Build: the web UI and the single-file CLI (engine, server and UI inlined) ─────────────────
 FROM node:22-bookworm-slim AS build
 WORKDIR /src
-# The desktop app's Electron binary is not needed here.
-ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
 COPY packages/cli/package.json packages/cli/
 COPY packages/web/package.json packages/web/
-COPY packages/desktop/package.json packages/desktop/
+COPY packages/sdk/package.json packages/sdk/
 COPY packages/demo/package.json packages/demo/
 RUN npm ci --no-audit --no-fund
 COPY . .

@@ -1,12 +1,12 @@
 # @kalibra/web
 
-The web UI, used by the desktop app, `npx kalibra` and team servers alike: React 19, Vite, Tailwind 4, Radix, TanStack Query/Virtual, CodeMirror. It only talks to the HTTP API; every action is an operation call (`op('create_dataset', …)`), so anything the UI does, the CLI and agents can do too.
+The web UI, used by `npx kalibra` and team servers alike: React 19, Vite, Tailwind 4, Radix, TanStack Query/Virtual, CodeMirror. It only talks to the HTTP API; every action is an operation call (`op('create_dataset', …)`), so anything the UI does, the CLI and agents can do too.
 
 ## Code map
 
 | Path | Owns |
 |---|---|
-| `src/main.tsx`, `src/routes.tsx` | start-up and every route: `/p/:project/*` for project pages; `/projects`, `/account`, `/admin/*`, `/docs`, `/settings`, `/login`, `/setup` outside projects |
+| `src/main.tsx`, `src/routes.tsx` | start-up and every route: `/p/:project/*` for project pages; `/projects`, `/account`, `/admin/*`, `/docs`, `/settings`, `/login`, `/setup` outside projects; `/sdk-docs/*` outside the sign-in gate |
 | `src/lib/api.ts` | calling operations (`op`, `useOp`, `useOpMutation`, `hubOp`, `useHubOp`), uploads, file URLs, live events (which query keys each event refreshes: `INVALIDATE`), auth status |
 | `src/lib/session.tsx` | sign-in gate, the current project and your role (`useProject`, `useCanEdit`, `CanEdit`, `useCanWriteCode`) |
 | `src/lib/nav.tsx` | `Link` / `useNavigate` that put app paths under the current project |
@@ -17,11 +17,12 @@ The web UI, used by the desktop app, `npx kalibra` and team servers alike: React
 | `src/components/ui/` | the shared building blocks: buttons, form fields, dialogs, menus, tooltips, tables, toasts, code editor, media players. Reuse these instead of styling from scratch. |
 | `src/styles.css` | theme tokens (colours per light/dark and accent) and base styles |
 | `src/docs/content.ts` | the in-app guides (Docs page); illustrations in `public/docs/` |
+| `src/sdk-docs/` | the public SDK docs at `/sdk-docs/javascript` and `/sdk-docs/python` (outside the sign-in gate, no API calls): `content.ts` holds every section for both languages, `page.tsx` renders it; tested in `test/sdk-docs.test.ts` |
 
 ## Run and test
 
 - `npm run dev` from the repo root starts the engine and Vite (http://localhost:5173), with hot reload.
-- `npx tsc -p packages/web` typechecks; `npm run build -w @kalibra/web` builds into `dist/`, which the CLI and desktop app serve.
+- `npx tsc -p packages/web` typechecks; `npm run build -w @kalibra/web` builds into `dist/`, which the CLI serves (and bundles for npm and Docker).
 
 ## Where to start
 

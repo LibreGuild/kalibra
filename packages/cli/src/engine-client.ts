@@ -6,7 +6,7 @@ import { DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, type Actor, type H
 /*
  * How the CLI and the MCP bridge reach Kalibra, in order of preference:
  *   1. a team server:            --server URL (or KALIBRA_URL) + KALIBRA_TOKEN (a personal access token)
- *   2. a running desktop/npx app: its address and per-launch token in <dir>/.engine.json
+ *   2. a running local app (`npx kalibra`): its address and per-launch token in <dir>/.engine.json
  *   3. nothing running:          open the hub in this process (single-user, local mode)
  * Either way you get the same OpsClient: project operations in the current project, plus hub
  * operations (projects, your account).
@@ -55,13 +55,14 @@ function readEngineInfo(dir: string): EngineInfo | undefined {
 }
 
 /**
- * Secrets of a project folder. The desktop app encrypts them with the OS keychain (secrets.enc),
- * which only it can read; without the app they fail with a clear message instead of reading as unset.
+ * Secrets of a project folder (secrets.json, 0600). A secrets.enc left by the old desktop app
+ * (encrypted with that app's OS-keychain key) can't be read any more, so its secrets fail with a
+ * clear message instead of reading as unset.
  */
 export function secretsFor(projectDir: string): SecretStore {
   if (!existsSync(join(projectDir, 'secrets.enc'))) return new FileSecretStore(join(projectDir, 'secrets.json'));
   const locked = async (): Promise<never> => {
-    throw new KalibraError('unavailable', 'Secrets in this workspace are encrypted by the Kalibra desktop app. Open the app and try again: the CLI and coding agents then connect to it.');
+    throw new KalibraError('unavailable', 'This project\'s secrets are in secrets.enc, written by the Kalibra desktop app, which is no longer available and was the only thing that could read it. Delete secrets.enc from the project folder and add your keys again in Connections.');
   };
   return { get: locked, set: locked, delete: locked, list: locked };
 }

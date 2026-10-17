@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 // Paths below are relative to this package, whatever directory the build is started from.
 process.chdir(dirname(fileURLToPath(import.meta.url)));
 
-/** Single-file CLI (engine, server and MCP bridge inlined). Runs on Node 22.13+ or Electron's Node. */
+/** Single-file CLI (engine, server and MCP bridge inlined). Runs on Node 22.13+. */
 rmSync('dist', { recursive: true, force: true });
 await build({
   absWorkingDir: process.cwd(),

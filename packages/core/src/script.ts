@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 /*
  * User scripts are the escape hatch for anything the forms don't cover.
- * Trust model (desktop): scripts written in your own workspace run with your user's permissions,
+ * Trust model (local mode): scripts written in your own workspace run with your user's permissions,
  * like npm scripts or Postman pre-request scripts. Server mode must replace this runner with an
  * isolated sandbox before scripts from other users are accepted.
  */

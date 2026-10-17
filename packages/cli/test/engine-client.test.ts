@@ -19,11 +19,11 @@ describe('CLI access to Kalibra', () => {
     expect(await store.get('k')).toBe('v');
   });
 
-  it('explains that desktop-encrypted secrets need the app instead of reading them as unset', async () => {
+  it('explains that secrets encrypted by the old desktop app must be added again, instead of reading them as unset', async () => {
     const dir = tmp();
     writeFileSync(join(dir, 'secrets.enc'), 'opaque');
     const store = secretsFor(dir);
-    await expect(store.get('openai_api_key')).rejects.toThrow(/desktop app/);
+    await expect(store.get('openai_api_key')).rejects.toThrow(/Delete secrets\.enc/);
     await expect(store.list()).rejects.toMatchObject({ code: 'unavailable' });
   });
 

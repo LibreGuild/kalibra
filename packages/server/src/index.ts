@@ -6,7 +6,7 @@ import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serv
 import { ingestRoutes, isIngestRoute } from './ingest.js';
 
 /*
- * The HTTP API. The desktop app and `npx kalibra` run it on 127.0.0.1 with a per-launch token
+ * The HTTP API. `npx kalibra` (`kalibra serve`) runs it on 127.0.0.1 with a per-launch token
  * (local mode); a team server runs the same API with sign-in (server mode). Everything is an
  * operation, and every call goes through the hub, which decides access:
  *
@@ -45,7 +45,7 @@ export interface ServerOptions {
   /** Server mode: trust X-Forwarded-For/Proto/Host from a reverse proxy in front of Kalibra. */
   trustProxy?: boolean;
   /** Facts about how this engine was launched, shown in the UI (e.g. the MCP command for coding agents). */
-  meta?: { mcp?: { command: string; args: string[]; env?: Record<string, string> }; version?: string; mode?: 'desktop' | 'cli' | 'dev' | 'server' };
+  meta?: { mcp?: { command: string; args: string[]; env?: Record<string, string> }; version?: string; mode?: 'cli' | 'dev' | 'server' };
 }
 
 export interface RunningServer {
@@ -84,7 +84,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (hub.mode === 'local' ? !checkLocalOrigin(req, port, cfg) : !originAllowed(req, cfg)) return fail(res, 403, 'forbidden', 'Host or origin not allowed');
 
-    // The desktop shell opens /?token=… once; we turn it into an HttpOnly cookie for the UI.
+    // `kalibra serve` opens /?token=… once; we turn it into an HttpOnly cookie for the UI.
     if (hub.mode === 'local' && opts.token && url.searchParams.get('token') === opts.token && !url.pathname.startsWith('/api/')) {
       res.writeHead(302, { ...BASE_HEADERS, 'set-cookie': `${LOCAL_COOKIE}=${opts.token}; HttpOnly; SameSite=Strict; Path=/`, location: url.pathname });
       return res.end();

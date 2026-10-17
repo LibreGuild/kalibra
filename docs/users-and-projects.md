@@ -4,7 +4,7 @@ How Kalibra decides who can see and change what. Code: `packages/core/src/hub/`,
 
 ## Two ways to run
 
-| | Local (desktop app, `npx kalibra`) | Team server (`kalibra server`) |
+| | Local (`npx kalibra`) | Team server (`kalibra server`) |
 |---|---|---|
 | Sign-in | none: one person, the computer's own login is the lock | required |
 | API protection | per-launch token + Host/Origin must be this machine | session cookie (browser) or access token (agents, CLI) |
@@ -119,7 +119,6 @@ KALIBRA_PUBLIC_URL=https://kalibra.example.com \
 - The first start prints a one-time link to create the administrator. Alternatively, set `KALIBRA_ADMIN_USERNAME` / `KALIBRA_ADMIN_PASSWORD`.
 - Back up the data folder (`hub.db`, each project's `kalibra.db`, `blobs/`, secret files). It is the whole state.
 - Run as an unprivileged user, ideally in a container: script targets and checks run JavaScript with the server's permissions.
-- The desktop app connects to servers from **Servers → Connect to a team server…**. Each server opens in its own window and signs in on its own page.
 
 ## Agents (MCP)
 

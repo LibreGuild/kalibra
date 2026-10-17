@@ -11,7 +11,7 @@ import { safeNext, useSession } from '../lib/session';
 /*
  * Signing in to a team server: the first-administrator setup, the sign-in page (password and/or
  * sign-in providers), and the forced "choose your own password" step for new accounts.
- * Never shown on the desktop app, which has no sign-in.
+ * Never shown in local mode (`npx kalibra`), which has no sign-in.
  */
 
 const MIN_PASSWORD = 10;
