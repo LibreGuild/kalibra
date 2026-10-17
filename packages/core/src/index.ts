@@ -20,3 +20,4 @@ export { otlpToTraces } from './traces/otlp.js';
 export { traceFromProxy, type ProxyExchange } from './traces/proxy.js';
 export { argsHash, canonicalJson } from './traces/hash.js';
 export type { Trace, Span, Step, Source, ToolCall } from './traces/types.js';
+export { deployConfigFrom, validateDeployConfig, describeDeploy, deployMode, storageKind, redactUrl, type DeployConfig, type DeployMode, type StorageKind } from './deploy/config.js';
