@@ -142,4 +142,31 @@ export const HUB_MIGRATIONS: string[] = [
   );
   CREATE INDEX ingest_keys_project ON ingest_keys(project_id);
   `,
+  // 3: case-insensitive names through lower() indexes instead of COLLATE NOCASE, which means the
+  // same in SQLite and Postgres (lookups compare lower(name) = lower(?))
+  `
+  DROP INDEX users_username;
+  CREATE UNIQUE INDEX users_username ON users(lower(username));
+  DROP INDEX users_email;
+  CREATE INDEX users_email ON users(lower(email));
+  DROP INDEX projects_name;
+  CREATE UNIQUE INDEX projects_name ON projects(lower(name)) WHERE deleted_at IS NULL;
+  DROP INDEX user_groups_name;
+  CREATE UNIQUE INDEX user_groups_name ON user_groups(lower(name));
+  `,
+  // 4: sign-ins in progress (OIDC/GitHub state, PKCE verifier) live in the database, so the provider
+  // can send the browser back to any instance behind a load balancer
+  `
+  CREATE TABLE sso_pending (
+    state TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX sso_pending_expires ON sso_pending(expires_at);
+  `,
+  // 5: secrets of sign-in providers made in the app, encrypted with KALIBRA_SECRET_KEY, when the data
+  // folder may disappear (a bucket or Postgres deployment; see deploy/secrets.ts)
+  `
+  CREATE TABLE secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+  `,
 ];

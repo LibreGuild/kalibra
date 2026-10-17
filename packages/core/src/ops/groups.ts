@@ -42,7 +42,7 @@ async function variantSummary(engine: Engine, run: RunRecord) {
     targetName,
     overrides: run.settings.overrides ?? null,
     status: run.status,
-    active: engine.runner.isActive(run.id),
+    active: await engine.runner.isActive(run.id),
     done: run.done,
     total: run.total,
     passRate: s.passRate ?? null,
@@ -279,7 +279,7 @@ export const groupsOps: OpDef<any, any>[] = [
     handler: async ({ engine }, i) => {
       const g = await engine.repos.runs.getGroup(i.id);
       const runsOf = await engine.repos.runs.groupRuns(g.id);
-      for (const r of runsOf) engine.runner.cancel(r.id);
+      for (const r of runsOf) await engine.runner.cancel(r.id);
       return { cancelling: runsOf.map((r) => r.id) };
     },
   }),
@@ -293,7 +293,7 @@ export const groupsOps: OpDef<any, any>[] = [
     input: z.object({ id: z.string() }),
     handler: async ({ engine }, i) => {
       const g = await engine.repos.runs.getGroup(i.id);
-      for (const r of await engine.repos.runs.groupRuns(g.id)) engine.runner.cancel(r.id);
+      for (const r of await engine.repos.runs.groupRuns(g.id)) await engine.runner.cancel(r.id);
       await engine.repos.runs.deleteGroup(g.id);
       return { deleted: g.id };
     },

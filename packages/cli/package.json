@@ -19,6 +19,7 @@
   },
   "files": [
     "dist/kalibra.mjs",
+    "dist/chunks",
     "dist/web",
     "README.md",
     "LICENSE"

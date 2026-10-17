@@ -77,8 +77,8 @@ export class DatasetRepo {
   async stats(id: string) {
     const counts = await this.db.all('SELECT status, COUNT(*) AS n FROM rows WHERE dataset_id = ? AND deleted_at IS NULL GROUP BY status', id);
     const tagRows = await this.db.all(
-      `SELECT j.value AS tag, COUNT(*) AS n FROM rows r, json_each(r.tags) j
-       WHERE r.dataset_id = ? AND r.deleted_at IS NULL GROUP BY j.value ORDER BY n DESC LIMIT 50`,
+      `SELECT j.value AS tag, COUNT(*) AS n FROM rows r, ${this.db.dialect === 'postgres' ? 'jsonb_array_elements_text(r.tags::jsonb) AS j(value)' : 'json_each(r.tags) j'}
+       WHERE r.dataset_id = ? AND r.deleted_at IS NULL GROUP BY j.value ORDER BY n DESC, j.value LIMIT 50`,
       id,
     );
     const byStatus = Object.fromEntries(counts.map((c) => [c.status, c.n]));
@@ -143,7 +143,11 @@ export class DatasetRepo {
       params.push(...q.status);
     }
     if (q.tag) {
-      where.push('EXISTS (SELECT 1 FROM json_each(rows.tags) j WHERE j.value = ?)');
+      where.push(
+        this.db.dialect === 'postgres'
+          ? 'EXISTS (SELECT 1 FROM jsonb_array_elements_text(rows.tags::jsonb) AS j(value) WHERE j.value = ?)'
+          : 'EXISTS (SELECT 1 FROM json_each(rows.tags) j WHERE j.value = ?)',
+      );
       params.push(q.tag);
     }
     if (q.search) {
@@ -188,6 +192,9 @@ export class DatasetRepo {
       const batch = new Map<string, string>();
 
       await this.db.tx(async () => {
+        // Postgres may run a transaction again after a conflict: start the lists afresh each time.
+        added.length = rejected.length = warnings.length = 0;
+        batch.clear();
         if (dedupe) await this.backfillFingerprints(ds.id);
         let seq = (await this.db.get('SELECT next_seq FROM datasets WHERE id = ?', ds.id)).next_seq as number;
         for (const [index, item] of input.entries()) {

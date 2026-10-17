@@ -3,7 +3,7 @@ import { BlockList, isIP } from 'node:net';
 import * as oidc from 'openid-client';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import { BASE_PATH } from '../base-path.js';
-import { KalibraError, mapSeq } from '../util.js';
+import { KalibraError, mapSeq, nowIso } from '../util.js';
 import type { Hub } from './hub.js';
 import { randomSecret } from './passwords.js';
 import type { AuthProvider } from './providers.js';
@@ -52,7 +52,6 @@ export const MAX_PENDING = 2000;
 const MAX_CACHED = 5000;
 
 export class SsoService {
-  private pending = new Map<string, Pending>();
   private discovered = new Map<string, Promise<oidc.Configuration>>();
   private jwks = new Map<string, JWTVerifyGetKey>();
   /** Proxy sign-ins resolved recently (per assertion), so each request is not a database write. */
@@ -70,13 +69,15 @@ export class SsoService {
     const p = await this.provider(providerId);
     if (p.kind === 'proxy') throw new KalibraError('invalid', `${p.name} signs you in automatically through the gateway`);
     this.prune();
+    await this.prunePending();
     const state = oidc.randomState();
     const verifier = oidc.randomPKCECodeVerifier();
     const challenge = await oidc.calculatePKCECodeChallenge(verifier);
     const nonce = oidc.randomNonce();
     const binding = randomSecret(24);
-    if (this.pending.size >= MAX_PENDING) this.pending.delete(this.pending.keys().next().value!);
-    this.pending.set(state, { provider: p.id, binding, verifier, nonce, next: safeNext(opts.next), redirectUri: opts.redirectUri, expires: Date.now() + PENDING_MS });
+    // In the database, not in memory: the provider may send the browser back to another instance.
+    const pending: Pending = { provider: p.id, binding, verifier, nonce, next: safeNext(opts.next), redirectUri: opts.redirectUri, expires: Date.now() + PENDING_MS };
+    await this.hub.db.run('INSERT INTO sso_pending (state, data, expires_at) VALUES (?, ?, ?)', state, JSON.stringify(pending), new Date(pending.expires).toISOString());
 
     if (p.kind === 'github') {
       const url = new URL(`${p.githubUrl.replace(/\/$/, '')}/login/oauth/authorize`);
@@ -94,8 +95,9 @@ export class SsoService {
     const url = new URL(opts.callbackUrl);
     const providerError = url.searchParams.get('error_description') ?? url.searchParams.get('error');
     const state = url.searchParams.get('state') ?? '';
-    const pending = this.pending.get(state);
-    this.pending.delete(state);
+    // Taken in one statement: a sign-in can be completed once, on whichever instance gets it first.
+    const row = state ? await this.hub.db.get<{ data: string }>('DELETE FROM sso_pending WHERE state = ? RETURNING data', state) : undefined;
+    const pending: Pending | undefined = row ? JSON.parse(row.data) : undefined;
     // Check the sign-in is ours before showing anything from the URL: otherwise anyone could send a
     // link that makes the login page display their text.
     if (!pending || pending.provider !== p.id || pending.expires < Date.now()) throw new KalibraError('forbidden', 'This sign-in link expired or was already used. Try again.');
@@ -330,8 +332,16 @@ export class SsoService {
 
   private prune() {
     const now = Date.now();
-    for (const [k, v] of this.pending) if (v.expires < now) this.pending.delete(k);
     for (const [k, v] of this.proxyCache) if (v.until < now) this.proxyCache.delete(k);
+  }
+
+  /** Drops expired sign-ins, and the oldest beyond MAX_PENDING (anyone can start one). */
+  private async prunePending() {
+    await this.hub.db.run('DELETE FROM sso_pending WHERE expires_at < ?', nowIso());
+    const n = Number((await this.hub.db.get('SELECT COUNT(*) AS n FROM sso_pending'))?.n ?? 0);
+    if (n >= MAX_PENDING) {
+      await this.hub.db.run('DELETE FROM sso_pending WHERE state IN (SELECT state FROM sso_pending ORDER BY expires_at LIMIT ?)', n - MAX_PENDING + 1);
+    }
   }
 }
 

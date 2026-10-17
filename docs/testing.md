@@ -35,6 +35,16 @@ npx vitest run -t "corpus WER"
 npx vitest            # watch mode
 ```
 
+## On Postgres
+
+The same suite runs with every hub and project in Postgres (CI does both):
+
+```bash
+KALIBRA_TEST_DATABASE_URL=postgres://user:pass@localhost:5432/db npm test
+```
+
+Each test data folder gets its own schemas (`t<hash>_hub`, `t<hash>_p_<project>`), dropped when its file ends (`vitest.setup.ts`, `test-support/database.ts`). Tests that start the CLI in another process pass `databaseEnv(dir)` so it opens the same schemas; checks of SQLite files or query plans use `onPostgres` to skip. `core/test/db-postgres.test.ts` (translation, schema parity with SQLite, value types, transactions, copying) runs without a server too, on PGlite (Postgres in WebAssembly).
+
 ## The demo apps
 
 `packages/demo` starts mock apps under test (port 4400 by default, port 0 in tests):

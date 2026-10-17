@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openHub } from '../src/engine-client.js';
 import { detectGit, runUrl } from '../src/report.js';
+import { databaseEnv } from '../../../test-support/database.js';
 
 const run = promisify(execFile);
 
@@ -41,7 +42,7 @@ describe('kalibra eval-report', () => {
   let dir: string;
   let feature: string;
   const root = resolve(__dirname, '../../..');
-  const cli = (...args: string[]) => run(join(root, 'node_modules/.bin/tsx'), [join(root, 'packages/cli/src/main.ts'), ...args, '--dir', dir], { env: { ...process.env, KALIBRA_URL: '', GITHUB_ACTIONS: '' } });
+  const cli = (...args: string[]) => run(join(root, 'node_modules/.bin/tsx'), [join(root, 'packages/cli/src/main.ts'), ...args, '--dir', dir], { env: { ...process.env, KALIBRA_URL: '', GITHUB_ACTIONS: '', ...databaseEnv(dir) } });
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-report-'));

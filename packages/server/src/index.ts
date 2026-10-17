@@ -50,6 +50,8 @@ export interface ServerOptions {
   trustProxy?: boolean;
   /** Facts about how this engine was launched, shown in the UI (e.g. the MCP command for coding agents). */
   meta?: { mcp?: { command: string; args: string[]; env?: Record<string, string> }; version?: string; mode?: 'cli' | 'dev' | 'server' };
+  /** Where files and databases are kept and how the bucket sync is doing; shown to administrators in /api/meta. */
+  storageStatus?: () => unknown;
 }
 
 export interface RunningServer {
@@ -78,7 +80,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const host = opts.host ?? '127.0.0.1';
   let port = 0;
   const cfg: AuthConfig = { hub, token: opts.token, allowedOrigins: opts.allowedOrigins ?? [], publicUrl: publicOrigin(opts.publicUrl), trustProxy: !!opts.trustProxy };
-  const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000);
+  const logins = new RateLimiter(LOGIN_LIMIT, 10 * 60_000, hub.coordinator);
   const ingest = ingestRoutes(hub, cfg);
 
   const server = createServer(async (req, res) => {
@@ -170,14 +172,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const { url: to, binding } = await hub.sso.start(providerId, { redirectUri: callback, next: url.searchParams.get('next') ?? undefined });
         return redirect(res, to, [ssoCookie(req, binding, 600)]);
       }
-      if (logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
+      if (await logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
       try {
         const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${BASE_PATH}${url.pathname}${url.search}`, binding: cookie(req, ssoCookieName(req)), ip });
         const s = await newSession(req, user.id);
         // `next` is an app path (safeNext), so the browser always lands inside Kalibra.
         return redirect(res, `${BASE_PATH}${next}`, [s.cookie, ssoCookie(req, '', 0)]);
       } catch (e) {
-        logins.fail(ip);
+        await logins.fail(ip);
         throw e;
       }
     } catch (e: any) {
@@ -228,9 +230,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
     if (path === '/api/auth/setup') {
-      if (logins.blocked(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
-      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip).catch((e) => {
-        if (e?.code === 'forbidden') logins.fail(ip);
+      if (await logins.blocked(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
+      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip).catch(async (e) => {
+        if (e?.code === 'forbidden') await logins.fail(ip);
         throw e;
       });
       return startSession(req, res, user.id);
@@ -238,7 +240,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     if (path === '/api/auth/login') {
       const username = str(body.username).trim();
-      if (logins.blocked(ip)) {
+      if (await logins.blocked(ip)) {
         await hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
         return fail(res, 429, 'rate_limited', 'Too many sign-in attempts. Wait a few minutes.');
       }
@@ -252,7 +254,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         await hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
         return startSession(req, res, user.id);
       } catch (e) {
-        logins.fail(ip);
+        await logins.fail(ip);
         await hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
         throw e;
       }
@@ -269,7 +271,18 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     if (path === '/api/meta' && req.method === 'GET') {
       const local = hub.mode === 'local';
-      return sendData(res, { ...opts.meta, mode: local ? opts.meta?.mode : 'server', hubMode: hub.mode, ...(local ? { dir: hub.dir } : {}), ...(local ? {} : { mcp: undefined }), publicUrl: cfg.publicUrl });
+      const admin = local || p.user.role === 'admin';
+      return sendData(res, {
+        ...opts.meta,
+        mode: local ? opts.meta?.mode : 'server',
+        hubMode: hub.mode,
+        ...(local ? { dir: hub.dir } : {}),
+        ...(local ? {} : { mcp: undefined }),
+        publicUrl: cfg.publicUrl,
+        ...(admin && opts.storageStatus ? { storage: opts.storageStatus() } : {}),
+        // Which instance answered and what instances share (Redis or this process only).
+        ...(admin ? { instance: { id: hub.coordinator.instanceId, coordinator: hub.coordinator.kind } } : {}),
+      });
     }
 
     if (path === '/api/hub' && req.method === 'GET') return send(res, 200, hub.registry.describe());

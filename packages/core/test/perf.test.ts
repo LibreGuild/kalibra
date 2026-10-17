@@ -10,6 +10,7 @@ import { summarize } from '../src/runner/summary.js';
 import { RunSettings } from '../src/specs.js';
 import { insertRows } from '../src/sharing/common.js';
 import { sleep } from '../src/util.js';
+import { onPostgres } from '../../../test-support/database.js';
 
 /* Guards for things that used to grow quadratically, leak, or hold whole files in memory. */
 
@@ -56,7 +57,9 @@ const save = async (engine: Engine, runId: string, id: string, status: 'done' | 
   });
 
 describe('saving results', () => {
-  it('costs the same per row at the end of a big run as at the start', async () => {
+  // How the cost per save grows is the same on any database; 20 000 saves over a network database
+  // would only measure its latency, so this one runs on SQLite.
+  it.skipIf(onPostgres)('costs the same per row at the end of a big run as at the start', async () => {
     const { engine, run, pending } = await runWith(20_000);
     const chunk = 1000;
     const times: number[] = [];
@@ -99,7 +102,8 @@ describe('run summaries', () => {
 });
 
 describe('traces', () => {
-  it('filters by run with an index instead of reading every trace', async () => {
+  // SQLite's query planner (Postgres decides per table size, so a plan check there would be flaky).
+  it.skipIf(onPostgres)('filters by run with an index instead of reading every trace', async () => {
     const { engine } = await engineWith(1);
     const plan = (await engine.db.all("EXPLAIN QUERY PLAN SELECT * FROM traces WHERE run_id = ? ORDER BY started_at DESC LIMIT 50", 'run_x')).map((r: any) => r.detail).join(' ');
     expect(plan).toMatch(/USING INDEX traces_run/);
@@ -107,7 +111,8 @@ describe('traces', () => {
 });
 
 describe('adding rows to a big dataset', () => {
-  it('finds duplicates with an index instead of reading every row', async () => {
+  // SQLite's query planner (Postgres decides per table size, so a plan check there would be flaky).
+  it.skipIf(onPostgres)('finds duplicates with an index instead of reading every row', async () => {
     const { engine, ds } = await engineWith(5);
     const plan = (await engine.db.all("EXPLAIN QUERY PLAN SELECT id FROM rows WHERE dataset_id = ? AND fp = ? AND deleted_at IS NULL LIMIT 1", ds.id, 'x')).map((r: any) => r.detail).join(' ');
     expect(plan).toMatch(/USING INDEX rows_fp/);

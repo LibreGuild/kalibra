@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { TOKEN_PREFIX, type Hub, type Principal } from '@kalibra/core';
+import { LocalCoordinator, TOKEN_PREFIX, type Coordinator, type Hub, type Principal } from '@kalibra/core';
 
 /*
  * Who is calling, and may they call from where they are calling.
@@ -150,34 +150,38 @@ export async function authenticate(req: IncomingMessage, cfg: AuthConfig): Promi
 
 /**
  * Counts failures per key in a sliding window (failed sign-ins per IP). Only failures count, so an
- * office signing in from one shared address is never blocked by its own successful sign-ins. In
- * memory: a restart resets it, and account lockout still applies per user.
+ * office signing in from one shared address is never blocked by its own successful sign-ins. Kept
+ * on the coordinator, so several instances share the count (in memory for one instance: a restart
+ * resets it, and account lockout still applies per user).
  */
 export class RateLimiter {
-  private hits = new Map<string, number[]>();
-
   constructor(
     private max: number,
     private windowMs: number,
+    private store: Coordinator = new LocalCoordinator(),
+    private name = 'logins',
   ) {}
 
-  /** Whether the key has failed too often recently. */
-  blocked(key: string): boolean {
-    const now = Date.now();
-    const recent = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
-    if (recent.length) this.hits.set(key, recent);
-    else this.hits.delete(key);
-    return recent.length >= this.max;
+  private key(key: string) {
+    return `rl:${this.name}:${key}`;
+  }
+
+  /** Whether the key has failed too often recently. An unreachable store blocks nobody. */
+  async blocked(key: string): Promise<boolean> {
+    try {
+      return (await this.store.windowCount(this.key(key), this.windowMs)) >= this.max;
+    } catch (e: any) {
+      console.error(`Sign-in limits unavailable: ${e?.message ?? e}`);
+      return false;
+    }
   }
 
   /** Records a failure. */
-  fail(key: string) {
-    const now = Date.now();
-    this.hits.set(key, [...(this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs), now]);
-    if (this.hits.size > 10_000) this.prune(now);
-  }
-
-  private prune(now: number) {
-    for (const [k, v] of this.hits) if (!v.some((t) => now - t < this.windowMs)) this.hits.delete(k);
+  async fail(key: string) {
+    try {
+      await this.store.windowAdd(this.key(key), this.windowMs);
+    } catch {
+      /* see blocked() */
+    }
   }
 }

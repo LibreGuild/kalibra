@@ -10,10 +10,12 @@ Read top to bottom. Each folder's files start with a comment explaining what the
 | `registry.ts` | `defineOp`, `Registry`, actors, project roles (`viewer < editor < owner`), `opAccess`, `Capabilities` |
 | `policy.ts` | host policies checked where data is written: who may add code, folder sync roots; the current call context (`AsyncLocalStorage`) |
 | `db.ts` | The async `Db` interface every store uses (`run`/`get`/`all`/`exec`/`tx`, `?` placeholders) and its SQLite driver (`node:sqlite`: one write connection used by one transaction at a time, a read-only connection for reads outside transactions, statement caches); **project migrations**. Wrap read-check-write sequences in `db.tx()` so other requests cannot slip in between. |
+| `db-postgres.ts` | The Postgres driver behind the same `Db`: one shared `pg` pool, a schema per hub and project (`<prefix>_hub`, `<prefix>_p_<id>`), `?`→`$n` and LIKE→ILIKE translation (`toPostgres` refuses SQLite-only SQL so it fails in tests), DDL translation of the SQLite migrations (`toPostgresDdl`), SERIALIZABLE transactions retried on conflicts. **A `tx()` callback may run more than once on Postgres: keep it to database work, and reset any lists or counters it fills at its start.** Write portable SQL; where it can't be (JSON functions), branch on `db.dialect`. |
 | `specs.ts` | zod schemas of everything users configure: columns, targets, suites, connections, run settings |
 | `storage.ts` | content-addressed blob store (files, audio, images), secret stores |
 | `jobs.ts` | background jobs (generation, transcription, clustering…) with progress and cancel |
-| `events.ts` | live change events (the UI subscribes over SSE) |
+| `events.ts` | live change events (the UI subscribes over SSE); with several instances also relayed through the coordinator |
+| `coord/` | what several instances share: `Coordinator` (in memory, or Redis with `KALIBRA_REDIS_URL`) for messages, cache, rate limits and locks; `HubCache` (per-request lookups, invalidated by any hub write). See docs/design/storage-and-scaling.md |
 | `template.ts` / `script.ts` | `{{placeholders}}` with filters; user JavaScript (expressions, hooks, script targets) |
 | `util.ts` | ids, `KalibraError` (codes map to HTTP statuses), JSON helpers, `mapSeq` (async map, in order) |
 | `index.ts` | the public exports used by server and cli |
@@ -36,6 +38,7 @@ Read top to bottom. Each folder's files start with a comment explaining what the
 | `quality/` | dataset quality: column profiles, coverage, duplicates |
 | `sharing/` | `.kalibra` bundles, Git folder sync, importers (promptfoo, OpenAI Evals, LangSmith, Langfuse) |
 | `traces/` | traces and spans that apps send (SDK, OpenTelemetry, proxy), joined to eval rows; see `docs/design/sdk-and-traces.md` |
+| `deploy/` | Where data lives (see `docs/design/storage-and-scaling.md`): `config.ts` (settings), `databases.ts` (`Databases`: SQLite files or Postgres schemas for the hub and each project; the default can be swapped for tests), `copy.ts` (`copyDatabase`: a whole hub or project between SQLite and Postgres, used by `kalibra backup`), plus bucket storage and SQLite sync |
 
 ## Conventions
 

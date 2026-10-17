@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { existsSync, statSync } from 'node:fs';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 
 type Param = null | number | bigint | string | Uint8Array;
@@ -264,6 +265,18 @@ export const PROJECT_MIGRATIONS: string[] = [
   `
   CREATE INDEX traces_run ON traces(run_id, started_at) WHERE run_id IS NOT NULL;
   `,
+  // 7: which instance is executing a run (a lease it renews), so several instances can share runs:
+  // when one stops, another resumes its runs from the last saved row; a cancel can come from any of them
+  `
+  ALTER TABLE runs ADD COLUMN lease_owner TEXT;
+  ALTER TABLE runs ADD COLUMN lease_until TEXT;
+  ALTER TABLE runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 8: provider secrets kept in the database (encrypted with KALIBRA_SECRET_KEY) when the data folder
+  // may disappear: a bucket or Postgres deployment (see deploy/secrets.ts)
+  `
+  CREATE TABLE secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+  `,
 ];
 
 /**
@@ -278,12 +291,46 @@ export interface Db {
   all<T = any>(sql: string, ...params: unknown[]): Promise<T[]>;
   exec(sql: string): Promise<void>;
   tx<T>(fn: () => Promise<T>): Promise<T>;
+  /** The tables with their columns, primary key and the tables they reference (for copying data between databases). */
+  tables(): Promise<TableInfo[]>;
+  /** Bytes the data takes on disk (database file, or the schema's tables in Postgres). */
+  sizeBytes(): Promise<number>;
   close(): Promise<void>;
 }
 
+export interface TableInfo {
+  name: string;
+  columns: string[];
+  primaryKey: string[];
+  /** Tables this one has foreign keys to (copy those first). */
+  references: string[];
+  /** Columns filled by the database (Postgres identity); reset after copying rows in with their values. */
+  identity: string[];
+}
+
+export interface SqliteOptions {
+  /**
+   * Leaves checkpointing to the caller (`wal_autocheckpoint=0`): the bucket sync ships every WAL
+   * page before it checkpoints, so no change can move into the main file unseen.
+   */
+  manualCheckpoints?: boolean;
+}
+
 /** Opens (and migrates) a SQLite database file. */
-export async function openSqlite(file: string, migrations: string[] = PROJECT_MIGRATIONS): Promise<Db> {
-  return new SqliteDb(file, migrations);
+export async function openSqlite(file: string, migrations: string[] = PROJECT_MIGRATIONS, opts: SqliteOptions = {}): Promise<Db> {
+  return new SqliteDb(file, migrations, opts);
+}
+
+/** Low-level access to a SQLite database for the bucket sync (see deploy/sqlite-sync.ts). */
+export interface SqliteControl {
+  readonly file: string;
+  /** Runs `fn` on the write connection with no transaction open and other writes waiting. */
+  exclusive<T>(fn: (raw: DatabaseSync) => T | Promise<T>): Promise<T>;
+}
+
+/** The SQLite internals of a database opened with openSqlite, or undefined for other drivers. */
+export function sqliteControl(db: Db): SqliteControl | undefined {
+  return db instanceof SqliteDb ? db : undefined;
 }
 
 /** Runs one task at a time, in arrival order. */
@@ -340,18 +387,24 @@ class SqliteDb implements Db {
   private current = new AsyncLocalStorage<{ open: boolean }>();
 
   constructor(
-    file: string,
+    readonly file: string,
     private migrations: string[],
+    opts: SqliteOptions = {},
   ) {
     // Loaded lazily so hosts can silence node:sqlite's ExperimentalWarning before it is first used.
     const { DatabaseSync: Sqlite } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
+    const manual = opts.manualCheckpoints ? ' PRAGMA wal_autocheckpoint=0;' : '';
     this.writer = new Conn(new Sqlite(file));
-    this.writer.raw.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+    this.writer.raw.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;${manual}`);
     this.migrate();
     // An in-memory database is private to its connection, so reads share the writer there.
     const memory = file === ':memory:' || file === '';
     this.reader = memory ? this.writer : new Conn(new Sqlite(file));
-    if (!memory) this.reader.raw.exec('PRAGMA query_only=1; PRAGMA busy_timeout=5000;');
+    if (!memory) this.reader.raw.exec(`PRAGMA query_only=1; PRAGMA busy_timeout=5000;${manual}`);
+  }
+
+  exclusive<T>(fn: (raw: DatabaseSync) => T | Promise<T>): Promise<T> {
+    return this.lock.run(() => fn(this.writer.raw));
   }
 
   private migrate() {
@@ -426,6 +479,28 @@ class SqliteDb implements Db {
         throw e;
       }
     });
+  }
+
+  async tables(): Promise<TableInfo[]> {
+    const names = await this.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+    const out: TableInfo[] = [];
+    for (const { name } of names) {
+      const cols = await this.all<{ name: string; pk: number }>(`PRAGMA table_info("${name}")`);
+      const fks = await this.all<{ table: string }>(`PRAGMA foreign_key_list("${name}")`);
+      out.push({
+        name,
+        columns: cols.map((c) => c.name),
+        primaryKey: cols.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name),
+        references: [...new Set(fks.map((f) => f.table))],
+        identity: [],
+      });
+    }
+    return out;
+  }
+
+  async sizeBytes(): Promise<number> {
+    const size = (f: string) => (existsSync(f) ? statSync(f).size : 0);
+    return size(this.file) + size(`${this.file}-wal`);
   }
 
   async close() {

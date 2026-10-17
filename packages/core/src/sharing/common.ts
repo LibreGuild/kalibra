@@ -246,6 +246,8 @@ export async function insertRows(engine: Engine, datasetId: string, columns: Col
   const db = engine.db;
   const now = nowIso();
   await db.tx(async () => {
+    // Postgres may run a transaction again after a conflict: start the lists afresh each time.
+    added.length = rejected.length = 0;
     let seq = (await db.get('SELECT next_seq FROM datasets WHERE id = ?', datasetId)).next_seq as number;
     for (const [index, row] of rows.entries()) {
       const { value, errors } = validateRow(columns, row.data ?? {});

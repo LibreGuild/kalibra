@@ -341,6 +341,53 @@ export class RunRepo {
     });
   }
 
+  // ── Leases: which instance executes a run (several instances share runs) ───
+
+  /** Takes the run for `owner` until `until` unless another owner's lease is still valid. */
+  async acquireLease(runId: string, owner: string, until: string): Promise<boolean> {
+    const r = await this.db.run(
+      `UPDATE runs SET lease_owner = ?, lease_until = ?
+        WHERE id = ? AND deleted_at IS NULL AND (lease_owner IS NULL OR lease_owner = ? OR lease_until IS NULL OR lease_until < ?)`,
+      owner, until, runId, owner, nowIso(),
+    );
+    return r.changes === 1;
+  }
+
+  /** Extends `owner`'s lease. False when it was lost (expired and taken); also says whether a cancel was asked for. */
+  async renewLease(runId: string, owner: string, until: string): Promise<{ held: boolean; cancel: boolean }> {
+    const r = await this.db.run('UPDATE runs SET lease_until = ? WHERE id = ? AND lease_owner = ?', until, runId, owner);
+    const row = await this.db.get('SELECT cancel_requested FROM runs WHERE id = ?', runId);
+    return { held: r.changes === 1, cancel: !!row?.cancel_requested };
+  }
+
+  async releaseLease(runId: string, owner: string) {
+    await this.db.run('UPDATE runs SET lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ?', runId, owner);
+  }
+
+  /** Whether some instance is executing the run right now (its lease is still valid). */
+  async leaseActive(runId: string): Promise<boolean> {
+    const row = await this.db.get('SELECT lease_until FROM runs WHERE id = ?', runId);
+    return !!row?.lease_until && row.lease_until > nowIso();
+  }
+
+  /** Asks whichever instance executes the run to cancel it (checked when it renews its lease). */
+  async requestCancel(runId: string, cancel = true) {
+    await this.db.run('UPDATE runs SET cancel_requested = ? WHERE id = ?', cancel ? 1 : 0, runId);
+  }
+
+  /** Runs that should be executing but whose instance stopped renewing (or never started them). */
+  async orphaned(queuedBefore: string): Promise<{ id: string; kind: string; status: string; cancelRequested: boolean }[]> {
+    return (
+      await this.db.all(
+        `SELECT id, kind, status, cancel_requested FROM runs
+          WHERE deleted_at IS NULL AND (lease_until IS NULL OR lease_until < ?)
+            AND (status = 'running' OR (status = 'queued' AND kind != 'code' AND created_at < ?))
+          ORDER BY created_at`,
+        nowIso(), queuedBefore,
+      )
+    ).map((r) => ({ id: r.id, kind: r.kind, status: r.status, cancelRequested: !!r.cancel_requested }));
+  }
+
   /** Paged results for grids. Filters: passed/failed/error, a failing check id, free-text search. */
   async query(runId: string, q: { filter?: 'all' | 'passed' | 'failed' | 'errors'; checkId?: string; search?: string; ids?: string[]; offset?: number; limit?: number; sort?: 'seq' | 'score' | 'latency' } = {}) {
     const where = ['run_id = ?'];
@@ -354,14 +401,19 @@ export class RunRepo {
     if (q.filter === 'failed') where.push('passed = 0');
     if (q.filter === 'errors') where.push("(status = 'error' OR error IS NOT NULL)");
     if (q.checkId) {
-      where.push("EXISTS (SELECT 1 FROM json_each(results.checks) j WHERE json_extract(j.value, '$.id') = ? AND json_extract(j.value, '$.status') IN ('fail','error'))");
+      where.push(
+        this.db.dialect === 'postgres'
+          ? "EXISTS (SELECT 1 FROM jsonb_array_elements(results.checks::jsonb) j WHERE j ->> 'id' = ? AND j ->> 'status' IN ('fail','error'))"
+          : "EXISTS (SELECT 1 FROM json_each(results.checks) j WHERE json_extract(j.value, '$.id') = ? AND json_extract(j.value, '$.status') IN ('fail','error'))",
+      );
       params.push(q.checkId);
     }
     if (q.search) {
       where.push('(input LIKE ? OR outputs LIKE ? OR row_id = ?)');
       params.push(`%${q.search}%`, `%${q.search}%`, q.search);
     }
-    const order = q.sort === 'score' ? 'score ASC NULLS FIRST, seq' : q.sort === 'latency' ? "json_extract(metrics, '$.latency_ms') DESC, seq" : 'seq';
+    const latency = this.db.dialect === 'postgres' ? "(metrics::jsonb ->> 'latency_ms')::double precision DESC NULLS LAST" : "json_extract(metrics, '$.latency_ms') DESC";
+    const order = q.sort === 'score' ? 'score ASC NULLS FIRST, seq' : q.sort === 'latency' ? `${latency}, seq` : 'seq';
     const clause = where.join(' AND ');
     const total = (await this.db.get(`SELECT COUNT(*) AS n FROM results WHERE ${clause}`, ...params)).n as number;
     const results = (await this.db.all(`SELECT ${LITE_COLUMNS} FROM results WHERE ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, q.limit ?? 100, q.offset ?? 0)).map(toResultLite);
@@ -431,8 +483,8 @@ export class RunRepo {
     const r = await this.db.get(
       `SELECT * FROM runs
         WHERE deleted_at IS NULL AND status = 'completed' AND number < ?
-          AND dataset_id IS ? AND suite_id IS ? AND target_id IS ?
-          AND json_extract(git, '$.branch') = ?
+          AND dataset_id IS NOT DISTINCT FROM ? AND suite_id IS NOT DISTINCT FROM ? AND target_id IS NOT DISTINCT FROM ?
+          AND ${this.db.dialect === 'postgres' ? "git::jsonb ->> 'branch'" : "json_extract(git, '$.branch')"} = ?
         ORDER BY number DESC LIMIT 1`,
       q.beforeNumber, q.datasetId, q.suiteId, q.targetId, q.branch,
     );

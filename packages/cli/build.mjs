@@ -7,12 +7,19 @@ import { fileURLToPath } from 'node:url';
 // Paths below are relative to this package, whatever directory the build is started from.
 process.chdir(dirname(fileURLToPath(import.meta.url)));
 
-/** Single-file CLI (engine, server and MCP bridge inlined). Runs on Node 22.13+. */
+/**
+ * The CLI as one file (engine, server and MCP bridge inlined), plus chunks under dist/chunks that load
+ * only when needed: the cloud storage, Postgres and Redis clients (a deployment that uses them). Runs
+ * on Node 22.13+.
+ */
 rmSync('dist', { recursive: true, force: true });
 await build({
   absWorkingDir: process.cwd(),
-  entryPoints: ['src/main.ts'],
-  outfile: 'dist/kalibra.mjs',
+  entryPoints: { kalibra: 'src/main.ts' },
+  outdir: 'dist',
+  splitting: true,
+  outExtension: { '.js': '.mjs' },
+  chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
   platform: 'node',
   format: 'esm',

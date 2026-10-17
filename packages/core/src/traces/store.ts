@@ -107,6 +107,7 @@ export class TraceStore {
     this.queue = [];
     this.writing += batch.length;
     try {
+      await this.joinShared(batch);
       await this.repo.write(batch);
     } catch (e: any) {
       // A closed database (app quitting) drops the batch.
@@ -151,7 +152,33 @@ export class TraceStore {
     const spanId = createHash('sha256').update(`span:${resultId}`).digest('hex').slice(0, 16);
     if (this.joins.size >= MAX_JOINS) this.forgetOldJoins();
     this.joins.set(traceId, { runId, resultId, at: Date.now() });
+    // Several instances: the app's spans may reach another instance, which looks the id up here.
+    if (this.engine.coordinator.kind !== 'local') {
+      void this.engine.coordinator.set(this.joinKey(traceId), JSON.stringify({ runId, resultId }), JOIN_TTL_MS).catch(() => {});
+    }
     return { traceId, spanId, traceparent: `00-${traceId}-${spanId}-01` };
+  }
+
+  private joinKey(traceId: string) {
+    return `join:${this.engine.projectKey}:${traceId}`;
+  }
+
+  /** Joins traces whose run id another instance sent (several instances share the join ids). */
+  private async joinShared(batch: TraceWithSpans[]) {
+    if (this.engine.coordinator.kind === 'local') return;
+    const open = batch.filter((t) => !t.resultId);
+    if (!open.length) return;
+    try {
+      const found = await this.engine.coordinator.getMany(open.map((t) => this.joinKey(t.id)));
+      open.forEach((t, i) => {
+        const raw = found[i];
+        if (!raw) return;
+        const join = JSON.parse(raw) as { runId: string; resultId: string };
+        Object.assign(t, { runId: t.runId ?? join.runId, resultId: join.resultId });
+      });
+    } catch {
+      /* unjoined traces are still stored */
+    }
   }
 
   /** Drops expired ids, and the oldest tenth when that is not enough (a Map keeps insertion order). */
@@ -177,12 +204,20 @@ export class TraceStore {
         const done = () => {
           clearTimeout(timer);
           this.written.off('written', onWritten);
+          stopRemote?.();
           signal?.removeEventListener('abort', done);
           resolve();
         };
         const onWritten = (ids: string[]) => ids.includes(resultId) && done();
         const timer = setTimeout(done, ms);
         this.written.on('written', onWritten);
+        // Several instances: the app's trace may be stored by another instance, which says so.
+        const stopRemote =
+          this.engine.coordinator.kind === 'local'
+            ? undefined
+            : this.engine.events.subscribe((e) => {
+                if (e.type === 'traces.ingested' && e.resultIds?.includes(resultId)) done();
+              });
         signal?.addEventListener('abort', done, { once: true });
       });
       // Let the rest of a multi-trace row land (bounded; most apps send one trace per call).

@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openHub } from '../src/engine-client.js';
+import { databaseEnv } from '../../../test-support/database.js';
 
 /** The MCP bridge as a coding agent sees it: spawned over stdio, working in projects. */
 describe('MCP bridge', () => {
@@ -19,7 +20,7 @@ describe('MCP bridge', () => {
     await hub.close();
     const root = resolve(__dirname, '../../..');
     client = new Client({ name: 'test-agent', version: '1.0.0' });
-    await client.connect(new StdioClientTransport({ command: join(root, 'node_modules/.bin/tsx'), args: [join(root, 'packages/cli/src/main.ts'), 'mcp', '--dir', dir], stderr: 'ignore' }));
+    await client.connect(new StdioClientTransport({ command: join(root, 'node_modules/.bin/tsx'), args: [join(root, 'packages/cli/src/main.ts'), 'mcp', '--dir', dir], stderr: 'ignore', env: { ...(process.env as Record<string, string>), ...databaseEnv(dir) } }));
   }, 60_000);
 
   afterAll(async () => {

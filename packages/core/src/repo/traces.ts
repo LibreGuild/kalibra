@@ -45,6 +45,12 @@ const toSpan = (r: any): Span => ({
 
 const endMs = (startedAt: string, durationMs?: number | null) => Date.parse(startedAt) + (durationMs ?? 0);
 
+function chunks<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 export interface TraceQuery {
   name?: string;
   status?: 'ok' | 'error';
@@ -68,49 +74,93 @@ export class TraceRepo {
    * Stores a batch in one transaction. A trace sent again (an SDK retry) replaces itself; a partial
    * trace (OpenTelemetry sends spans as they end) is merged: spans are added, the time range grows,
    * and the root span's name, input and output win once it arrives.
+   *
+   * Whole traces are written a few hundred rows per statement (a busy app sends thousands at once,
+   * and every statement is a round trip to a networked database); partial traces merge one by one.
    */
   async write(batch: TraceWithSpans[]) {
     const now = nowIso();
     await this.db.tx(async () => {
+      let group: TraceWithSpans[] = [];
+      const ids = new Set<string>();
       for (const t of batch) {
-        const cur = await this.db.get('SELECT * FROM traces WHERE id = ?', t.id);
-        if (cur && t.partial) {
-          const start = cur.started_at < t.startedAt ? cur.started_at : t.startedAt;
-          const end = Math.max(endMs(cur.started_at, cur.duration_ms), endMs(t.startedAt, t.durationMs));
-          const hasRoot = t.spans.some((s) => !s.parentId);
-          await this.db.run(
-            `UPDATE traces SET name = ?, status = ?, started_at = ?, duration_ms = ?, input = COALESCE(?, input), output = COALESCE(?, output),
-               error = COALESCE(?, error), metadata = ?, run_id = COALESCE(run_id, ?), result_id = COALESCE(result_id, ?) WHERE id = ?`,
-            hasRoot ? t.name : cur.name,
-            cur.status === 'error' || t.status === 'error' ? 'error' : 'ok',
-            start,
-            end - Date.parse(start),
-            hasRoot ? json(t.input) : null,
-            hasRoot ? json(t.output) : null,
-            t.error ?? null,
-            JSON.stringify({ ...parseJson(cur.metadata, {}), ...t.metadata }),
-            t.runId ?? null,
-            t.resultId ?? null,
-            t.id,
-          );
-        } else {
-          await this.db.run(
-            `INSERT OR REPLACE INTO traces (id, name, source, status, started_at, duration_ms, input, output, error, metadata, tags, run_id, result_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            t.id, t.name, t.source, t.status, t.startedAt, t.durationMs ?? null, json(t.input), json(t.output), t.error ?? null,
-            JSON.stringify(t.metadata), JSON.stringify(t.tags), t.runId ?? null, t.resultId ?? null, cur?.created_at ?? now,
-          );
-          if (!t.partial) await this.db.run('DELETE FROM spans WHERE trace_id = ?', t.id);
+        // Keep the order of updates to one trace: a partial trace, or a second copy, waits for what came before it.
+        if (t.partial || ids.has(t.id)) {
+          await this.writeWhole(group, now);
+          group = [];
+          ids.clear();
         }
-        for (const s of t.spans) {
-          await this.db.run(
-            `INSERT OR REPLACE INTO spans (id, trace_id, parent_id, name, kind, started_at, duration_ms, input, output, error, attributes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            s.id, t.id, s.parentId ?? null, s.name, s.kind, s.startedAt, s.durationMs ?? null, json(s.input), json(s.output), s.error ?? null, JSON.stringify(s.attributes),
-          );
-        }
+        if (t.partial) await this.writePartial(t, now);
+        else (group.push(t), ids.add(t.id));
       }
+      await this.writeWhole(group, now);
     });
+  }
+
+  /** Traces that replace any earlier copy, with all their spans (ids are unique within `group`). */
+  private async writeWhole(group: TraceWithSpans[], now: string) {
+    if (!group.length) return;
+    const created = new Map<string, string>();
+    for (const part of chunks(group, 500)) {
+      const rows = await this.db.all<{ id: string; created_at: string }>(`SELECT id, created_at FROM traces WHERE id IN (${part.map(() => '?').join(',')})`, ...part.map((t) => t.id));
+      for (const r of rows) created.set(r.id, r.created_at);
+      await this.db.run(`DELETE FROM spans WHERE trace_id IN (${part.map(() => '?').join(',')})`, ...part.map((t) => t.id));
+    }
+    for (const part of chunks(group, 200)) {
+      await this.db.run(
+        `INSERT INTO traces (id, name, source, status, started_at, duration_ms, input, output, error, metadata, tags, run_id, result_id, created_at)
+         VALUES ${part.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, source = excluded.source, status = excluded.status, started_at = excluded.started_at,
+           duration_ms = excluded.duration_ms, input = excluded.input, output = excluded.output, error = excluded.error, metadata = excluded.metadata,
+           tags = excluded.tags, run_id = excluded.run_id, result_id = excluded.result_id, created_at = excluded.created_at`,
+        ...part.flatMap((t) => [
+          t.id, t.name, t.source, t.status, t.startedAt, t.durationMs ?? null, json(t.input), json(t.output), t.error ?? null,
+          JSON.stringify(t.metadata), JSON.stringify(t.tags), t.runId ?? null, t.resultId ?? null, created.get(t.id) ?? now,
+        ]),
+      );
+    }
+    await this.writeSpans(group.flatMap((t) => t.spans.map((sp) => ({ traceId: t.id, span: sp }))));
+  }
+
+  /** Merges spans of a trace that is still running into what is stored. */
+  private async writePartial(t: TraceWithSpans, now: string) {
+    const cur = await this.db.get('SELECT * FROM traces WHERE id = ?', t.id);
+    if (!cur) return this.writeWhole([{ ...t, partial: false }], now);
+    const start = cur.started_at < t.startedAt ? cur.started_at : t.startedAt;
+    const end = Math.max(endMs(cur.started_at, cur.duration_ms), endMs(t.startedAt, t.durationMs));
+    const hasRoot = t.spans.some((sp) => !sp.parentId);
+    await this.db.run(
+      `UPDATE traces SET name = ?, status = ?, started_at = ?, duration_ms = ?, input = COALESCE(?, input), output = COALESCE(?, output),
+         error = COALESCE(?, error), metadata = ?, run_id = COALESCE(run_id, ?), result_id = COALESCE(result_id, ?) WHERE id = ?`,
+      hasRoot ? t.name : cur.name,
+      cur.status === 'error' || t.status === 'error' ? 'error' : 'ok',
+      start,
+      end - Date.parse(start),
+      hasRoot ? json(t.input) : null,
+      hasRoot ? json(t.output) : null,
+      t.error ?? null,
+      JSON.stringify({ ...parseJson(cur.metadata, {}), ...t.metadata }),
+      t.runId ?? null,
+      t.resultId ?? null,
+      t.id,
+    );
+    await this.writeSpans(t.spans.map((sp) => ({ traceId: t.id, span: sp })));
+  }
+
+  private async writeSpans(all: { traceId: string; span: Span }[]) {
+    // The last copy of a span wins, as when they were written one after another.
+    const spans = [...new Map(all.map((x) => [`${x.traceId}\u0000${x.span.id}`, x])).values()];
+    for (const part of chunks(spans, 300)) {
+      await this.db.run(
+        `INSERT INTO spans (id, trace_id, parent_id, name, kind, started_at, duration_ms, input, output, error, attributes)
+         VALUES ${part.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
+         ON CONFLICT (trace_id, id) DO UPDATE SET parent_id = excluded.parent_id, name = excluded.name, kind = excluded.kind, started_at = excluded.started_at,
+           duration_ms = excluded.duration_ms, input = excluded.input, output = excluded.output, error = excluded.error, attributes = excluded.attributes`,
+        ...part.flatMap(({ traceId, span: sp }) => [
+          sp.id, traceId, sp.parentId ?? null, sp.name, sp.kind, sp.startedAt, sp.durationMs ?? null, json(sp.input), json(sp.output), sp.error ?? null, JSON.stringify(sp.attributes),
+        ]),
+      );
+    }
   }
 
   async list(q: TraceQuery = {}) {
@@ -143,8 +193,9 @@ export class TraceRepo {
     }
     for (const [k, v] of Object.entries(q.metadata ?? {})) {
       if (!/^[A-Za-z0-9_.-]{1,64}$/.test(k)) continue;
-      where.push(`json_extract(metadata, '$."${k}"') = ?`);
-      params.push(v);
+      // Compares the JSON value itself (a number matches a number, a string a string), in either database.
+      if (this.db.dialect === 'postgres') (where.push(`(metadata::jsonb -> '${k}') = CAST(? AS jsonb)`), params.push(JSON.stringify(v)));
+      else (where.push(`json_extract(metadata, '$."${k}"') = ?`), params.push(v));
     }
     return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
   }

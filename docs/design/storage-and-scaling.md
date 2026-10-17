@@ -37,7 +37,8 @@ Rules checked at start (clear errors, no silent fallbacks):
 - `FsBlobStore` (default) or a bucket store for GCS, S3 (and S3-compatible: `KALIBRA_S3_ENDPOINT` for MinIO/R2) and Azure Blob. Files are content-addressed (`files/aa/bb/<sha256>`), written once, never changed. Metadata stays in the database (`blobs` table).
 - Reads stream from the bucket (ranges for audio seeking) through a bounded local cache in the data folder.
 - Credentials come from each cloud's default chain: Google ADC (metadata server on GCP), the AWS chain (env, profile, instance/task role), Azure `DefaultAzureCredential` or `AZURE_STORAGE_CONNECTION_STRING`.
-- The cloud SDKs are loaded only when a bucket is configured.
+- The cloud SDKs are loaded only when a bucket is configured: they are separate chunks of the CLI bundle (`dist/chunks`, about 2.4 MB in all), not npm dependencies (installed, they would add ~120 MB to every `npx kalibra`).
+- A project can only read files it has a `blobs` record of (the bucket copy is shared), like files on disk, which live per project.
 
 ## SQLite sync to the bucket (mode B)
 
@@ -47,20 +48,41 @@ Rules checked at start (clear errors, no silent fallbacks):
 - Layout: `<prefix>/sqlite/<db>/generations/<gen>/snapshot.db.gz`, `…/<gen>/pages/<seq>.gz`, `<prefix>/sqlite/<db>/manifest.json`, `<prefix>/lease.json`.
 - On start: a database missing locally (or behind the bucket) is restored before it is opened; `PRAGMA integrity_check` must pass.
 - On shutdown: a final sync. A crash loses at most the last interval; runs that were in progress come back as "interrupted" and can be resumed.
+- `<file>.sync.json` next to each database records the generation and page set the local file matches (and its size/mtime at a clean close). On start: a clean, untouched file continues its generation; a file ahead of the bucket (crash, changes made while not syncing) starts a new snapshot; a file behind the bucket or never synced with it is moved aside (`*.behind-bucket-<time>.bak`) and restored.
+- A failed upload or a WAL reset by another process falls back to a new snapshot, retried with back-off while the bucket keeps failing.
+- Lease: renewed every 30 s, stale after 90 s; `--takeover` waits for staleness. A holder that finds its lease taken exits. At start Kalibra checks the bucket honours conditional writes and warns if not (GCS's S3-compatible API ignores them; S3, GCS, Azure and MinIO honour them).
+
+## What stays in the local data folder
+
+With a bucket (and with Postgres), nothing in the data folder is needed to rebuild Kalibra on a new machine:
+
+| In the data folder | With a bucket / Postgres |
+|---|---|
+| `hub.db`, `kalibra.db`, `projects/*/kalibra.db` | synced to the bucket (SQLite) or in Postgres |
+| `blobs/` (uploaded files) | in the bucket; `cache/files/` is a disposable local cache |
+| `secrets.json`, `hub-secrets.json` | in the database, encrypted with `KALIBRA_SECRET_KEY`; an old file is imported once and renamed `.imported` |
+| `<db>.sync.json`, `*.bak` | local bookkeeping and set-aside copies; safe to lose |
+| `engine.json` | local mode only: how the CLI finds a running Kalibra; recreated at start |
+| `~/Kalibra/models` (`KALIBRA_MODELS_DIR`) | the local embedding model: downloaded again on demand (built into the Docker image) |
+
+Folders used for folder sync and `kalibra backup` output are wherever you point them.
 
 ## Several instances (mode D)
 
-What used to live in one process and where it lives now:
+What used to live in one process and where it lives now. Everything goes through a `Coordinator` (`packages/core/src/coord/`): `LocalCoordinator` in memory for one instance, `RedisCoordinator` with `KALIBRA_REDIS_URL` (keys and channels prefixed `kalibra:`, so a Redis can be shared with other apps).
 
-| State | Single instance | Several instances |
+| State | One instance | Several instances |
 |---|---|---|
-| Live updates to browsers | in-process event bus | Redis pub/sub (`kalibra:events`) |
-| Session / user / membership / ingest-key lookups | in-process cache | Redis cache with TTL, invalidated on change (`kalibra:invalidate`) |
-| Sign-in rate limits | in memory | Redis counters |
-| Pending SSO sign-ins | database | database |
-| Singleton background work (pruning, recovery sweeps) | timer | timer + Redis lock |
-| A run in progress | the process that started it | same, plus a **lease** in the database renewed every 15 s; if the instance dies, another instance resumes the run from its last saved row |
-| Cancelling a run | in-process signal | status in the database + an event, checked between rows |
+| Live updates to browsers | in-process event bus | every event is also published on `kalibra:events` (tagged with its instance), and delivered to live streams on the others; each stream gets each event once |
+| Session / token / user / role / project / ingest-key / settings lookups | read from the database each request (cached in memory with Postgres) | Redis cache, 60 s TTL; **any** committed hub write except bookkeeping (last seen, audit, pending sign-ins) bumps one epoch, so no write path can leave a stale entry; inside a transaction lookups read the database |
+| Sign-in rate limits | sliding window in memory | sliding window in Redis (sorted set), shared |
+| Pending SSO sign-ins | database (`sso_pending`, taken with one `DELETE … RETURNING`) | same |
+| The one-time setup code | in memory, new each start | database, created once, so every instance prints the same link |
+| A run in progress | the process that started it; a crash leaves it "interrupted" | a **lease** in the database (`runs.lease_owner`, `lease_until`, 45 s, renewed every 15 s). Every 30 s (under a Redis lock per project) an instance resumes runs nobody holds from their last saved row. Shutting down hands runs back at once; an instance that lost its lease stops without touching the run |
+| Cancelling a run | in-process signal | `runs.cancel_requested` + a message on `kalibra:control`; the executing instance stops right away (or at its next renewal) |
+| Background jobs (generation, transcription…) | in memory | still executed where started; their record (with a heartbeat) is in Redis, so `get_job`/`list_jobs`/`cancel_job` work everywhere and a job whose instance stopped shows as failed |
+| Trace ids the runner sent (joining OpenTelemetry spans to rows) | in memory | also in Redis (30 min), so spans reaching another instance are still joined; "trace arrived" wakes the waiting runner through the event bus |
+| Caches of compiled scripts/schemas, OIDC discovery, gateway sign-ins (60 s) | per process | per process (they hold nothing another instance could change, or expire quickly) |
 
 Load balancers need no sticky sessions; live event streams reconnect to any instance.
 

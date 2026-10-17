@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { defineOp } from '../registry.js';
 import { invalid, parseJson } from '../util.js';
-import { fileSize } from '../storage.js';
-import { join } from 'node:path';
 
 export const workspaceOps = [
   defineOp({
@@ -24,7 +22,7 @@ export const workspaceOps = [
         connections: await count("SELECT COUNT(*) AS n FROM defs WHERE kind = 'connection' AND deleted_at IS NULL"),
         runs: await count('SELECT COUNT(*) AS n FROM runs WHERE deleted_at IS NULL'),
         storage: {
-          databaseBytes: (await fileSize(join(engine.dir, 'kalibra.db'))) + (await fileSize(join(engine.dir, 'kalibra.db-wal'))),
+          databaseBytes: await engine.db.sizeBytes(),
           blobCount: blobs.n,
           blobBytes: blobs.bytes,
         },

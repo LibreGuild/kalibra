@@ -1,3 +1,5 @@
+import { HubCache } from '../coord/cache.js';
+import { LocalCoordinator } from '../coord/coordinator.js';
 import type { Db } from '../db.js';
 import { invalid, newId, notFound, nowIso } from '../util.js';
 import { randomSecret, sha256 } from './passwords.js';
@@ -34,7 +36,10 @@ const toKey = (r: any): IngestKeyInfo => ({
 });
 
 export class IngestKeys {
-  constructor(private db: Db) {}
+  constructor(
+    private db: Db,
+    private cache = new HubCache(new LocalCoordinator(), false),
+  ) {}
 
   async create(projectId: string, name: string, createdBy: string): Promise<IngestKeyInfo & { key: string }> {
     return this.db.tx(async () => {
@@ -66,13 +71,20 @@ export class IngestKeys {
   /** The project a key may send to, if the key is valid and its project still exists. */
   async resolve(key: string): Promise<{ keyId: string; projectId: string } | undefined> {
     if (!key.startsWith(INGEST_KEY_PREFIX)) return undefined;
-    const r = await this.db.get(
-      `SELECT k.id, k.project_id, k.last_used_at FROM ingest_keys k JOIN projects p ON p.id = k.project_id
-        WHERE k.token_hash = ? AND k.revoked_at IS NULL AND p.deleted_at IS NULL`,
-      sha256(key),
+    const cacheKey = `ingest:${sha256(key)}`;
+    const r = await this.cache.lookup<{ id: string; project_id: string; last_used_at: string | null }>(cacheKey, async () =>
+      this.db.get(
+        `SELECT k.id, k.project_id, k.last_used_at FROM ingest_keys k JOIN projects p ON p.id = k.project_id
+          WHERE k.token_hash = ? AND k.revoked_at IS NULL AND p.deleted_at IS NULL`,
+        sha256(key),
+      ),
     );
     if (!r) return undefined;
-    if (!r.last_used_at || Date.now() - Date.parse(r.last_used_at) > TOUCH_MS) await this.db.run('UPDATE ingest_keys SET last_used_at = ? WHERE id = ?', nowIso(), r.id);
+    if (!r.last_used_at || Date.now() - Date.parse(r.last_used_at) > TOUCH_MS) {
+      const now = nowIso();
+      await this.db.run('UPDATE ingest_keys SET last_used_at = ? WHERE id = ?', now, r.id);
+      await this.cache.refresh(cacheKey, { ...r, last_used_at: now });
+    }
     return { keyId: r.id, projectId: r.project_id };
   }
 }

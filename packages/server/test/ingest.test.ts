@@ -6,6 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { argsHash, Hub } from '@kalibra/core';
 import { startServer, type RunningServer } from '../src/index.js';
+import { onPostgres } from '../../../test-support/database.js';
 
 /*
  * Where apps send traces, over real HTTP on a team server: ingest keys and their scope, size
@@ -232,11 +233,14 @@ describe('the OpenAI proxy', () => {
     expect(t).toMatchObject({ name: 'openai.chat.completions', output: 'Hi there', resultId: 'res_42' });
     expect(t.spans[0].attributes).toMatchObject({ model: 'gpt-test', tokens_in: 7, tokens_out: 3, streamed: false });
     expect(JSON.stringify(t)).not.toContain('SECRET');
-    // Nor anywhere in the project's database files.
-    const pdir = (await hub.engine(project.id)).dir;
-    const files = readdirSync(pdir).filter((n) => /\.db(-wal)?$/.test(n));
-    expect(files.length).toBeGreaterThan(0);
-    for (const f of files) expect(readFileSync(join(pdir, f)).includes('sk-live-SECRET')).toBe(false);
+    // Nor anywhere in the project's database: no table holds it, nor (with SQLite) any database file.
+    const engine = await hub.engine(project.id);
+    for (const table of await engine.db.tables()) expect(JSON.stringify(await engine.db.all(`SELECT * FROM ${table.name}`))).not.toContain('sk-live-SECRET');
+    if (!onPostgres) {
+      const files = readdirSync(engine.dir).filter((n) => /\.db(-wal)?$/.test(n));
+      expect(files.length).toBeGreaterThan(0);
+      for (const f of files) expect(readFileSync(join(engine.dir, f)).includes('sk-live-SECRET')).toBe(false);
+    }
   });
 
   it('passes a streamed answer through as it arrives, then records the whole text', async () => {

@@ -6,7 +6,7 @@ import { defineOp, type Actor, type OpDef } from '../registry.js';
 import type { RowRecord } from '../repo/datasets.js';
 import { RowStatus, type ColumnSpec, type ColumnType } from '../specs.js';
 import { render } from '../template.js';
-import { invalid } from '../util.js';
+import { invalid, parseJson } from '../util.js';
 import { fitImageToSize } from '../media/image-size.js';
 
 /*
@@ -65,7 +65,22 @@ async function connectionProvider(engine: Engine, connectionId: string) {
 
 /** Merges `patch` into a row's provenance (media provenance per column). */
 async function noteProvenance(engine: Engine, rowId: string, patch: Record<string, unknown>) {
-  await engine.db.run("UPDATE rows SET provenance = json_patch(COALESCE(provenance, '{}'), ?) WHERE id = ?", JSON.stringify(patch), rowId);
+  await engine.db.tx(async () => {
+    const r = await engine.db.get<{ provenance: string | null }>('SELECT provenance FROM rows WHERE id = ?', rowId);
+    if (!r) return;
+    await engine.db.run('UPDATE rows SET provenance = ? WHERE id = ?', JSON.stringify(mergePatch(parseJson(r.provenance, {}), patch)), rowId);
+  });
+}
+
+/** JSON Merge Patch (RFC 7396), as SQLite's json_patch: objects merge key by key, null removes a key. */
+function mergePatch(target: unknown, patch: unknown): unknown {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out: Record<string, unknown> = target && typeof target === 'object' && !Array.isArray(target) ? { ...(target as Record<string, unknown>) } : {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete out[k];
+    else out[k] = mergePatch(out[k], v);
+  }
+  return out;
 }
 
 async function putFile(engine: Engine, data: Uint8Array, mime: string, base: string) {
@@ -118,7 +133,7 @@ export const mediaOps: OpDef<any, any>[] = [
     category: 'datasets',
     readOnly: true,
     input: z.object({ limit: z.number().int().min(1).max(200).default(30) }),
-    handler: ({ engine }, i) => engine.jobs.list(i.limit),
+    handler: ({ engine }, i) => engine.jobs.listAll(i.limit),
   }),
 
   defineOp({
@@ -128,8 +143,8 @@ export const mediaOps: OpDef<any, any>[] = [
     category: 'datasets',
     readOnly: true,
     input: z.object({ jobId: z.string() }),
-    handler: ({ engine }, i) => {
-      const job = engine.jobs.get(i.jobId);
+    handler: async ({ engine }, i) => {
+      const job = await engine.jobs.find(i.jobId);
       if (!job) throw invalid(`Unknown job ${i.jobId} (jobs are kept in memory until the app restarts)`);
       return job;
     },
@@ -141,7 +156,7 @@ export const mediaOps: OpDef<any, any>[] = [
     description: 'Stops a running background job. Items already finished stay in the dataset.',
     category: 'datasets',
     input: z.object({ jobId: z.string() }),
-    handler: ({ engine }, i) => ({ cancelled: engine.jobs.cancel(i.jobId) }),
+    handler: async ({ engine }, i) => ({ cancelled: await engine.jobs.cancelAnywhere(i.jobId) }),
   }),
 
   defineOp({

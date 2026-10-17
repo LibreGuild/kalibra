@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { BASE_PATH, DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, publicOrigin, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
+import { openDeployment } from './deploy.js';
 
 /*
  * How the CLI and the MCP bridge reach Kalibra, in order of preference:
@@ -67,8 +68,8 @@ export function secretsFor(projectDir: string): SecretStore {
   return { get: locked, set: locked, delete: locked, list: locked };
 }
 
-/** The hub for a folder, opened in this process. */
-export async function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders'> = {}) {
+/** The hub for a folder, opened in this process (with the deployment's database and storage, when given). */
+export async function openHub(dir: string, mode: HubMode = 'local', opts: Pick<HubOptions, 'folderRoot' | 'publicUrl' | 'authProviders' | 'databases' | 'storage'> = {}) {
   return await Hub.open({ dir, mode, secretsFor, ...opts });
 }
 
@@ -147,7 +148,9 @@ async function remote(origin: string, token: string | undefined, actor: Actor, w
 }
 
 async function inProcess(dir: string, actor: Actor, wanted?: string): Promise<OpsClient> {
-  const hub = await openHub(dir);
+  // Same database and storage as the server would use for this folder (settings from the environment).
+  const deployment = await openDeployment(dir);
+  const hub = await openHub(dir, 'local', deployment.hub);
   const principal = hub.localPrincipal(actor.kind === 'agent' || actor.kind === 'cli' ? actor.kind : 'user', actor.client, actor.model);
   let project = await pickProject((name, input) => hub.call(principal, name, input), wanted);
   return {
@@ -163,9 +166,8 @@ async function inProcess(dir: string, actor: Actor, wanted?: string): Promise<Op
     },
     async close() {
       await hub.close();
+      await deployment.close();
     },
-    // exposed for `kalibra run` to wait on local runs
-    ...({ hub } as any),
   };
 }
 

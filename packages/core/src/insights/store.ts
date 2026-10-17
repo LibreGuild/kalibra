@@ -12,7 +12,7 @@ export async function saveInsight(db: Db, kind: string, subjectId: string, data:
 }
 
 export async function latestInsight<T = any>(db: Db, kind: string, subjectId: string): Promise<{ id: string; createdAt: string; createdBy: Actor; data: T } | null> {
-  const r = await db.get('SELECT * FROM insights WHERE kind = ? AND subject_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1', kind, subjectId);
+  const r = await db.get('SELECT * FROM insights WHERE kind = ? AND subject_id = ? ORDER BY created_at DESC, id DESC LIMIT 1', kind, subjectId);
   if (!r) return null;
   return { id: r.id, createdAt: r.created_at, createdBy: parseJson(r.created_by, { kind: 'user', id: 'local' } as Actor), data: parseJson<T>(r.data, {} as T) };
 }

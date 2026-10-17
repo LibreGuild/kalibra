@@ -4,9 +4,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { newToken, startServer } from '@kalibra/server';
-import { BASE_PATH, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
+import { BASE_PATH, deployConfigFrom, postgresDatabases, providersFromEnv, publicOrigin, renderEvalReport } from '@kalibra/core';
 import { randomBytes } from 'node:crypto';
 import { clearEngineInfo, connect, defaultDir, openHub, writeEngineInfo } from './engine-client.js';
+import { openDeployment } from './deploy.js';
 import { runMcp } from './mcp.js';
 import { backup } from './backup.js';
 import { detectGit, runUrl } from './report.js';
@@ -51,6 +52,17 @@ Team server (kalibra server, or kalibra serve with KALIBRA_MODE=server):
   --trust-proxy        Trust X-Forwarded-* headers from that proxy ($KALIBRA_TRUST_PROXY=1)
   --folder-root <dir>  Allow folder sync inside this folder only ($KALIBRA_FOLDER_ROOT; off otherwise)
   KALIBRA_ADMIN_USERNAME / KALIBRA_ADMIN_PASSWORD create the first administrator at start.
+
+Where data lives (serve and server; see docs/self-hosting.md):
+  --database-url <url> Postgres instead of SQLite files: postgres://user:pass@host:5432/db
+                       ($KALIBRA_DATABASE_URL; Cloud SQL socket: ?host=/cloudsql/PROJECT:REGION:INSTANCE;
+                       schemas <$KALIBRA_DATABASE_SCHEMA or kalibra>_hub and _p_<project>; pool $KALIBRA_DATABASE_POOL, 10)
+  --storage <url>      Files (and, with SQLite, the databases) in a bucket: gs://, s3:// or az://
+                       ($KALIBRA_STORAGE_URL; SQLite syncs every $KALIBRA_SQLITE_SYNC_SECONDS, default 10)
+  --takeover           Wait for another instance's lease on that bucket to expire instead of refusing
+  KALIBRA_SECRET_KEY   Required with a bucket or Postgres: encrypts provider keys stored in the database
+  --redis-url <url>    Several instances behind a load balancer (with Postgres and a bucket): live events,
+                       cancels, sign-in limits and the lookup cache are shared ($KALIBRA_REDIS_URL)
 `;
 
 async function main() {
@@ -72,6 +84,10 @@ async function main() {
       'public-url': { type: 'string' },
       'trust-proxy': { type: 'boolean', default: false },
       'folder-root': { type: 'string' },
+      storage: { type: 'string' },
+      takeover: { type: 'boolean', default: false },
+      'redis-url': { type: 'string' },
+      'database-url': { type: 'string' },
       password: { type: 'string' },
       dataset: { type: 'string' },
       target: { type: 'string' },
@@ -99,7 +115,10 @@ async function main() {
   if (cmd === 'users') return users(dir, rest, values.password);
   if (cmd === 'backup') {
     if (!rest[0]) throw new Error('Usage: kalibra backup <folder>');
-    const r = backup(dir, rest[0]);
+    // With Postgres, the copy is exported table by table into SQLite files (opens with --dir anywhere).
+    const cfg = deployConfigFrom(process.env, typeof values['database-url'] === 'string' ? { 'database-url': values['database-url'] } : {});
+    const databases = cfg.databaseUrl ? await postgresDatabases({ url: cfg.databaseUrl, max: 2, schema: cfg.databaseSchema }) : undefined;
+    const r = await backup(dir, rest[0], databases ? { databases } : {}).finally(() => databases?.close());
     return void console.log(`Backed up ${r.databases} database${r.databases === 1 ? '' : 's'} and ${r.files} files to ${r.out}`);
   }
 
@@ -167,7 +186,8 @@ const staticUi = () => {
 
 /** Single-user Kalibra on this computer (what `npx kalibra` runs). */
 async function serveLocal(dir: string, values: Flags) {
-  const hub = await openHub(dir, 'local');
+  const deployment = await openDeployment(dir, values);
+  const hub = await openHub(dir, 'local', deployment.hub);
   await hub.openAll();
   const token = values.dev || values['no-token'] ? undefined : newToken();
   const host = String(values.host ?? '127.0.0.1');
@@ -183,10 +203,12 @@ async function serveLocal(dir: string, values: Flags) {
     staticDir,
     allowedOrigins: values.dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
     meta: { mode: values.dev ? 'dev' : 'cli', version: VERSION, mcp: mcpCommand(dir) },
+    storageStatus: () => deployment.storage.status(),
   });
   writeEngineInfo(dir, { url: srv.url, token, pid: process.pid });
   const openUrl = `${srv.url}${BASE_PATH}/${token ? `?token=${token}` : ''}`;
   console.log(`Kalibra running\n  data: ${dir}\n  url:  ${openUrl}${staticDir ? '' : `\n  (UI not built — use the Vite dev server on http://localhost:5173${BASE_PATH}/)`}`);
+  if (deployment.storage.objects || deployment.cfg.databaseUrl) console.log(`  ${deployment.describe}`);
   if (values.open) {
     const { exec } = await import('node:child_process');
     exec(`${process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open'} "${openUrl}"`);
@@ -195,6 +217,7 @@ async function serveLocal(dir: string, values: Flags) {
     clearEngineInfo(dir);
     await srv.close();
     await hub.close();
+    await deployment.close();
   });
 }
 
@@ -202,7 +225,8 @@ async function serveLocal(dir: string, values: Flags) {
 async function serveTeam(dir: string, values: Flags) {
   const folderRoot = (values['folder-root'] as string | undefined) ?? process.env.KALIBRA_FOLDER_ROOT;
   const publicUrl = (values['public-url'] as string | undefined) ?? process.env.KALIBRA_PUBLIC_URL;
-  const hub = await openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv() });
+  const deployment = await openDeployment(dir, values);
+  const hub = await openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv(), ...deployment.hub });
   await hub.openAll();
   const adminUser = process.env.KALIBRA_ADMIN_USERNAME;
   const adminPassword = process.env.KALIBRA_ADMIN_PASSWORD;
@@ -217,9 +241,10 @@ async function serveTeam(dir: string, values: Flags) {
     trustProxy: !!values['trust-proxy'] || process.env.KALIBRA_TRUST_PROXY === '1',
     allowedOrigins: values.dev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [],
     meta: { mode: 'server', version: VERSION },
+    storageStatus: () => deployment.storage.status(),
   });
   const base = `${publicOrigin(publicUrl) ?? srv.url}${BASE_PATH}`;
-  console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/`);
+  console.log(`Kalibra team server running\n  data: ${dir}\n  url:  ${base}/\n  ${deployment.describe}`);
   if (!publicUrl?.startsWith('https:')) console.warn('  Note: serve it over HTTPS (a reverse proxy with TLS) and pass --public-url, so passwords and sessions stay private.');
   if (!folderRoot) console.log('  Folder sync is off (set --folder-root to allow it inside one folder).');
   const providers = await hub.providers.enabled();
@@ -230,6 +255,7 @@ async function serveTeam(dir: string, values: Flags) {
   onStop(async () => {
     await srv.close();
     await hub.close();
+    await deployment.close();
   });
 }
 
@@ -248,7 +274,8 @@ function onStop(fn: () => Promise<void>) {
  */
 async function users(dir: string, args: string[], password?: string) {
   const [action, username] = args;
-  const hub = await openHub(dir, 'server');
+  const deployment = await openDeployment(dir);
+  const hub = await openHub(dir, 'server', deployment.hub);
   try {
     const temp = () => password ?? randomBytes(12).toString('base64url');
     if (action === 'list' || !action) {
@@ -280,6 +307,7 @@ async function users(dir: string, args: string[], password?: string) {
     }
   } finally {
     await hub.close();
+    await deployment.close();
   }
 }
 

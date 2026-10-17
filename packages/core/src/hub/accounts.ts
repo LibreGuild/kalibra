@@ -1,3 +1,5 @@
+import { HubCache } from '../coord/cache.js';
+import { LocalCoordinator } from '../coord/coordinator.js';
 import type { Db } from '../db.js';
 import { conflict, invalid, KalibraError, newId, notFound, nowIso } from '../util.js';
 import { checkPasswordStrength, dummyHash, hashPassword, randomSecret, sha256, verifyPassword } from './passwords.js';
@@ -60,36 +62,50 @@ const toToken = (r: any): TokenInfo => ({
 /** last_seen / last_used are written at most this often, so busy clients don't write on every request. */
 const TOUCH_MS = 60_000;
 
+/** What a session or token cookie resolves to, as cached (see HubCache). */
+interface CachedCredential {
+  id: string;
+  user: User | null;
+  expiresAt: string | null;
+  touchedAt: string | null;
+}
+
 export class Accounts {
-  constructor(private db: Db) {}
+  constructor(
+    private db: Db,
+    private cache = new HubCache(new LocalCoordinator(), false),
+  ) {}
 
   // ── Users ─────────────────────────────────────────────────────────────────
 
   async list(): Promise<User[]> {
-    return (await this.db.all('SELECT * FROM users ORDER BY disabled, username')).map(toUser);
+    return (await this.db.all('SELECT * FROM users ORDER BY disabled, lower(username)')).map(toUser);
   }
 
   async get(id: string): Promise<User> {
-    const r = await this.db.get('SELECT * FROM users WHERE id = ?', id);
-    if (!r) throw notFound('User', id);
-    return toUser(r);
+    const user = await this.cache.lookup(`user:${id}`, async () => {
+      const r = await this.db.get('SELECT * FROM users WHERE id = ?', id);
+      return r ? toUser(r) : undefined;
+    });
+    if (!user) throw notFound('User', id);
+    return user;
   }
 
   async find(idOrUsername: string): Promise<User | undefined> {
     // An id wins over a username that happens to look like one.
-    const r = await this.db.get('SELECT * FROM users WHERE id = ? OR username = ? ORDER BY id = ? DESC LIMIT 1', idOrUsername, idOrUsername, idOrUsername);
+    const r = await this.db.get('SELECT * FROM users WHERE id = ? OR lower(username) = lower(?) ORDER BY id = ? DESC LIMIT 1', idOrUsername, idOrUsername, idOrUsername);
     return r ? toUser(r) : undefined;
   }
 
   async findByEmail(email: string): Promise<User | undefined> {
     if (!email) return undefined;
-    const r = await this.db.get('SELECT * FROM users WHERE email = ? COLLATE NOCASE ORDER BY disabled LIMIT 1', email);
+    const r = await this.db.get('SELECT * FROM users WHERE lower(email) = lower(?) ORDER BY disabled LIMIT 1', email);
     return r ? toUser(r) : undefined;
   }
 
   async findAllByEmail(email: string): Promise<User[]> {
     if (!email) return [];
-    return (await this.db.all('SELECT * FROM users WHERE email = ? COLLATE NOCASE', email)).map(toUser);
+    return (await this.db.all('SELECT * FROM users WHERE lower(email) = lower(?)', email)).map(toUser);
   }
 
   async countAdmins(): Promise<number> {
@@ -149,7 +165,7 @@ export class Accounts {
    * which usernames exist.
    */
   async authenticate(username: string, password: string): Promise<User> {
-    const r = await this.db.get('SELECT * FROM users WHERE username = ?', username.trim());
+    const r = await this.db.get('SELECT * FROM users WHERE lower(username) = lower(?)', username.trim());
     const wrong = new KalibraError('forbidden', 'Wrong username or password');
     if (!r || !r.password_hash) {
       await verifyPassword(password, await dummyHash());
@@ -241,16 +257,25 @@ export class Accounts {
   /** The user of a session cookie, if the session is valid and the account active. */
   async resolveSession(secret: string): Promise<{ user: User; sessionId: string } | undefined> {
     if (!secret) return undefined;
-    const s = await this.db.get('SELECT * FROM sessions WHERE token_hash = ?', sha256(secret));
+    const key = `ses:${sha256(secret)}`;
+    const s = await this.cache.lookup<CachedCredential>(key, async () => {
+      const row = await this.db.get('SELECT * FROM sessions WHERE token_hash = ?', sha256(secret));
+      if (!row) return undefined;
+      const u = await this.db.get('SELECT * FROM users WHERE id = ?', row.user_id);
+      return { id: row.id, user: u && !u.disabled ? toUser(u) : null, expiresAt: row.expires_at, touchedAt: row.last_seen_at };
+    });
     if (!s) return undefined;
-    if (s.expires_at <= nowIso()) {
+    if (s.expiresAt! <= nowIso()) {
       await this.db.run('DELETE FROM sessions WHERE id = ?', s.id);
       return undefined;
     }
-    const u = await this.db.get('SELECT * FROM users WHERE id = ?', s.user_id);
-    if (!u || u.disabled) return undefined;
-    if (Date.now() - Date.parse(s.last_seen_at) > TOUCH_MS) await this.db.run('UPDATE sessions SET last_seen_at = ? WHERE id = ?', nowIso(), s.id);
-    return { user: toUser(u), sessionId: s.id };
+    if (!s.user) return undefined;
+    if (Date.now() - Date.parse(s.touchedAt!) > TOUCH_MS) {
+      const now = nowIso();
+      await this.db.run('UPDATE sessions SET last_seen_at = ? WHERE id = ?', now, s.id);
+      await this.cache.refresh(key, { ...s, touchedAt: now });
+    }
+    return { user: s.user, sessionId: s.id };
   }
 
   async listSessions(userId: string): Promise<SessionInfo[]> {
@@ -297,12 +322,21 @@ export class Accounts {
 
   async resolveToken(token: string): Promise<{ user: User; tokenId: string } | undefined> {
     if (!token.startsWith(TOKEN_PREFIX)) return undefined;
-    const t = await this.db.get('SELECT * FROM tokens WHERE token_hash = ? AND revoked_at IS NULL', sha256(token));
-    if (!t || (t.expires_at && t.expires_at <= nowIso())) return undefined;
-    const u = await this.db.get('SELECT * FROM users WHERE id = ?', t.user_id);
-    if (!u || u.disabled) return undefined;
-    if (!t.last_used_at || Date.now() - Date.parse(t.last_used_at) > TOUCH_MS) await this.db.run('UPDATE tokens SET last_used_at = ? WHERE id = ?', nowIso(), t.id);
-    return { user: toUser(u), tokenId: t.id };
+    const key = `tok:${sha256(token)}`;
+    const t = await this.cache.lookup<CachedCredential>(key, async () => {
+      const row = await this.db.get('SELECT * FROM tokens WHERE token_hash = ? AND revoked_at IS NULL', sha256(token));
+      if (!row) return undefined;
+      const u = await this.db.get('SELECT * FROM users WHERE id = ?', row.user_id);
+      return { id: row.id, user: u && !u.disabled ? toUser(u) : null, expiresAt: row.expires_at, touchedAt: row.last_used_at };
+    });
+    if (!t || (t.expiresAt && t.expiresAt <= nowIso())) return undefined;
+    if (!t.user) return undefined;
+    if (!t.touchedAt || Date.now() - Date.parse(t.touchedAt) > TOUCH_MS) {
+      const now = nowIso();
+      await this.db.run('UPDATE tokens SET last_used_at = ? WHERE id = ?', now, t.id);
+      await this.cache.refresh(key, { ...t, touchedAt: now });
+    }
+    return { user: t.user, tokenId: t.id };
   }
 
   async listTokens(userId: string): Promise<TokenInfo[]> {

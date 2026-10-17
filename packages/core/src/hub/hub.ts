@@ -3,10 +3,16 @@ import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { publicOrigin } from '../base-path.js';
-import { openSqlite, type Db } from '../db.js';
+import { HubCache } from '../coord/cache.js';
+import { LocalCoordinator, type Coordinator } from '../coord/coordinator.js';
+import type { EngineEvent } from '../events.js';
+import type { LeaseTiming } from '../runner/runner.js';
+import { type Db } from '../db.js';
+import { defaultDatabases, type Databases } from '../deploy/databases.js';
 import { Engine } from '../engine.js';
 import { ALL_CAPABILITIES, Registry, type Actor, type Capabilities, type ProjectRole } from '../registry.js';
 import { FileSecretStore, type SecretStore } from '../storage.js';
+import type { StorageHooks } from '../deploy/storage.js';
 import { KalibraError, notFound, nowIso, parseJson } from '../util.js';
 import { Accounts } from './accounts.js';
 import { HUB_OPS, type HubOpContext, type HubOpDef } from './ops.js';
@@ -15,7 +21,6 @@ import { DEFAULT_PROJECT, Projects } from './projects.js';
 import { Providers } from './providers.js';
 import { SsoService } from './sso.js';
 import { IngestKeys } from './ingest-keys.js';
-import { HUB_MIGRATIONS } from './schema.js';
 import { actorOf, LOCAL_ACCOUNT, type HubMode, type Principal, type Project, type User } from './types.js';
 
 /*
@@ -64,11 +69,25 @@ export interface HubOptions {
   authProviders?: { config: unknown; clientSecret?: string }[];
   /** Where client secrets of sign-in providers made in the app are kept. Defaults to hub-secrets.json (0600). */
   hubSecrets?: SecretStore;
+  /** Where files and secrets go when not in the data folder (a bucket, the database): see deploy/storage.ts. */
+  storage?: StorageHooks;
   /**
    * Project engines kept open at once (each holds ~4 open files). Beyond this, engines that have
    * been idle for a while are closed and reopened on next use. Default 64.
    */
   maxOpenProjects?: number;
+  /**
+   * What instances share (KALIBRA_REDIS_URL: Redis; default: this process only). With Redis, live
+   * events, cancels, job status, sign-in limits and the lookup cache reach every instance, and runs
+   * move to another instance when theirs stops.
+   */
+  coordinator?: Coordinator;
+  /** Cache session, token, role, project and settings lookups (default: with Redis or Postgres, where they cost a round trip). */
+  cache?: boolean;
+  /** Run lease timings (tests shorten them). */
+  runLease?: Partial<LeaseTiming>;
+  /** Where the hub and project databases live (SQLite files by default, or Postgres); closed with the hub. */
+  databases?: Databases;
 }
 
 /** An open project is only closed to make room after this long without use. */
@@ -99,17 +118,24 @@ export class Hub {
   private lastUsed = new Map<string, number>();
   /** One-time code that lets the first administrator be created on a fresh server (see completeSetup). */
   private setup?: string;
+  /** Messages, cache and locks shared with other instances (in memory when this is the only one). */
+  readonly coordinator: Coordinator;
+  /** Short-lived cache of per-request lookups, invalidated by any hub write (see HubCache). */
+  readonly cache: HubCache;
+  private ownsCoordinator: boolean;
+  private stopListening: (() => void)[] = [];
 
   /** Opens (and migrates) the hub in `opts.dir`, creating the default project when there is none. */
   static async open(opts: HubOptions): Promise<Hub> {
     const dir = resolve(opts.dir);
     mkdirSync(dir, { recursive: true });
-    const db = await openSqlite(join(dir, 'hub.db'), HUB_MIGRATIONS);
+    const databases = opts.databases ?? defaultDatabases(dir);
+    const db = await databases.hub(dir);
     try {
-      const hub = new Hub({ ...opts, dir }, db);
+      const hub = new Hub({ ...opts, dir, databases }, db);
       await hub.projects.ensureDefault(hub.mode === 'local' ? 'My project' : 'Default');
       await hub.accounts.pruneSessions();
-      if (await hub.needsSetup()) hub.setup = randomSecret(18);
+      if (hub.coordinator.kind === 'local' && (await hub.needsSetup())) hub.setup = randomSecret(18);
       return hub;
     } catch (e) {
       await db.close();
@@ -123,20 +149,43 @@ export class Hub {
   ) {
     this.dir = opts.dir;
     this.mode = opts.mode;
-    this.db = db;
-    this.accounts = new Accounts(this.db);
-    this.projects = new Projects(this.db);
-    this.providers = new Providers(this.db, opts.hubSecrets ?? new FileSecretStore(join(this.dir, 'hub-secrets.json')), opts.authProviders);
+    this.ownsCoordinator = !opts.coordinator;
+    this.coordinator = opts.coordinator ?? new LocalCoordinator();
+    this.cache = new HubCache(this.coordinator, opts.cache ?? (this.coordinator.kind !== 'local' || db.dialect === 'postgres'));
+    // Every hub write that could change a cached lookup invalidates the cache, on every instance.
+    this.db = this.cache.watch(db);
+    this.accounts = new Accounts(this.db, this.cache);
+    this.projects = new Projects(this.db, this.cache);
+    const hubSecrets = opts.storage?.secrets?.(this.db, join(this.dir, 'hub-secrets.json'), 'hub') ?? opts.hubSecrets ?? new FileSecretStore(join(this.dir, 'hub-secrets.json'));
+    this.providers = new Providers(this.db, hubSecrets, opts.authProviders);
     this.sso = new SsoService(this);
-    this.ingestKeys = new IngestKeys(this.db);
+    this.ingestKeys = new IngestKeys(this.db, this.cache);
     this.registry.add(...HUB_OPS);
+    if (this.coordinator.kind !== 'local') this.listen();
+  }
+
+  /** Several instances: events raised on others reach live streams here; cancels reach the runs and jobs they name. */
+  private listen() {
+    const me = this.coordinator.instanceId;
+    this.stopListening.push(
+      this.coordinator.subscribe('events', (raw) => {
+        const m = JSON.parse(raw) as { o: string; p: string; e: EngineEvent };
+        if (m.o !== me) this.engines.get(m.p)?.events.deliver(m.e);
+      }),
+      this.coordinator.subscribe('control', (raw) => {
+        const m = JSON.parse(raw) as { type: string; project: string; runId?: string; jobId?: string };
+        const engine = this.engines.get(m.project);
+        if (m.type === 'cancel-run' && m.runId) engine?.runner.cancelLocal(m.runId);
+        if (m.type === 'cancel-job' && m.jobId) engine?.jobs.cancel(m.jobId);
+      }),
+    );
   }
 
   // ── Settings and audit ────────────────────────────────────────────────────
 
   async settings(): Promise<ServerSettings> {
-    const stored = parseJson<Record<string, unknown>>((await this.db.get("SELECT value FROM settings WHERE key = 'server'"))?.value, {});
-    return ServerSettings.parse(stored);
+    const stored = await this.cache.lookup('settings', async () => parseJson<Record<string, unknown>>((await this.db.get("SELECT value FROM settings WHERE key = 'server'"))?.value, {}));
+    return ServerSettings.parse(stored ?? {});
   }
 
   async updateSettings(patch: Partial<ServerSettings>): Promise<ServerSettings> {
@@ -166,7 +215,11 @@ export class Hub {
 
   /** The one-time setup code to print at startup (undefined once an administrator exists). */
   async setupCode() {
-    return (await this.needsSetup()) ? (this.setup ??= randomSecret(18)) : undefined;
+    if (!(await this.needsSetup())) return undefined;
+    if (this.coordinator.kind === 'local') return (this.setup ??= randomSecret(18));
+    // Several instances print the same link: the code lives in the database, made by whichever starts first.
+    await this.db.run("INSERT INTO settings (key, value) VALUES ('setup', ?) ON CONFLICT (key) DO NOTHING", JSON.stringify(randomSecret(18)));
+    return parseJson<string>((await this.db.get("SELECT value FROM settings WHERE key = 'setup'"))?.value, '') || undefined;
   }
 
   /** Creates the first administrator, with the code printed at startup. */
@@ -180,6 +233,7 @@ export class Hub {
     const user = await this.accounts.create({ ...input, role: 'admin' }, 'setup');
     await this.accounts.markLogin(user.id);
     this.setup = undefined;
+    await this.db.run("DELETE FROM settings WHERE key = 'setup'");
     await this.audit({ kind: 'user', id: user.id, name: user.name }, 'setup.completed', user.username, {}, ip);
     return user;
   }
@@ -271,7 +325,19 @@ export class Hub {
       let opening = this.opening.get(project.id);
       if (!opening) {
         const dir = resolve(this.dir, project.dir);
-        opening = Engine.open({ dir, ...(this.opts.secretsFor ? { secrets: this.opts.secretsFor(dir) } : {}) }).finally(() => this.opening.delete(project.id));
+        const databases = this.opts.databases!;
+        opening = (async () =>
+          Engine.open({
+            dir,
+            db: await databases.project(project.id, dir),
+            storage: this.opts.storage,
+            coordinator: this.coordinator,
+            projectId: project.id,
+            runLease: this.opts.runLease,
+            ...(this.opts.secretsFor ? { secrets: this.opts.secretsFor(dir) } : {}),
+          }))().finally(() =>
+          this.opening.delete(project.id),
+        );
         this.opening.set(project.id, opening);
       }
       engine = await opening;
@@ -326,10 +392,13 @@ export class Hub {
   }
 
   async close() {
+    for (const stop of this.stopListening.splice(0)) stop();
     const open = [...this.engines.values()];
     this.engines.clear();
     for (const e of open) await e.close();
+    if (this.ownsCoordinator) await this.coordinator.close();
     await this.db.close();
+    await this.opts.databases?.close();
   }
 }
 

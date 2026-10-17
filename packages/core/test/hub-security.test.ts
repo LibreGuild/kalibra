@@ -105,8 +105,8 @@ describe('sign-in providers', () => {
     const { hub } = await server();
     await hub.providers.save({ name: 'GitHub', id: 'gh', kind: 'github', githubUrl: 'https://github.com', clientId: 'c', clientSecret: 's' });
     for (let i = 0; i < MAX_PENDING + 50; i++) await hub.sso.start('gh', { redirectUri: 'https://k.example/api/auth/sso/gh/callback' });
-    expect((hub.sso as any).pending.size).toBeLessThanOrEqual(MAX_PENDING);
-  });
+    expect((await hub.db.get('SELECT COUNT(*) AS n FROM sso_pending')).n).toBeLessThanOrEqual(MAX_PENDING);
+  }, 60_000); // a few thousand statements: seconds over a network database
 });
 
 describe('accounts', () => {

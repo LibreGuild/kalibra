@@ -159,7 +159,7 @@ export const runOps = [
       };
       return {
         ...run,
-        active: engine.runner.isActive(run.id),
+        active: await engine.runner.isActive(run.id),
         datasetName: await name(async () => (await datasets.get(run.datasetId!)).name),
         targetName: run.targetId ? await name(async () => (await defs.get('target', run.targetId!)).name) : null,
         suiteName: await name(async () => (await defs.get('suite', run.suiteId!)).name),
@@ -175,7 +175,7 @@ export const runOps = [
     input: z.object({ runId: z.string() }),
     handler: async ({ engine }, i) => {
       const run = await engine.repos.runs.get(i.runId);
-      engine.runner.cancel(run.id);
+      await engine.runner.cancel(run.id);
       return { cancelling: run.id };
     },
   }),
@@ -188,7 +188,8 @@ export const runOps = [
     input: z.object({ runId: z.string() }),
     handler: async ({ engine }, i) => {
       const run = await engine.repos.runs.get(i.runId);
-      if (engine.runner.isActive(run.id)) return run;
+      if (await engine.runner.isActive(run.id)) return run;
+      await engine.repos.runs.requestCancel(run.id, false);
       await engine.repos.runs.resetRunning(run.id);
       engine.runner.start(run.id);
       return await engine.repos.runs.get(run.id);
@@ -204,7 +205,7 @@ export const runOps = [
     input: z.object({ runId: z.string() }),
     handler: async ({ engine }, i) => {
       const run = await engine.repos.runs.get(i.runId);
-      engine.runner.cancel(run.id);
+      await engine.runner.cancel(run.id);
       await engine.repos.runs.delete(run.id);
       return { deleted: run.id };
     },

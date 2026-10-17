@@ -14,24 +14,33 @@
     "@ai-sdk/google-vertex": "^5.0.114",
     "@ai-sdk/openai": "^4.0.95",
     "@ai-sdk/openai-compatible": "^3.0.70",
+    "@aws-sdk/client-s3": "3.1152.0",
     "@aws-sdk/credential-providers": "^3.1152.0",
+    "@azure/identity": "4.14.0",
+    "@azure/storage-blob": "12.34.0",
+    "@google-cloud/storage": "8.4.0",
     "ai": "^7.0.142",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "fflate": "^0.8.3",
+    "ioredis": "5.11.1",
     "jose": "6.2.12",
     "jpeg-js": "0.4.4",
     "jsonpath-plus": "^11.2.1",
     "openid-client": "6.8.8",
     "papaparse": "^5.7.0",
+    "pg": "8.23.1",
     "pngjs": "7.0.0",
     "ws": "^8.22.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/ioredis-mock": "^8.2.8",
     "@types/papaparse": "^5.5.2",
+    "@types/pg": "^8.23.1",
     "@types/pngjs": "6.0.5",
-    "@types/ws": "^8.18.2"
+    "@types/ws": "^8.18.2",
+    "ioredis-mock": "^8.13.1"
   }
 }

@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { openSqlite, type Db } from './db.js';
-import { EventBus } from './events.js';
+import { type Db } from './db.js';
+import { defaultDatabases } from './deploy/databases.js';
+import { EventBus, type EngineEvent } from './events.js';
 import { createLlmClient } from './providers/index.js';
 import type { LlmClient } from './providers/types.js';
 import { Embeddings, type Embedder } from './providers/embeddings.js';
@@ -9,7 +10,8 @@ import { ALL_CAPABILITIES, LOCAL_USER, opAccess, Registry, roleAtLeast, type Act
 import { DatasetRepo } from './repo/datasets.js';
 import { DefRepo } from './repo/defs.js';
 import { RunRepo } from './repo/runs.js';
-import { Runner } from './runner/runner.js';
+import { Runner, type LeaseTiming } from './runner/runner.js';
+import { LocalCoordinator, type Coordinator } from './coord/coordinator.js';
 import { ConnectionSpec } from './specs.js';
 import { FileSecretStore, FsBlobStore, type BlobStore, type SecretStore } from './storage.js';
 import type { TemplateEnv } from './template.js';
@@ -18,12 +20,23 @@ import { ALL_OPS } from './ops/index.js';
 import { withCall } from './policy.js';
 import { Jobs } from './jobs.js';
 import { TraceStore } from './traces/store.js';
+import type { StorageHooks } from './deploy/storage.js';
 
 export interface EngineOptions {
   /** Workspace directory: holds kalibra.db and blobs/. */
   dir: string;
   /** Where secret values live; defaults to a 0600 file in the workspace. */
   secrets?: SecretStore;
+  /** The project's database, already opened (the hub passes it); else the default for `dir` (kalibra.db). */
+  db?: Db;
+  /** Where files and secrets go when not in the folder (a bucket, the database): see deploy/storage.ts. */
+  storage?: StorageHooks;
+  /** Shared with other instances (Redis) or just this process (default). */
+  coordinator?: Coordinator;
+  /** The project id, naming this project's keys and messages on the coordinator (default: the folder). */
+  projectId?: string;
+  /** Run lease timings (tests shorten them). */
+  runLease?: Partial<LeaseTiming>;
 }
 
 /** The engine owns all state. UI, CLI and MCP are clients that call operations through it. */
@@ -33,6 +46,10 @@ export class Engine {
   readonly blobs: BlobStore;
   readonly secrets: SecretStore;
   readonly events = new EventBus();
+  /** What this instance shares with others: messages, cache, locks (in memory for one instance). */
+  readonly coordinator: Coordinator;
+  /** Names this project on the coordinator. */
+  readonly projectKey: string;
   readonly registry = new Registry({
     authorize: (def, ctx) => {
       const needed = opAccess(def);
@@ -58,7 +75,7 @@ export class Engine {
   static async open(opts: EngineOptions): Promise<Engine> {
     const dir = resolve(opts.dir);
     mkdirSync(dir, { recursive: true });
-    const db = await openSqlite(join(dir, 'kalibra.db'));
+    const db = opts.db ?? (await defaultDatabases(dir).project(undefined, dir));
     try {
       const engine = new Engine({ ...opts, dir }, db);
       await engine.traces.prune();
@@ -73,14 +90,22 @@ export class Engine {
   private constructor(opts: EngineOptions, db: Db) {
     this.dir = opts.dir;
     this.db = db;
-    this.blobs = new FsBlobStore(join(this.dir, 'blobs'), this.db);
-    this.secrets = opts.secrets ?? new FileSecretStore(join(this.dir, 'secrets.json'));
+    this.coordinator = opts.coordinator ?? new LocalCoordinator();
+    this.projectKey = opts.projectId ?? opts.dir;
+    if (this.coordinator.kind !== 'local') {
+      // Several instances: each event also goes to the others (see Hub), tagged with where it came from.
+      const coordinator = this.coordinator;
+      const message = (e: EngineEvent) => JSON.stringify({ o: coordinator.instanceId, p: this.projectKey, e });
+      this.events.relay = (e) => void coordinator.publish('events', message(e)).catch(() => {});
+    }
+    this.blobs = opts.storage?.blobs?.(this.db, this.dir) ?? new FsBlobStore(join(this.dir, 'blobs'), this.db);
+    this.secrets = opts.storage?.secrets?.(this.db, join(this.dir, 'secrets.json'), 'project') ?? opts.secrets ?? new FileSecretStore(join(this.dir, 'secrets.json'));
     this.repos = { datasets: new DatasetRepo(this.db), defs: new DefRepo(this.db), runs: new RunRepo(this.db) };
     this.llm = createLlmClient(async (id) => ConnectionSpec.parse((await this.repos.defs.get('connection', id)).spec), this.secrets);
-    this.jobs = new Jobs(this.events);
+    this.jobs = new Jobs(this.events, this.coordinator.kind === 'local' ? undefined : { coordinator: this.coordinator, project: this.projectKey });
     this.traces = new TraceStore(this);
     this.registry.add(...ALL_OPS);
-    this.runner = new Runner(this);
+    this.runner = new Runner(this, opts.runLease);
   }
 
   /**
@@ -123,7 +148,13 @@ export class Engine {
 
   async close() {
     this.jobs.cancelAll();
-    for (const r of await this.db.all("SELECT id FROM runs WHERE status = 'running'")) this.runner.cancel(r.id);
+    this.runner.stopSweeping();
+    if (this.coordinator.kind !== 'local') {
+      // Several instances: running runs go back to the others instead of being cancelled.
+      await this.runner.handOff();
+    } else {
+      for (const r of await this.db.all("SELECT id FROM runs WHERE status = 'running'")) await this.runner.cancel(r.id);
+    }
     await this.traces.close();
     await this.db.close();
   }

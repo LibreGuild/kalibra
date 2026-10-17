@@ -1,4 +1,4 @@
-# Typecheck, test and build (compile only) on pull requests and pushes to main.
+# Typecheck, test (on SQLite and on Postgres) and build (compile only) on pull requests and pushes to main.
 # The Docker image and npm releases come only from release.yml, on a version tag.
 name: CI
 
@@ -33,6 +33,34 @@ jobs:
         run: |
           node packages/cli/dist/kalibra.mjs --help
           node packages/cli/dist/kalibra.mjs users list --dir "$RUNNER_TEMP/kalibra"
+
+  # The same suite with every hub and project in Postgres (KALIBRA_DATABASE_URL deployments).
+  test-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: kalibra
+          POSTGRES_PASSWORD: kalibra
+          POSTGRES_DB: kalibra
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U kalibra"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          KALIBRA_TEST_DATABASE_URL: postgres://kalibra:kalibra@127.0.0.1:5432/kalibra
 
   python-sdk:
     runs-on: ubuntu-latest

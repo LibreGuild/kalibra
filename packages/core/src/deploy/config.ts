@@ -12,10 +12,17 @@ export interface DeployConfig {
   databaseUrl?: string;
   /** Most Postgres connections this instance opens (KALIBRA_DATABASE_POOL, default 10). */
   databasePool: number;
+  /**
+   * Prefix of Kalibra's Postgres schemas (KALIBRA_DATABASE_SCHEMA, default "kalibra"): <prefix>_hub and
+   * <prefix>_p_<project>. Lets several Kalibra deployments (say staging and production) share one database.
+   */
+  databaseSchema: string;
   /** gs://bucket/prefix, s3://bucket/prefix or az://account/container/prefix (KALIBRA_STORAGE_URL). Unset: the data folder. */
   storageUrl?: string;
   /** With a bucket and SQLite: seconds between syncs of each changed database (KALIBRA_SQLITE_SYNC_SECONDS, default 10). */
   sqliteSyncSeconds: number;
+  /** With a bucket: most megabytes of downloaded files kept on local disk (KALIBRA_CACHE_MAX_MB, default 1024). */
+  cacheMaxMb: number;
   /** redis:// or rediss:// (KALIBRA_REDIS_URL). Needed only for several instances. */
   redisUrl?: string;
   /** Key that encrypts provider secrets stored in the database (KALIBRA_SECRET_KEY, 32+ random bytes, base64 or hex). */
@@ -41,8 +48,10 @@ export function deployConfigFrom(env: Env = process.env, flags: Partial<Record<'
   return {
     databaseUrl: nonEmpty(flags['database-url'] ?? env.KALIBRA_DATABASE_URL),
     databasePool: positiveInt('KALIBRA_DATABASE_POOL', env.KALIBRA_DATABASE_POOL, 10, 500),
+    databaseSchema: nonEmpty(env.KALIBRA_DATABASE_SCHEMA) ?? 'kalibra',
     storageUrl: nonEmpty(flags.storage ?? env.KALIBRA_STORAGE_URL),
     sqliteSyncSeconds: positiveInt('KALIBRA_SQLITE_SYNC_SECONDS', env.KALIBRA_SQLITE_SYNC_SECONDS, 10, 3600),
+    cacheMaxMb: positiveInt('KALIBRA_CACHE_MAX_MB', env.KALIBRA_CACHE_MAX_MB, 1024, 10_000_000),
     redisUrl: nonEmpty(flags['redis-url'] ?? env.KALIBRA_REDIS_URL),
     secretKey: nonEmpty(env.KALIBRA_SECRET_KEY),
     s3Endpoint: nonEmpty(env.KALIBRA_S3_ENDPOINT),
@@ -74,6 +83,9 @@ export function validateDeployConfig(cfg: DeployConfig): void {
     storageKind(cfg.storageUrl);
   } catch (e) {
     problems.push((e as Error).message);
+  }
+  if (!/^[a-z][a-z0-9_]{0,29}$/.test(cfg.databaseSchema)) {
+    problems.push('KALIBRA_DATABASE_SCHEMA must be 1–30 lowercase letters, digits or underscores, starting with a letter.');
   }
   if (cfg.redisUrl && !/^rediss?:\/\//i.test(cfg.redisUrl)) problems.push('KALIBRA_REDIS_URL must start with redis:// or rediss://.');
   if (cfg.redisUrl && !cfg.databaseUrl) {

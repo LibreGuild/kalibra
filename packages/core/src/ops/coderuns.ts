@@ -86,6 +86,9 @@ export const codeRunOps: OpDef<any, any>[] = [
       // A trace the app just sent may still be queued; store it so traceId below can link it.
       if (i.results.some((r) => r.traceId)) await engine.traces.flush();
       await engine.db.tx(async () => {
+        // Postgres may run a transaction again after a conflict: start counting afresh each time.
+        unknown.length = 0;
+        accepted = 0;
         for (const r of i.results) {
           if (!(await runs.submitCodeOutput(run.id, r.rowId, { outputs: r.outputs, metrics: r.metrics, error: r.error ?? null }))) {
             unknown.push(r.rowId);

@@ -1,3 +1,5 @@
+import { HubCache } from '../coord/cache.js';
+import { LocalCoordinator } from '../coord/coordinator.js';
 import type { Db } from '../db.js';
 import { PROJECT_ROLES, type Actor, type ProjectRole } from '../registry.js';
 import { conflict, invalid, KalibraError, newId, notFound, nowIso, parseJson } from '../util.js';
@@ -27,7 +29,10 @@ const rank = (r: ProjectRole) => PROJECT_ROLES.indexOf(r);
 const highest = (roles: ProjectRole[]): ProjectRole | undefined => roles.sort((a, b) => rank(b) - rank(a))[0];
 
 export class Projects {
-  constructor(private db: Db) {}
+  constructor(
+    private db: Db,
+    private cache = new HubCache(new LocalCoordinator(), false),
+  ) {}
 
   // ── Projects ──────────────────────────────────────────────────────────────
 
@@ -41,15 +46,18 @@ export class Projects {
   }
 
   async list(opts: { deleted?: boolean } = {}): Promise<Project[]> {
-    return (await this.db.all(`SELECT * FROM projects WHERE deleted_at IS ${opts.deleted ? 'NOT ' : ''}NULL ORDER BY name COLLATE NOCASE`)).map(toProject);
+    return (await this.db.all(`SELECT * FROM projects WHERE deleted_at IS ${opts.deleted ? 'NOT ' : ''}NULL ORDER BY lower(name)`)).map(toProject);
   }
 
   /** A live project by id or name. */
   async get(idOrName: string): Promise<Project> {
-    // An id wins over another project named like it (e.g. a project called "default").
-    const r = await this.db.get('SELECT * FROM projects WHERE (id = ? OR name = ? COLLATE NOCASE) AND deleted_at IS NULL ORDER BY id = ? DESC LIMIT 1', idOrName, idOrName, idOrName);
-    if (!r) throw notFound('Project', idOrName);
-    return toProject(r);
+    const project = await this.cache.lookup(`proj:${idOrName}`, async () => {
+      // An id wins over another project named like it (e.g. a project called "default").
+      const r = await this.db.get('SELECT * FROM projects WHERE (id = ? OR lower(name) = lower(?)) AND deleted_at IS NULL ORDER BY id = ? DESC LIMIT 1', idOrName, idOrName, idOrName);
+      return r ? toProject(r) : undefined;
+    });
+    if (!project) throw notFound('Project', idOrName);
+    return project;
   }
 
   async getAny(id: string): Promise<Project> {
@@ -103,7 +111,7 @@ export class Projects {
   }
 
   private async assertFreeName(name: string) {
-    if (await this.db.get('SELECT 1 FROM projects WHERE name = ? COLLATE NOCASE AND deleted_at IS NULL', name)) throw conflict(`A project named "${name}" already exists`);
+    if (await this.db.get('SELECT 1 FROM projects WHERE lower(name) = lower(?) AND deleted_at IS NULL', name)) throw conflict(`A project named "${name}" already exists`);
   }
 
   // ── Members ───────────────────────────────────────────────────────────────
@@ -115,7 +123,7 @@ export class Projects {
            LEFT JOIN users u ON m.principal_type = 'user' AND u.id = m.principal_id
            LEFT JOIN user_groups g ON m.principal_type = 'group' AND g.id = m.principal_id
           WHERE m.project_id = ?
-          ORDER BY m.principal_type DESC, COALESCE(u.name, g.name) COLLATE NOCASE`,
+          ORDER BY m.principal_type DESC, lower(COALESCE(u.name, g.name))`,
         projectId,
       ))
       .map((m) => ({
@@ -159,6 +167,10 @@ export class Projects {
 
   /** The user's own role in a project, from direct membership and their groups (not admin rights). */
   async memberRole(projectId: string, userId: string): Promise<ProjectRole | undefined> {
+    return this.cache.lookup(`role:${projectId}:${userId}`, () => this.loadMemberRole(projectId, userId));
+  }
+
+  private async loadMemberRole(projectId: string, userId: string): Promise<ProjectRole | undefined> {
     const roles = (await this.db.all(
         `SELECT role FROM members WHERE project_id = ? AND principal_type = 'user' AND principal_id = ?
          UNION ALL
@@ -201,7 +213,7 @@ export class Projects {
   // ── Groups ────────────────────────────────────────────────────────────────
 
   async groups(): Promise<Group[]> {
-    return (await this.db.all('SELECT g.*, (SELECT COUNT(*) FROM user_group_members gm WHERE gm.group_id = g.id) AS n FROM user_groups g ORDER BY g.name'))
+    return (await this.db.all('SELECT g.*, (SELECT COUNT(*) FROM user_group_members gm WHERE gm.group_id = g.id) AS n FROM user_groups g ORDER BY lower(g.name)'))
       .map((g) => ({ id: g.id, name: g.name, description: g.description, source: g.source, ...(g.external_key ? { externalKey: g.external_key } : {}), members: g.n, createdAt: g.created_at }));
   }
 
@@ -215,7 +227,7 @@ export class Projects {
   async createGroup(input: { name: string; description?: string; source?: string; externalKey?: string }): Promise<Group> {
     return this.db.tx(async () => {
       const name = cleanName(input.name);
-      if (await this.db.get('SELECT 1 FROM user_groups WHERE name = ?', name)) throw conflict(`A group named "${name}" already exists`);
+      if (await this.db.get('SELECT 1 FROM user_groups WHERE lower(name) = lower(?)', name)) throw conflict(`A group named "${name}" already exists`);
       const id = newId('grp');
       await this.db.run(
         'INSERT INTO user_groups (id, name, description, source, external_key, created_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -229,7 +241,7 @@ export class Projects {
     return this.db.tx(async () => {
       const cur = await this.group(id);
       const name = patch.name !== undefined ? cleanName(patch.name) : cur.name;
-      if (name.toLowerCase() !== cur.name.toLowerCase() && await this.db.get('SELECT 1 FROM user_groups WHERE name = ?', name)) throw conflict(`A group named "${name}" already exists`);
+      if (name.toLowerCase() !== cur.name.toLowerCase() && await this.db.get('SELECT 1 FROM user_groups WHERE lower(name) = lower(?)', name)) throw conflict(`A group named "${name}" already exists`);
       await this.db.run('UPDATE user_groups SET name = ?, description = ? WHERE id = ?', name, patch.description?.trim() ?? cur.description, cur.id);
       return await this.group(cur.id);
     });
@@ -253,12 +265,12 @@ export class Projects {
     if (found) return await this.group(found.id);
     // Group names are unique; prefix with the provider when a local group already has the name.
     let name = externalKey.slice(0, 80);
-    if (await this.db.get('SELECT 1 FROM user_groups WHERE name = ?', name)) name = `${source}: ${externalKey}`.slice(0, 80);
+    if (await this.db.get('SELECT 1 FROM user_groups WHERE lower(name) = lower(?)', name)) name = `${source}: ${externalKey}`.slice(0, 80);
     return await this.createGroup({ name, description: `Synced from ${source}`, source, externalKey });
   }
 
   async groupMembers(groupId: string): Promise<{ id: string; username: string; name: string }[]> {
-    return await this.db.all('SELECT u.id, u.username, u.name FROM user_group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.group_id = ? ORDER BY u.name COLLATE NOCASE', groupId);
+    return await this.db.all('SELECT u.id, u.username, u.name FROM user_group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.group_id = ? ORDER BY lower(u.name)', groupId);
   }
 
   async setGroupMembers(groupId: string, userIds: string[]) {
@@ -279,13 +291,13 @@ export class Projects {
     return this.db.tx(async () => {
       await this.db.tx(async () => {
         await this.db.run('DELETE FROM user_group_members WHERE user_id = ? AND group_id IN (SELECT id FROM user_groups WHERE source = ?)', userId, source);
-        for (const id of new Set(groupIds)) await this.db.run('INSERT OR IGNORE INTO user_group_members (group_id, user_id, added_at) VALUES (?, ?, ?)', id, userId, nowIso());
+        for (const id of new Set(groupIds)) await this.db.run('INSERT INTO user_group_members (group_id, user_id, added_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', id, userId, nowIso());
       });
     });
   }
 
   async userGroups(userId: string): Promise<{ id: string; name: string; source: string }[]> {
-    return await this.db.all('SELECT g.id, g.name, g.source FROM user_group_members gm JOIN user_groups g ON g.id = gm.group_id WHERE gm.user_id = ? ORDER BY g.name', userId);
+    return await this.db.all('SELECT g.id, g.name, g.source FROM user_group_members gm JOIN user_groups g ON g.id = gm.group_id WHERE gm.user_id = ? ORDER BY lower(g.name)', userId);
   }
 }
 
