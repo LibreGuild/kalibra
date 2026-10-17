@@ -35,6 +35,7 @@ SPAN_KINDS = ("llm", "tool", "retrieval", "agent", "step")
 MAX_SPANS = 256
 DEFAULT_URL = "http://127.0.0.1:4317"
 _OFF = ("false", "0", "no", "off")
+_ON = ("true", "1", "yes", "on")
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -102,7 +103,10 @@ def init(
         _state.redact = (_serialize.redact_text if redact is True else redact) if redact else None
         _state.flush_interval = flush_interval
         _state.timeout = timeout
-        on = enabled is not False and not killed() and bool(_state.key)
+        # Like the JS SDK: without enabled=..., KALIBRA_ENABLED decides, and an unknown value means off.
+        flag = os.environ.get("KALIBRA_ENABLED", "").strip().lower()
+        wanted = enabled if enabled is not None else (flag in _ON if flag else True)
+        on = wanted and not killed() and bool(_state.key)
         if enabled is True and not _state.key and not killed():
             warn_once("nokey", "init(enabled=True) but no key: set KALIBRA_KEY to an ingest key (kik_…) from Kalibra → Connect your app")
         _state.transport = (

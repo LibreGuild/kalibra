@@ -185,6 +185,8 @@ search_orders = kalibra.tool("search_orders")(real_search_orders)
   - `replay`: GET the recording by `(tool, sha256(canonical JSON args))`; if missing, call for real (`replay-or-live`, default) or throw (`replay-strict`).
   - `fault:timeout` / `fault:error` / `fault:empty`: simulate a failure without calling.
 - **Run settings** add `tools: 'live' | 'record' | 'replay' | 'replay-strict' | 'fault:…'`, sent as the header. In the UI: Runs → New run → Advanced → "Tools".
+- **Recordings store exact args and outputs**: no redaction, no truncation, because the hash of the args is the lookup key and the output must replay unchanged. Traces of the same calls are still redacted and truncated. Record against test data, and use a dev project.
+- **Agent and RAG checks skip** (with a hint) on rows whose app sent no trace and no `tool_calls`/`sources` in its outputs; a trace with no tool steps counts as "no tools called".
 
 ## 7. New checks (`checks/agents.ts`, `checks/rag.ts`)
 

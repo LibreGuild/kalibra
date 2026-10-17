@@ -45,6 +45,14 @@ class DisabledTest(SdkTestCase):
         os.environ["KALIBRA_ENABLED"] = "false"
         self.assertIs(kalibra.trace("t")(plain), plain)
 
+    def test_env_flag_decides_without_enabled(self) -> None:
+        # Same as the JS SDK: a value it doesn't recognise means off.
+        for value, on in (("true", True), ("1", True), ("yes", True), ("maybe", False)):
+            with self.subTest(value=value):
+                os.environ["KALIBRA_ENABLED"] = value
+                self.assertEqual(kalibra.init(url=self.fake.url, key=KEY), on)
+                kalibra.shutdown()
+
     def test_no_key_means_off(self) -> None:
         self.assertFalse(kalibra.init(url=self.fake.url))
         self.assertIs(kalibra.trace("t")(plain), plain)
