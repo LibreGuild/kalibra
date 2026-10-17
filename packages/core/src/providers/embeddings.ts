@@ -370,7 +370,9 @@ export class Embeddings implements Embedder {
           await new Promise<void>((resolve, reject) => {
             const child = spawn(npm.cmd, [...npm.args, 'install', '--omit=optional', '--no-audit', '--no-fund', '--loglevel=error'], {
               cwd: runtimeDir(root),
-              env: npm.env,
+              // onnxruntime-node would also download ~200 MB of GPU (CUDA) libraries on Linux x64; the
+              // model runs on the CPU, so skip them.
+              env: { ...npm.env, ONNXRUNTIME_NODE_INSTALL_CUDA: 'skip' },
               shell: process.platform === 'win32' && /\.cmd"?$/.test(npm.cmd),
             });
             let err = '';
