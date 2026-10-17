@@ -195,7 +195,9 @@ const INVALIDATE: Record<string, string[]> = {
   'rows.changed': ['list_rows', 'list_datasets', 'get_dataset_schema', 'dataset_quality', 'get_workspace'],
   'def.changed': ['list_targets', 'list_suites', 'list_connections', 'get_target', 'get_suite', 'get_connection', 'list_target_versions', 'get_workspace'],
   // Comparisons are groups of runs, so their views follow run progress too (including ones an agent starts).
-  'run.updated': ['list_runs', 'get_run', 'list_comparisons', 'get_comparison', 'compare_rows', 'run_breakdown', 'get_failure_themes', 'suite_trend'],
+  'run.updated': ['list_runs', 'get_run', 'list_comparisons', 'get_comparison', 'compare_rows', 'run_breakdown', 'get_failure_themes', 'suite_trend', 'compare_to_baseline'],
+  // A batch of traces from the SDK, OpenTelemetry or the proxy was written (traces don't change after that).
+  'traces.ingested': ['list_traces'],
   'result.updated': ['query_results', 'get_result'],
   activity: ['list_activity'],
   // Jobs: generation fills rows, fill_gaps adds them, cluster_failures writes themes.

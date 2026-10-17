@@ -612,6 +612,39 @@ export const GUIDES: Guide[] = [
       { type: 'note', title: 'Why Kalibra never runs your agent', text: 'You type the prompt, in your own agent, on your own plan. Kalibra only answers. Clean, safe, no surprise bills.' },
       { type: 'gotcha', text: 'Agents never see secret values, and destructive tools ask before they act. Everything they touch is labeled with their name.' },
     ],
+    next: 'traces',
+  },
+  {
+    slug: 'traces',
+    title: 'Traces & SDK',
+    promise: 'See what your app really did, and turn real calls into tests.',
+    group: 'Connect',
+    icon: 'Waves',
+    minutes: 3,
+    blocks: [
+      { type: 'lead', text: 'A run sees your app from outside. A **trace** shows the inside: the prompt sent, the documents found, every tool call.' },
+      {
+        type: 'defs',
+        items: [
+          { term: 'Kalibra SDK', text: '`npm i kalibra-sdk` or `pip install kalibra-sdk`. Wrap a function with `trace`, its parts with `step`, and tools with `tool`.' },
+          { term: 'OpenTelemetry', text: 'Frameworks that already export traces (LangChain, LlamaIndex, Vercel AI SDK…) need only three environment variables.' },
+          { term: 'OpenAI proxy', text: 'Point your OpenAI client at Kalibra; it forwards each call unchanged and keeps a copy.' },
+        ],
+      },
+      {
+        type: 'steps',
+        items: [
+          { text: 'Create a key and copy a snippet for your stack.', link: { to: '/connect', label: 'Connect your app' } },
+          { text: 'Use your app. Calls appear under **Traces**; open one to see each step.' },
+          { text: 'Select good or broken ones and **Add to dataset**: they become rows waiting for review.' },
+          { text: 'In a run, turn on **Collect traces from my app** (New run → Advanced). Each result then has a **Steps** tab, and agent and RAG checks can read the tool calls and documents.' },
+        ],
+      },
+      { type: 'code', label: 'Off in production, on in development', code: "kalibra.init({ enabled: process.env.NODE_ENV !== 'production', key: process.env.KALIBRA_KEY, project: 'Support bot' });" },
+      { type: 'tip', text: 'Wrap tools with `kalibra.tool(...)`, run once with **Tools: Record**, then use **Replay**: runs get fast, free and never send a real email or refund.' },
+      { type: 'note', title: 'Never in the way', text: 'Disabled, the SDK just calls your function. Enabled, it records in memory and sends in the background; it never waits on the network and never throws into your code. `KALIBRA_ENABLED=false` always turns it off.' },
+      { type: 'gotcha', text: 'An ingest key can only send traces to one project. Keep it in an environment variable, not in your code, and revoke it if it leaks.' },
+    ],
     next: 'projects',
   },
   {
