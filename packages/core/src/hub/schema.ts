@@ -127,4 +127,19 @@ export const HUB_MIGRATIONS: string[] = [
   );
   CREATE INDEX audit_at ON audit(at);
   `,
+  // 2: ingest keys let an app (SDK, OpenTelemetry, proxy) send traces to one project and nothing else
+  `
+  CREATE TABLE ingest_keys (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    name TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at TEXT
+  );
+  CREATE INDEX ingest_keys_project ON ingest_keys(project_id);
+  `,
 ];

@@ -46,7 +46,7 @@ Team server (kalibra server, or kalibra serve with KALIBRA_MODE=server):
   KALIBRA_ADMIN_USERNAME / KALIBRA_ADMIN_PASSWORD create the first administrator at start.
 `;
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.0-beta.3';
 
 async function main() {
   if (typeof (process as any).getBuiltinModule !== 'function' || !(process as any).getBuiltinModule('node:sqlite')) {

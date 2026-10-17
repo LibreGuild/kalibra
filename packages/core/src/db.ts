@@ -207,6 +207,58 @@ export const PROJECT_MIGRATIONS: string[] = [
   ALTER TABLE rows ADD COLUMN fp TEXT;
   CREATE INDEX rows_fp ON rows(dataset_id, fp);
   `,
+  // 5: traces your app sends (SDK, OpenTelemetry, proxy), tool recordings for replay, the steps of
+  // each eval row, and git details of runs started from code or CI (docs/design/sdk-and-traces.md)
+  `
+  CREATE TABLE traces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    duration_ms REAL,
+    input TEXT,
+    output TEXT,
+    error TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    tags TEXT NOT NULL DEFAULT '[]',
+    run_id TEXT,
+    result_id TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX traces_started ON traces(started_at);
+  CREATE INDEX traces_result ON traces(result_id) WHERE result_id IS NOT NULL;
+  CREATE INDEX traces_name ON traces(name, started_at);
+
+  CREATE TABLE spans (
+    id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    parent_id TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    duration_ms REAL,
+    input TEXT,
+    output TEXT,
+    error TEXT,
+    attributes TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (trace_id, id)
+  );
+
+  CREATE TABLE tool_recordings (
+    tool TEXT NOT NULL,
+    args_hash TEXT NOT NULL,
+    args TEXT NOT NULL,
+    output TEXT,
+    error TEXT,
+    recorded_at TEXT NOT NULL,
+    run_id TEXT,
+    PRIMARY KEY (tool, args_hash)
+  );
+
+  ALTER TABLE results ADD COLUMN steps TEXT;
+  ALTER TABLE runs ADD COLUMN git TEXT;
+  `,
 ];
 
 /** Thin synchronous wrapper over node:sqlite with cached statements and transactions. */
