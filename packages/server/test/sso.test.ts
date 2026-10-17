@@ -164,8 +164,11 @@ describe('sign-in providers', () => {
     const atProvider = await fetch(start.headers.get('location')!, { redirect: 'manual' });
     const callback = atProvider.headers.get('location')!;
     const back = await fetch(callback, { redirect: 'manual', headers: opts.dropBinding ? {} : { cookie: binding } });
-    const session = (back.headers.getSetCookie?.() ?? []).find((c) => c.startsWith('kalibra_session='))?.split(';')[0];
-    return { location: back.headers.get('location') ?? '', session, callback, binding };
+    const cookies = back.headers.getSetCookie?.() ?? [];
+    const session = cookies.find((c) => c.startsWith('kalibra_session='))?.split(';')[0];
+    const flash = cookies.find((c) => c.startsWith('kalibra_login_error='))?.split(';')[0];
+    const error = flash ? ((await fetch(`${srv.url}/api/auth/status`, { headers: { cookie: flash } }).then((r) => r.json())).data.error as string) : undefined;
+    return { location: back.headers.get('location') ?? '', session, callback, binding, error };
   }
 
   const me = async (cookie?: string) => (await fetch(`${srv.url}/api/hub/get_me`, { method: 'POST', headers: { origin: srv.url, cookie: cookie ?? '' } }).then((r) => r.json())).data;
@@ -176,7 +179,8 @@ describe('sign-in providers', () => {
 
     const refused = await signIn('company-sso');
     expect(refused.session).toBeUndefined();
-    expect(decodeURIComponent(refused.location)).toMatch(/^\/login\?error=There is no Kalibra account for fran@corp\.example/);
+    expect(refused.location).toBe('/login');
+    expect(refused.error).toMatch(/^There is no Kalibra account for fran@corp\.example/);
 
     await hub.accounts.create({ username: 'fran', email: 'fran@corp.example', role: 'user' }, 'test');
     const ok = await signIn('company-sso', '/p/default/runs');
@@ -195,7 +199,7 @@ describe('sign-in providers', () => {
   it('creates accounts when allowed, enforces domains, promotes admin groups and mirrors groups', async () => {
     await hub.providers.save({ id: 'company-sso', autoCreate: true, allowedDomains: ['corp.example'], groupsClaim: 'groups', syncGroups: true, adminGroups: ['kalibra-admins'] });
     idp.state.person = { sub: 'u-3', email: 'gail@other.example', email_verified: true, name: 'Gail' };
-    expect(decodeURIComponent((await signIn('company-sso')).location)).toMatch(/limited to corp\.example/);
+    expect((await signIn('company-sso')).error).toMatch(/limited to corp\.example/);
 
     idp.state.person = { sub: 'u-4', email: 'hank@corp.example', email_verified: true, name: 'Hank', groups: ['speech-team', 'kalibra-admins'] };
     const r = await signIn('company-sso');
@@ -207,12 +211,12 @@ describe('sign-in providers', () => {
   it('refuses a callback without the browser binding, a reused state, and open redirects', async () => {
     idp.state.person = { sub: 'u-4', email: 'hank@corp.example', email_verified: true, name: 'Hank' };
     const noBinding = await signIn('company-sso', '/projects', { dropBinding: true });
-    expect(decodeURIComponent(noBinding.location)).toMatch(/started in another browser/);
+    expect(noBinding.error).toMatch(/started in another browser/);
 
     const once = await signIn('company-sso');
     expect(once.session).toBeDefined();
     const replay = await fetch(once.callback, { redirect: 'manual', headers: { cookie: once.binding } });
-    expect(decodeURIComponent(replay.headers.get('location')!)).toMatch(/expired or was already used/);
+    expect(replay.headers.get('location')).toBe('/login');
 
     expect(safeNext('//evil.example/x')).toBe('/');
     expect(safeNext('https://evil.example')).toBe('/');
@@ -232,7 +236,7 @@ describe('sign-in providers', () => {
     gh.state.orgs = ['someone-else'];
     gh.state.teams = [];
     gh.state.user = { id: 777, login: 'stranger', name: 'Stranger' };
-    expect(decodeURIComponent((await signIn('ghe')).location)).toMatch(/limited to members of evals/);
+    expect((await signIn('ghe')).error).toMatch(/limited to members of evals/);
   });
 
   it('trusts gateway headers only from listed proxy addresses', async () => {

@@ -50,7 +50,7 @@ HTTP / MCP / CLI ─► Hub.callProject(principal, project, op, input)
 ```
 
 `caps` (capabilities) are host policies on top of roles:
-- **code**: may add or change JavaScript (script targets, hooks, expressions, script checks). Server setting `codePolicy`: `everyone` (default) or `admins`. Checked where definitions are written (`DefRepo`), for unsaved specs in test calls, for run overrides, and for imports (bundles are refused whole; importers drop code checks and list them).
+- **code**: may add or change JavaScript (script targets, hooks, expressions, script checks). Server setting `codePolicy`: `admins` (default on servers) or `everyone`. Checked where definitions are written (`DefRepo`), for unsaved specs in test calls, for run overrides, and for imports (bundles are refused whole; importers drop code checks and list them).
 - **filesystem**: folder sync reads and writes the *server's* disk, so it is off on servers unless `--folder-root` confines it to one folder.
 - **showPaths**: servers don't reveal their folder paths.
 
@@ -130,5 +130,9 @@ The bridge exposes project operations, hub operations (e.g. `list_projects`) and
 
 ## Known limits
 
-- Editors can use the project's secrets through targets they write, so a target pointing at another host can send a key there. Give editor rights to people you would give the keys to, and use `codePolicy: admins` to keep scripts with administrators.
+- Editors can use the project's secrets through targets they write, so a target pointing at another host can send a key there. Give editor rights to people you would give the keys to. Code stays with administrators unless you set `codePolicy: everyone`.
+- Gateway header mode trusts whatever the listed proxy forwards: that proxy must remove client-sent copies of the headers (most gateways do; a plain reverse proxy needs to be told). JWT mode does not depend on this.
+- GitHub org members can usually create teams; restrict team creation before using GitHub teams in admin or allowed groups. Admin groups only ever promote, never demote.
+- Microsoft Entra does not send `email_verified`, so invitations by email don't link there; use automatic accounts with an allowed domain.
+- Sign-ins in progress are kept in memory: a restart in the middle of one asks the person to try again, and several server instances would need a shared store.
 - Script code is not sandboxed (Node's `vm` is not a security boundary). On a server it runs with the server's permissions: run Kalibra as an unprivileged user in a container.

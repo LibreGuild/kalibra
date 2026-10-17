@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
@@ -33,9 +34,11 @@ import { actorOf, LOCAL_ACCOUNT, type HubMode, type Principal, type Project, typ
 /** Server settings an administrator can change in the app. */
 export const ServerSettings = z.object({
   allowProjectCreation: z.boolean().default(true).describe('Let every signed-in user create projects (otherwise only administrators)'),
+  // Admins by default: JavaScript runs on the server with its permissions (Node's vm is no sandbox),
+  // so whoever may write it can read every project. Teams that trust all editors can open it up.
   codePolicy: z
     .enum(['everyone', 'admins'])
-    .default('everyone')
+    .default('admins')
     .describe('Who may add or change JavaScript (script targets, hooks, script checks). It runs on the server with the server’s permissions.'),
   sessionDays: z.number().int().min(1).max(365).default(14).describe('How long a sign-in lasts'),
   passwordLogin: z
@@ -136,7 +139,7 @@ export class Hub {
   async completeSetup(code: string, input: { username: string; password: string; name?: string; email?: string }, ip = ''): Promise<User> {
     const expected = this.setupCode();
     if (!expected) throw new KalibraError('conflict', 'This server is already set up. Sign in instead.');
-    if (!code || code !== expected) {
+    if (!sameSecret(code, expected)) {
       this.audit({ kind: 'anonymous', id: '' }, 'setup.failed', '', {}, ip);
       throw new KalibraError('forbidden', 'The setup code is wrong. Use the link printed when the server started.');
     }
@@ -146,11 +149,18 @@ export class Hub {
     return user;
   }
 
-  /** Creates (or resets) an administrator from configuration, e.g. KALIBRA_ADMIN_USERNAME/PASSWORD. */
+  /**
+   * Creates (or resets) an administrator from configuration, e.g. KALIBRA_ADMIN_USERNAME/PASSWORD.
+   * An existing account with that name gets the configured password too: whoever holds the
+   * configuration gets the account, not whoever happened to own the username.
+   */
   async ensureAdmin(username: string, password: string): Promise<User> {
     const existing = this.accounts.find(username);
     if (existing) {
+      await this.accounts.setPassword(existing.id, password);
+      this.accounts.revokeAllSessions(existing.id);
       if (existing.role !== 'admin' || existing.disabled) this.accounts.update(existing.id, { role: 'admin', disabled: false });
+      this.audit({ kind: 'system', id: 'config' }, 'password.reset', existing.username, { role: 'admin', from: 'environment' });
       return this.accounts.get(existing.id);
     }
     const user = await this.accounts.create({ username, password, role: 'admin' }, 'config');
@@ -248,3 +258,10 @@ export class Hub {
 }
 
 export { DEFAULT_PROJECT };
+
+/** Compares secrets in constant time. */
+function sameSecret(given: string, expected: string) {
+  const a = Buffer.from(String(given ?? ''));
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}

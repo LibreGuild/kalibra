@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { app, BrowserWindow, Menu, nativeTheme, safeStorage, session, shell, type MenuItemConstructorOptions } from 'electron';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { FileSecretStore, Hub } from '@kalibra/core';
@@ -48,6 +48,7 @@ async function boot() {
   });
   // Lets the MCP bridge and CLI find this engine (single writer, live UI updates).
   writeFileSync(join(dir, '.engine.json'), JSON.stringify({ url: server.url, token, pid: process.pid }), { mode: 0o600 });
+  chmodSync(join(dir, '.engine.json'), 0o600); // `mode` only applies to new files
   return `${server.url}/?token=${token}`;
 }
 

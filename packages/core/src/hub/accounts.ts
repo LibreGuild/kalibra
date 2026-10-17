@@ -76,7 +76,8 @@ export class Accounts {
   }
 
   find(idOrUsername: string): User | undefined {
-    const r = this.db.get('SELECT * FROM users WHERE id = ? OR username = ?', idOrUsername, idOrUsername);
+    // An id wins over a username that happens to look like one.
+    const r = this.db.get('SELECT * FROM users WHERE id = ? OR username = ? ORDER BY id = ? DESC LIMIT 1', idOrUsername, idOrUsername, idOrUsername);
     return r ? toUser(r) : undefined;
   }
 
@@ -84,6 +85,11 @@ export class Accounts {
     if (!email) return undefined;
     const r = this.db.get('SELECT * FROM users WHERE email = ? COLLATE NOCASE ORDER BY disabled LIMIT 1', email);
     return r ? toUser(r) : undefined;
+  }
+
+  findAllByEmail(email: string): User[] {
+    if (!email) return [];
+    return this.db.all('SELECT * FROM users WHERE email = ? COLLATE NOCASE', email).map(toUser);
   }
 
   countAdmins(): number {
@@ -145,13 +151,19 @@ export class Accounts {
       await verifyPassword(password, await dummyHash());
       throw wrong;
     }
-    if (r.locked_until && r.locked_until > nowIso()) {
-      throw new KalibraError('forbidden', `Too many wrong passwords. Try again after ${new Date(r.locked_until).toLocaleTimeString()} or ask an administrator.`);
-    }
+    const locked = (until: string) => new KalibraError('forbidden', `Too many wrong passwords. Try again after ${new Date(until).toLocaleTimeString()} or ask an administrator.`);
+    const lock = () => {
+      const until = new Date(Date.now() + LOCK_MINUTES * 60_000).toISOString();
+      this.db.run('UPDATE users SET failed_logins = 0, locked_until = ? WHERE id = ?', until, r.id);
+      return locked(until);
+    };
+    // Count the attempt before checking the password, in one statement, so guesses sent in parallel
+    // cannot all pass the lock check before the first failure is recorded.
+    const slot = this.db.get('UPDATE users SET failed_logins = failed_logins + 1 WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?) RETURNING failed_logins', r.id, nowIso());
+    if (!slot) throw locked(this.db.get('SELECT locked_until FROM users WHERE id = ?', r.id)?.locked_until ?? nowIso());
+    if (slot.failed_logins > MAX_FAILED_LOGINS) throw lock();
     if (!(await verifyPassword(password, r.password_hash))) {
-      const failed = r.failed_logins + 1;
-      const lock = failed >= MAX_FAILED_LOGINS ? new Date(Date.now() + LOCK_MINUTES * 60_000).toISOString() : null;
-      this.db.run('UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?', lock ? 0 : failed, lock, r.id);
+      if (slot.failed_logins >= MAX_FAILED_LOGINS) lock();
       throw wrong;
     }
     if (r.disabled) throw wrong;
@@ -189,10 +201,13 @@ export class Accounts {
     );
   }
 
-  identities(userId: string): { provider: string; email: string; lastLoginAt?: string }[] {
+  /** Linked sign-in methods. Subjects are internal (they identify the person at the provider). */
+  identities(userId: string): { provider: string; email: string; lastLoginAt?: string }[];
+  identities(userId: string, withSubject: true): { provider: string; email: string; subject: string; lastLoginAt?: string }[];
+  identities(userId: string, withSubject = false) {
     return this.db
-      .all('SELECT provider, email, last_login_at FROM identities WHERE user_id = ? ORDER BY provider', userId)
-      .map((r) => ({ provider: r.provider, email: r.email, ...(r.last_login_at ? { lastLoginAt: r.last_login_at } : {}) }));
+      .all('SELECT provider, subject, email, last_login_at FROM identities WHERE user_id = ? ORDER BY provider', userId)
+      .map((r) => ({ provider: r.provider, email: r.email, ...(withSubject ? { subject: r.subject } : {}), ...(r.last_login_at ? { lastLoginAt: r.last_login_at } : {}) }));
   }
 
   unlinkIdentity(userId: string, provider: string) {

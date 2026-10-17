@@ -227,6 +227,18 @@ describe('project access on a server', () => {
   });
 });
 
+describe('password resets by an administrator', () => {
+  it('end sessions and, by default, access tokens', async () => {
+    const { hub, admin, alice } = await serverWithPeople();
+    const t1 = hub.accounts.createToken(alice.id, { name: 'agent' });
+    await hub.call(as(admin), 'reset_user_password', { id: 'alice', password: 'temporary password 1' });
+    expect(hub.accounts.resolveToken(t1.token)).toBeUndefined();
+    const t2 = hub.accounts.createToken(alice.id, { name: 'agent' });
+    await hub.call(as(admin), 'reset_user_password', { id: 'alice', password: 'temporary password 2', revokeTokens: false });
+    expect(hub.accounts.resolveToken(t2.token)?.user.id).toBe(alice.id);
+  });
+});
+
 describe('access tokens', () => {
   it('work in projects but never for account management or secrets', async () => {
     const { hub, alice } = await serverWithPeople();
@@ -270,11 +282,13 @@ describe('server policies', () => {
   it('refuses whole bundles that carry code instead of importing half of them', async () => {
     const { hub, admin, alice } = await serverWithPeople();
     const p = await hub.call<any>(as(alice), 'create_project', { name: 'Bundles' });
-    await hub.callProject(as(alice), p.id, 'create_target', { name: 'Script', spec: scriptTarget });
+    // Team servers let only administrators write code by default.
+    expect(hub.settings().codePolicy).toBe('admins');
+    await expect(hub.callProject(as(alice), p.id, 'create_target', { name: 'Script', spec: scriptTarget })).rejects.toThrow(/only administrators/);
+    await hub.callProject(as(admin), p.id, 'create_target', { name: 'Script', spec: scriptTarget });
     await hub.callProject(as(alice), p.id, 'create_dataset', { name: 'D', columns: [{ key: 'q' }] });
     const bundle = await hub.callProject<any>(as(alice), p.id, 'export_bundle', { everything: true });
     const other = await hub.call<any>(as(alice), 'create_project', { name: 'Receiver' });
-    await hub.call(as(admin), 'update_server_settings', { codePolicy: 'admins' });
     // Blobs are per project: upload the bundle into the receiving project first.
     const bytes = await hub.engine(p.id).blobs.get(bundle.hash);
     const up = await hub.callProject<any>(as(alice), other.id, 'upload_file', { name: 'b.kalibra', base64: Buffer.from(bytes).toString('base64') });

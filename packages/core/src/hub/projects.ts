@@ -44,7 +44,8 @@ export class Projects {
 
   /** A live project by id or name. */
   get(idOrName: string): Project {
-    const r = this.db.get('SELECT * FROM projects WHERE (id = ? OR name = ? COLLATE NOCASE) AND deleted_at IS NULL', idOrName, idOrName);
+    // An id wins over another project named like it (e.g. a project called "default").
+    const r = this.db.get('SELECT * FROM projects WHERE (id = ? OR name = ? COLLATE NOCASE) AND deleted_at IS NULL ORDER BY id = ? DESC LIMIT 1', idOrName, idOrName, idOrName);
     if (!r) throw notFound('Project', idOrName);
     return toProject(r);
   }
@@ -192,7 +193,8 @@ export class Projects {
   }
 
   group(idOrName: string): Group {
-    const g = this.groups().find((x) => x.id === idOrName || x.name.toLowerCase() === idOrName.toLowerCase());
+    const all = this.groups();
+    const g = all.find((x) => x.id === idOrName) ?? all.find((x) => x.name.toLowerCase() === idOrName.toLowerCase());
     if (!g) throw notFound('Group', idOrName);
     return g;
   }

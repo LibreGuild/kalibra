@@ -60,6 +60,14 @@ function identitiesOf(hub: Hub, userId: string) {
 /** Where providers send people back to; relative when the server's public address is not configured. */
 const callbackBase = (hub: Hub) => hub.publicUrl() ?? '';
 
+/**
+ * A partial provider for saving: fields left out keep their current value. zod's .partial() would
+ * still fill defaults for missing fields (e.g. reset allowedDomains to []), widening who gets in.
+ */
+const ProviderPatch = z.object(
+  Object.fromEntries(Object.entries(AuthProviderConfig.shape).map(([k, v]) => [k, (v instanceof z.ZodDefault ? (v.unwrap() as z.ZodType) : (v as z.ZodType)).optional()])),
+) as unknown as z.ZodType<Partial<AuthProviderConfig>>;
+
 const publicUser = (u: { id: string; username: string; name: string }) => ({ id: u.id, username: u.username, name: u.name });
 
 export const HUB_OPS: HubOpDef<any, any>[] = [
@@ -91,13 +99,19 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
   defineHubOp({
     name: 'update_me',
     title: 'Update your profile',
-    description: 'Changes your display name or email.',
+    description: 'Changes your display name. Your email is set by an administrator, because sign-in providers link accounts by email.',
     category: 'account',
     access: 'user',
     serverOnly: true,
     mcp: false,
     input: z.object({ name: z.string().min(1).max(100).optional(), email: z.string().max(200).optional() }),
-    handler: ({ hub, principal }, i) => hub.accounts.update(principal.user.id, i),
+    handler: ({ hub, principal }, i) => {
+      // A self-chosen email could claim someone else's invitation when they first sign in with SSO.
+      if (i.email !== undefined && i.email.trim().toLowerCase() !== principal.user.email.toLowerCase()) {
+        throw new KalibraError('forbidden', 'Ask an administrator to change your email: sign-in providers use it to find your account');
+      }
+      return hub.accounts.update(principal.user.id, { name: i.name });
+    },
   }),
 
   defineHubOp({
@@ -436,19 +450,26 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
   defineHubOp({
     name: 'reset_user_password',
     title: 'Reset a password',
-    description: 'Sets a new password for a user and signs them out everywhere. By default they must change it at next sign-in.',
+    description: 'Sets a new password for a user and signs them out everywhere. By default they must change it at next sign-in, and their access tokens stop working (in case the account was taken over).',
     category: 'admin',
     access: 'admin',
     serverOnly: true,
     mcp: false,
     quiet: true,
-    input: z.object({ id: z.string(), password: z.string().max(PASSWORD_MAX), mustChangePassword: z.boolean().default(true) }),
+    input: z.object({
+      id: z.string(),
+      password: z.string().max(PASSWORD_MAX),
+      mustChangePassword: z.boolean().default(true),
+      revokeTokens: z.boolean().default(true).describe('Also stop their access tokens (agents, scripts)'),
+    }),
     handler: async ({ hub, actor, ip }, i) => {
       const user = hub.accounts.find(i.id);
       if (!user) throw notFound('User', i.id);
       await hub.accounts.setPassword(user.id, i.password, { mustChange: i.mustChangePassword });
       hub.accounts.revokeAllSessions(user.id);
-      hub.audit(actor, 'password.reset', user.username, {}, ip);
+      const tokens = i.revokeTokens ? hub.accounts.listTokens(user.id) : [];
+      for (const t of tokens) hub.accounts.revokeToken(t.id);
+      hub.audit(actor, 'password.reset', user.username, { tokensRevoked: tokens.length }, ip);
       return { reset: user.id };
     },
   }),
@@ -493,11 +514,10 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     mcp: false,
     input: z.object({ id: z.string(), name: z.string().min(1).max(80).optional(), description: z.string().max(500).optional(), users: z.array(z.string()).optional() }),
     handler: ({ hub, actor, ip }, i) => {
-      const g = hub.projects.updateGroup(i.id, i);
-      if (i.users) {
-        if (g.source !== 'local') throw invalid(`Members of "${g.name}" come from ${g.source} at sign-in and cannot be edited here`);
-        hub.projects.setGroupMembers(g.id, i.users.map((u: string) => hub.accounts.find(u)?.id ?? u));
-      }
+      const cur = hub.projects.group(i.id);
+      if (i.users && cur.source !== 'local') throw invalid(`Members of "${cur.name}" come from ${cur.source} at sign-in and cannot be edited here`);
+      const g = hub.projects.updateGroup(cur.id, i);
+      if (i.users) hub.projects.setGroupMembers(g.id, i.users.map((u: string) => hub.accounts.find(u)?.id ?? u));
       hub.audit(actor, 'group.updated', g.name, { id: g.id, members: i.users?.length }, ip);
       return { ...hub.projects.group(g.id), users: hub.projects.groupMembers(g.id) };
     },
@@ -579,7 +599,7 @@ export const HUB_OPS: HubOpDef<any, any>[] = [
     serverOnly: true,
     mcp: false,
     quiet: true,
-    input: AuthProviderConfig.partial().extend({ id: z.string().optional(), clientSecret: z.string().max(2000).optional() }),
+    input: z.intersection(ProviderPatch, z.object({ id: z.string().optional(), clientSecret: z.string().max(2000).optional() })),
     handler: async ({ hub, actor, ip }, i) => {
       const saved = await hub.providers.save(i);
       hub.audit(actor, 'provider.saved', saved.name, { id: saved.id, kind: saved.kind, enabled: saved.enabled, secretChanged: !!i.clientSecret }, ip);

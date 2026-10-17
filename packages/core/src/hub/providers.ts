@@ -185,6 +185,8 @@ export function validateProvider(p: AuthProviderConfig) {
     } else {
       if (!p.emailHeader) throw invalid('Set the email header (or a JWT header)');
       if (!p.trustedProxies.length) throw invalid('List the proxy addresses allowed to set the header; otherwise anyone could send it');
+      const everyone = p.trustedProxies.find((e) => /^(0\.0\.0\.0|::)\/0$/.test(e.trim()) || e.trim() === '*');
+      if (everyone) throw invalid(`"${everyone}" would trust the header from anywhere; list the gateway's own addresses`);
     }
   }
   for (const d of p.allowedDomains) if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) throw invalid(`"${d}" is not a domain`);

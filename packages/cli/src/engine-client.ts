@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DEFAULT_PROJECT, FileSecretStore, Hub, KalibraError, type Actor, type HubMode, type HubOptions, type SecretStore } from '@kalibra/core';
@@ -30,6 +30,8 @@ const infoFile = (dir: string) => join(dir, '.engine.json');
 export function writeEngineInfo(dir: string, info: EngineInfo) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(infoFile(dir), JSON.stringify(info), { mode: 0o600 });
+  // `mode` only applies when the file is created; an older, looser file must not keep the token readable.
+  chmodSync(infoFile(dir), 0o600);
 }
 
 export function clearEngineInfo(dir: string) {

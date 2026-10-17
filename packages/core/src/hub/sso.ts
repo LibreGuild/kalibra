@@ -45,6 +45,10 @@ interface Pending {
 }
 
 const PENDING_MS = 10 * 60_000;
+/** Sign-ins in progress kept at most; anyone can start one, so the oldest are dropped beyond this. */
+export const MAX_PENDING = 2000;
+/** Gateway sign-ins remembered at most. */
+const MAX_CACHED = 5000;
 
 export class SsoService {
   private pending = new Map<string, Pending>();
@@ -70,6 +74,7 @@ export class SsoService {
     const challenge = await oidc.calculatePKCECodeChallenge(verifier);
     const nonce = oidc.randomNonce();
     const binding = randomSecret(24);
+    if (this.pending.size >= MAX_PENDING) this.pending.delete(this.pending.keys().next().value!);
     this.pending.set(state, { provider: p.id, binding, verifier, nonce, next: safeNext(opts.next), redirectUri: opts.redirectUri, expires: Date.now() + PENDING_MS });
 
     if (p.kind === 'github') {
@@ -90,9 +95,11 @@ export class SsoService {
     const state = url.searchParams.get('state') ?? '';
     const pending = this.pending.get(state);
     this.pending.delete(state);
-    if (providerError) throw new KalibraError('forbidden', `${p.name} did not sign you in: ${providerError}`);
+    // Check the sign-in is ours before showing anything from the URL: otherwise anyone could send a
+    // link that makes the login page display their text.
     if (!pending || pending.provider !== p.id || pending.expires < Date.now()) throw new KalibraError('forbidden', 'This sign-in link expired or was already used. Try again.');
     if (!opts.binding || opts.binding !== pending.binding) throw new KalibraError('forbidden', 'This sign-in was started in another browser. Try again here.');
+    if (providerError) throw new KalibraError('forbidden', `${p.name} did not sign you in: ${providerError.slice(0, 200)}`);
 
     const profile = p.kind === 'github' ? await this.githubProfile(p, url, pending) : await this.oidcProfile(p, url, pending, state);
     const user = await this.admit(p, profile, opts.ip ?? '');
@@ -165,8 +172,12 @@ export class SsoService {
   /**
    * Signs in a request that came through a login gateway. Undefined when no proxy provider is
    * enabled or the request does not carry its headers (then other sign-in methods apply).
+   * `peer` is the address that connected to us (the gateway itself), never a forwarded-for value,
+   * which the client can write; `ip` is only recorded.
    */
-  async fromProxy(headers: Record<string, string | string[] | undefined>, ip: string): Promise<User | undefined> {
+  async fromProxy(headers: Record<string, string | string[] | undefined>, conn: { peer: string; ip?: string }): Promise<User | undefined> {
+    const ip = conn.ip ?? conn.peer;
+    this.pruneProxyCache();
     for (const p of this.hub.providers.enabled().filter((x) => x.kind === 'proxy')) {
       const header = (name: string) => {
         const v = headers[name.toLowerCase()];
@@ -177,8 +188,8 @@ export class SsoService {
         const token = header(p.jwtHeader);
         if (!token) continue;
         const key = `${p.id}:${hash(token)}`;
-        const cached = this.proxyCache.get(key);
-        if (cached && cached.until > Date.now()) return cached.user;
+        const cached = this.cachedProxyUser(key);
+        if (cached) return cached;
         const { payload } = await jwtVerify(token, this.jwksFor(p.jwksUrl), { audience: p.jwtAudience, ...(p.jwtIssuer ? { issuer: p.jwtIssuer } : {}) }).catch((e) => {
           throw new KalibraError('forbidden', `The login gateway's token was refused: ${e?.code ?? e?.message ?? e}`);
         });
@@ -190,16 +201,36 @@ export class SsoService {
       }
       const email = header(p.emailHeader).trim();
       if (!email) continue;
-      if (!inList(ip, p.trustedProxies)) throw new KalibraError('forbidden', `Sign-in headers from ${ip || 'an unknown address'} are not trusted`);
+      if (!inList(conn.peer, p.trustedProxies)) throw new KalibraError('forbidden', `Sign-in headers from ${conn.peer || 'an unknown address'} are not trusted`);
       const key = `${p.id}:${hash([email, header(p.nameHeader), header(p.groupsHeader)].join('\n'))}`;
-      const cached = this.proxyCache.get(key);
-      if (cached && cached.until > Date.now()) return cached.user;
+      const cached = this.cachedProxyUser(key);
+      if (cached) return cached;
       profile = { subject: email.toLowerCase(), email, emailVerified: true, name: header(p.nameHeader) || email, username: email.split('@')[0], groups: toList(header(p.groupsHeader)) };
       const user = await this.admit(p, profile, ip);
       this.proxyCache.set(key, { user, until: Date.now() + 60_000 });
       return user;
     }
     return undefined;
+  }
+
+  /** A recently admitted gateway user, re-read so a disabled account or a role change applies at once. */
+  private cachedProxyUser(key: string): User | undefined {
+    const cached = this.proxyCache.get(key);
+    if (!cached || cached.until <= Date.now()) return undefined;
+    const user = this.hub.accounts.get(cached.user.id);
+    if (user.disabled) {
+      this.proxyCache.delete(key);
+      throw new KalibraError('forbidden', 'This account is disabled. Ask an administrator.');
+    }
+    return user;
+  }
+
+  private pruneProxyCache() {
+    if (this.proxyCache.size < MAX_CACHED) return;
+    const now = Date.now();
+    for (const [k, v] of this.proxyCache) if (v.until <= now) this.proxyCache.delete(k);
+    // Still full of live entries: start over rather than grow without bound.
+    if (this.proxyCache.size >= MAX_CACHED) this.proxyCache.clear();
   }
 
   // ── Accounts ─────────────────────────────────────────────────────────────
@@ -228,18 +259,28 @@ export class SsoService {
     if (p.kind === 'github' && p.allowedOrgs.length && !inAny(p.allowedOrgs)) throw refuse(`Sign-in with ${p.name} is limited to members of ${p.allowedOrgs.join(', ')}.`, 'org');
     if (p.allowedGroups.length && !inAny(p.allowedGroups)) throw refuse(`Your ${p.name} account is not in a group that may use Kalibra. Ask an administrator.`, 'group');
 
-    let user = hub.accounts.byIdentity(p.id, profile.subject);
+    const subject = identityKey(p, profile.subject);
+    let user = hub.accounts.byIdentity(p.id, subject);
     if (user?.disabled) throw refuse('This account is disabled. Ask an administrator.', 'disabled');
     if (!user && profile.emailVerified && profile.email) {
-      const invited = hub.accounts.findByEmail(profile.email);
-      if (invited && !invited.disabled) user = invited;
+      const matches = hub.accounts.findAllByEmail(profile.email).filter((u) => !u.disabled);
+      // Several accounts share the email: linking would pick one at random.
+      if (matches.length > 1) throw refuse(`More than one Kalibra account uses ${profile.email}. Ask an administrator to sort it out.`, 'ambiguous email');
+      const invited = matches[0];
+      // The account already belongs to another identity at this same provider (e.g. an email
+      // address given to a new person): don't hand it over.
+      const sameIssuer = identityKey(p, '');
+      if (invited && hub.accounts.identities(invited.id, true).some((i) => i.provider === p.id && i.subject.startsWith(sameIssuer) && i.subject !== subject)) {
+        throw refuse(`${profile.email} is linked to another ${p.name} account. Ask an administrator.`, 'email taken');
+      }
+      if (invited) user = invited;
     }
     if (!user) {
       if (!p.autoCreate) throw refuse(`There is no Kalibra account for ${who}. Ask an administrator to add you (with this email).`, 'not invited');
       user = await hub.accounts.create({ username: hub.accounts.freeUsername(profile.username || who), name: profile.name || who, email: profile.emailVerified ? profile.email : '', role: 'user' }, `provider:${p.id}`);
       hub.audit({ kind: 'system', id: p.id }, 'user.created', user.username, { provider: p.id, from: 'sign-in' }, ip);
     }
-    hub.accounts.linkIdentity(p.id, profile.subject, user.id, profile.email, { name: profile.name, username: profile.username, groups: profile.groups });
+    hub.accounts.linkIdentity(p.id, subject, user.id, profile.email, { name: profile.name, username: profile.username, groups: profile.groups });
     if (p.adminGroups.length && inAny(p.adminGroups) && user.role !== 'admin') {
       user = hub.accounts.update(user.id, { role: 'admin' });
       hub.audit({ kind: 'system', id: p.id }, 'user.updated', user.username, { role: 'admin', from: `${p.name} admin group` }, ip);
@@ -295,8 +336,20 @@ export class SsoService {
 
 /** Only same-site paths are allowed as the page to return to (no open redirects). */
 export function safeNext(next?: string): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || next.startsWith('/api/')) return '/';
+  // Browsers drop tabs and newlines in URLs and read a backslash as "/", so "/<tab>/evil.example" would become "//evil.example".
+  if (!next || !next.startsWith('/') || /[\u0000-\u001f\u007f\\]/.test(next)) return '/';
+  if (next.startsWith('//') || next.startsWith('/api/')) return '/';
   return next;
+}
+
+/**
+ * The stored identity: the provider's subject scoped to the issuer it came from. Pointing a provider
+ * at another server (e.g. github.com → GitHub Enterprise, both with numeric user ids) then cannot
+ * sign someone into the account of whoever had the same id at the old server.
+ */
+export function identityKey(p: AuthProvider, subject: string): string {
+  const issuer = p.kind === 'oidc' ? p.issuer : p.kind === 'github' ? p.githubUrl : p.jwtHeader ? p.jwksUrl : 'gateway';
+  return `${issuer.replace(/\/+$/, '').toLowerCase()}#${subject}`;
 }
 
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');

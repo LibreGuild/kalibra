@@ -29,6 +29,12 @@ export interface AuthConfig {
   trustProxy: boolean;
 }
 
+/**
+ * The session cookie of this request. Over HTTPS only the "__Host-" one counts: falling back to the
+ * plain name would let a sibling subdomain plant its own session cookie (session fixation).
+ */
+export const readSessionCookie = (req: IncomingMessage, cfg: AuthConfig) => cookie(req, sessionCookieName(isSecure(req, cfg)));
+
 export function cookie(req: IncomingMessage, name: string): string | undefined {
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const [k, ...v] = part.trim().split('=');
@@ -37,8 +43,12 @@ export function cookie(req: IncomingMessage, name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The client's address. Behind a trusted proxy it is the last X-Forwarded-For entry: the one our
+ * proxy appended. Earlier entries are whatever the client sent and must not be trusted.
+ */
 export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
-  const forwarded = trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '';
+  const forwarded = trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean).pop() : undefined;
   return forwarded || req.socket.remoteAddress || '';
 }
 
@@ -124,13 +134,13 @@ export async function authenticate(req: IncomingMessage, cfg: AuthConfig): Promi
     return { ok: true, principal: { user: found.user, via: tagged.via ?? 'cli', client: tagged.client, model: tagged.model, tokenId: found.tokenId }, via: 'token' };
   }
 
-  const secret = cookie(req, sessionCookieName(true)) ?? cookie(req, sessionCookieName(false));
+  const secret = readSessionCookie(req, cfg);
   const session = secret ? hub.accounts.resolveSession(secret) : undefined;
   if (session) return { ok: true, principal: { user: session.user, via: 'user', sessionId: session.sessionId }, via: 'session' };
 
   // Behind a login gateway, every request carries the signed-in user.
   try {
-    const user = await hub.sso.fromProxy(req.headers, clientIp(req, cfg.trustProxy));
+    const user = await hub.sso.fromProxy(req.headers, { peer: req.socket.remoteAddress ?? '', ip: clientIp(req, cfg.trustProxy) });
     if (user) return { ok: true, principal: { user, via: 'user' }, via: 'proxy' };
   } catch (e: any) {
     return { ok: false, status: 403, code: 'forbidden', message: e?.message ?? String(e) };
@@ -139,8 +149,9 @@ export async function authenticate(req: IncomingMessage, cfg: AuthConfig): Promi
 }
 
 /**
- * Counts attempts per key in a sliding window (sign-in attempts per IP). In memory: a restart
- * resets it, and account lockout still applies per user.
+ * Counts failures per key in a sliding window (failed sign-ins per IP). Only failures count, so an
+ * office signing in from one shared address is never blocked by its own successful sign-ins. In
+ * memory: a restart resets it, and account lockout still applies per user.
  */
 export class RateLimiter {
   private hits = new Map<string, number[]>();
@@ -150,18 +161,20 @@ export class RateLimiter {
     private windowMs: number,
   ) {}
 
-  /** Records an attempt; false when the key is over the limit. */
-  allow(key: string): boolean {
+  /** Whether the key has failed too often recently. */
+  blocked(key: string): boolean {
     const now = Date.now();
     const recent = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
-    if (recent.length >= this.max) {
-      this.hits.set(key, recent);
-      return false;
-    }
-    recent.push(now);
-    this.hits.set(key, recent);
+    if (recent.length) this.hits.set(key, recent);
+    else this.hits.delete(key);
+    return recent.length >= this.max;
+  }
+
+  /** Records a failure. */
+  fail(key: string) {
+    const now = Date.now();
+    this.hits.set(key, [...(this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs), now]);
     if (this.hits.size > 10_000) this.prune(now);
-    return true;
   }
 
   private prune(now: number) {

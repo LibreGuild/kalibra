@@ -72,8 +72,8 @@ export function secretNames(spec: unknown): string[] {
   return [...names].sort();
 }
 
-/** Spec fields holding JavaScript that Kalibra runs on this computer. */
-const CODE_KEYS = new Set(['code', 'beforeRequest', 'afterResponse', 'onMessage', 'waitForOpenAck', 'ignoreWhen', 'isFinal', 'doneExpression', 'applyWhen', 'expression']);
+/** Spec fields holding JavaScript that Kalibra runs on this computer (`session`: WebSocket session scripts). */
+const CODE_KEYS = new Set(['code', 'beforeRequest', 'afterResponse', 'onMessage', 'session', 'waitForOpenAck', 'ignoreWhen', 'isFinal', 'doneExpression', 'applyWhen', 'expression']);
 const DONE_WHEN_MODES = new Set(['final_after_audio', 'close', 'expression', 'idle']);
 
 /** Calls `found(place, code)` for every piece of JavaScript in a definition. */

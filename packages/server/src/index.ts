@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_PROJECT, KalibraError, roleAtLeast, type EngineEvent, type Hub, type Principal } from '@kalibra/core';
-import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, ownOrigin, RateLimiter, sessionCookieName, type AuthConfig } from './auth.js';
+import { authenticate, checkLocalOrigin, clientIp, cookie, isSecure, LOCAL_COOKIE, originAllowed, ownOrigin, RateLimiter, readSessionCookie, sessionCookieName, type AuthConfig } from './auth.js';
 import { BASE_HEADERS, fail, readBody, readJson, send, sendData, sendError, serveBlob, serveStatic } from './http.js';
 
 /*
@@ -54,7 +54,7 @@ export interface RunningServer {
 
 export const newToken = () => randomBytes(32).toString('base64url');
 
-/** Sign-in attempts per IP address in 10 minutes (each account also locks after repeated wrong passwords). */
+/** Failed sign-in attempts per IP address in 10 minutes (each account also locks after repeated wrong passwords). */
 const LOGIN_LIMIT = 20;
 /** How often live event streams re-check that the caller may still see the project. */
 const RECHECK_MS = 30_000;
@@ -123,14 +123,24 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   /** Where providers send the browser back to. */
   const base = (req: IncomingMessage) => cfg.publicUrl ?? ownOrigin(req, cfg) ?? '';
-  const SSO_COOKIE = 'kalibra_sso';
+  // Binds a sign-in to the browser that started it. "__Host-" over HTTPS (needs Path=/), so a
+  // sibling subdomain cannot plant its own binding and finish an attacker's sign-in in your browser.
+  const ssoCookieName = (req: IncomingMessage) => (isSecure(req, cfg) ? '__Host-kalibra_sso' : 'kalibra_sso');
   const ssoCookie = (req: IncomingMessage, value: string, maxAge: number) =>
-    `${SSO_COOKIE}=${value}; HttpOnly; SameSite=Lax; Path=/api/auth/sso; Max-Age=${maxAge}${isSecure(req, cfg) ? '; Secure' : ''}`;
+    isSecure(req, cfg)
+      ? `${ssoCookieName(req)}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}; Secure`
+      : `${ssoCookieName(req)}=${value}; HttpOnly; SameSite=Lax; Path=/api/auth/sso; Max-Age=${maxAge}`;
   const redirect = (res: ServerResponse, location: string, cookies: string[] = []) => {
     res.writeHead(302, { ...BASE_HEADERS, location, 'cache-control': 'no-store', ...(cookies.length ? { 'set-cookie': cookies } : {}) });
     res.end();
   };
-  const loginError = (message: string) => `/login?error=${encodeURIComponent(message)}`;
+  /*
+   * Why a sign-in failed travels in a short-lived cookie set by us, not in the URL: a link anyone
+   * can craft (/login?error=…) must not be able to put text on our sign-in page.
+   */
+  const FLASH = 'kalibra_login_error';
+  const flash = (req: IncomingMessage, message: string, maxAge = 120) =>
+    `${FLASH}=${encodeURIComponent(message.slice(0, 300))}; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=${maxAge}${isSecure(req, cfg) ? '; Secure' : ''}`;
 
   /** Sign-in through a provider: start (redirect out) and callback (redirect back in). */
   async function ssoRoutes(req: IncomingMessage, res: ServerResponse, url: URL, providerId: string, step: string) {
@@ -141,12 +151,17 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const { url: to, binding } = await hub.sso.start(providerId, { redirectUri: callback, next: url.searchParams.get('next') ?? undefined });
         return redirect(res, to, [ssoCookie(req, binding, 600)]);
       }
-      if (!logins.allow(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
-      const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${url.pathname}${url.search}`, binding: cookie(req, SSO_COOKIE), ip });
-      const s = newSession(req, user.id);
-      return redirect(res, next, [s.cookie, ssoCookie(req, '', 0)]);
+      if (logins.blocked(ip)) throw new KalibraError('forbidden', 'Too many sign-in attempts. Wait a few minutes.');
+      try {
+        const { user, next } = await hub.sso.finish(providerId, { callbackUrl: `${base(req)}${url.pathname}${url.search}`, binding: cookie(req, ssoCookieName(req)), ip });
+        const s = newSession(req, user.id);
+        return redirect(res, next, [s.cookie, ssoCookie(req, '', 0)]);
+      } catch (e) {
+        logins.fail(ip);
+        throw e;
+      }
     } catch (e: any) {
-      return redirect(res, loginError(e?.message ?? String(e)), [ssoCookie(req, '', 0)]);
+      return redirect(res, '/login', [ssoCookie(req, '', 0), flash(req, e?.message ?? String(e))]);
     }
   }
 
@@ -157,14 +172,20 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (path === '/api/auth/status' && req.method === 'GET') {
       const auth = await authenticate(req, cfg);
       const server = hub.mode === 'server';
-      return sendData(res, {
-        mode: hub.mode,
-        setupRequired: hub.needsSetup(),
-        user: auth.ok ? auth.principal.user : null,
-        providers: server ? hub.providers.enabled().map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
-        passwordLogin: server ? hub.settings().passwordLogin : true,
-        ...(!auth.ok && auth.status === 403 ? { error: auth.message } : {}),
-      });
+      const flashed = cookie(req, FLASH);
+      const error = flashed ?? (!auth.ok && auth.status === 403 ? auth.message : undefined);
+      return sendData(
+        res,
+        {
+          mode: hub.mode,
+          setupRequired: hub.needsSetup(),
+          user: auth.ok ? auth.principal.user : null,
+          providers: server ? hub.providers.enabled().map((p) => ({ id: p.id, name: p.name, kind: p.kind })) : [],
+          passwordLogin: server ? hub.settings().passwordLogin : true,
+          ...(error ? { error } : {}),
+        },
+        flashed !== undefined ? { 'set-cookie': flash(req, '', 0) } : {},
+      );
     }
 
     const sso = /^\/api\/auth\/sso\/([a-z0-9-]+)\/(start|callback)$/.exec(path);
@@ -187,14 +208,17 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
     if (path === '/api/auth/setup') {
-      if (!logins.allow(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
-      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip);
+      if (logins.blocked(ip)) return fail(res, 429, 'rate_limited', 'Too many attempts. Wait a few minutes.');
+      const user = await hub.completeSetup(str(body.code), { username: str(body.username), password: str(body.password), name: str(body.name), email: str(body.email) }, ip).catch((e) => {
+        if (e?.code === 'forbidden') logins.fail(ip);
+        throw e;
+      });
       return startSession(req, res, user.id);
     }
 
     if (path === '/api/auth/login') {
       const username = str(body.username).trim();
-      if (!logins.allow(ip)) {
+      if (logins.blocked(ip)) {
         hub.audit({ kind: 'anonymous', id: username }, 'login.rate_limited', username, {}, ip);
         return fail(res, 429, 'rate_limited', 'Too many sign-in attempts. Wait a few minutes.');
       }
@@ -208,6 +232,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         hub.audit({ kind: 'user', id: user.id, name: user.name }, 'login', user.username, {}, ip);
         return startSession(req, res, user.id);
       } catch (e) {
+        logins.fail(ip);
         hub.audit({ kind: 'anonymous', id: username }, 'login.failed', username, {}, ip);
         throw e;
       }
@@ -233,7 +258,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     // Project routes, and the legacy shortcuts to the default project.
     const m = /^\/api\/projects\/([^/]+)(\/.*)$/.exec(path);
-    const projectId = m ? decodeURIComponent(m[1]) : DEFAULT_PROJECT;
+    let projectId = DEFAULT_PROJECT;
+    try {
+      if (m) projectId = decodeURIComponent(m[1]);
+    } catch {
+      throw new KalibraError('invalid', 'Bad project in the address');
+    }
     const rest = m ? m[2] : path.replace(/^\/api/, '');
 
     if (rest === '/ops' && req.method === 'GET') {
@@ -294,7 +324,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     });
   }
 
-  const cookieValue = (req: IncomingMessage) => cookie(req, sessionCookieName(true)) ?? cookie(req, sessionCookieName(false));
+  const cookieValue = (req: IncomingMessage) => readSessionCookie(req, cfg);
 
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject);

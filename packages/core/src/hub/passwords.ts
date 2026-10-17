@@ -12,10 +12,42 @@ import { KalibraError } from '../util.js';
 const PARAMS = { N: 2 ** 17, r: 8, p: 1 };
 const KEY_LEN = 32;
 
+/**
+ * Runs at most `limit` tasks at once and refuses new ones when `maxWaiting` are already queued.
+ * Each scrypt takes ~128 MiB and one of libuv's four threads (also used for file reads), so a
+ * burst of sign-in attempts must not take them all or queue without bound.
+ */
+export class Gate {
+  private running = 0;
+  private waiting: (() => void)[] = [];
+
+  constructor(
+    private limit: number,
+    private maxWaiting: number,
+  ) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.running >= this.limit) {
+      if (this.waiting.length >= this.maxWaiting) throw new KalibraError('unavailable', 'The server is busy signing people in. Try again in a moment.');
+      // The finishing task hands its slot over, so `running` stays as it is.
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else this.running++;
+    try {
+      return await fn();
+    } finally {
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.running--;
+    }
+  }
+}
+
+const hashing = new Gate(2, 100);
+
 function scrypt(password: string, salt: Buffer, opts: ScryptOptions): Promise<Buffer> {
   // maxmem must cover 128 * N * r bytes (128 MiB at N=2^17, r=8).
   const maxmem = 256 * 1024 * 1024;
-  return new Promise((resolve, reject) => scryptCb(password.normalize('NFKC'), salt, KEY_LEN, { ...opts, maxmem }, (err, key) => (err ? reject(err) : resolve(key))));
+  return hashing.run(() => new Promise((resolve, reject) => scryptCb(password.normalize('NFKC'), salt, KEY_LEN, { ...opts, maxmem }, (err, key) => (err ? reject(err) : resolve(key)))));
 }
 
 export async function hashPassword(password: string): Promise<string> {
