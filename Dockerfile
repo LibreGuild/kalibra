@@ -8,7 +8,7 @@
 # Everything Kalibra stores lives in /data: back up that volume.
 
 # ── Build: the web UI and the single-file CLI (engine, server and UI inlined) ─────────────────
-FROM node:22-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
@@ -22,7 +22,7 @@ COPY . .
 RUN npm run build -w @kalibra/web && npm run build -w kalibra
 
 # ── Run: Node and one bundle, as an unprivileged user ─────────────────────────────────────────
-FROM node:22-bookworm-slim
+FROM node:25-bookworm-slim
 LABEL org.opencontainers.image.title="Kalibra" \
       org.opencontainers.image.description="Local-first, open-source evaluation for AI applications (team server)" \
       org.opencontainers.image.source="https://github.com/LibreGuild/kalibra" \
