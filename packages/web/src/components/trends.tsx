@@ -54,8 +54,8 @@ function Chart({ runs }: { runs: TrendRun[] }) {
           </text>
         </g>
       ))}
-      {area && <path d={area} fill="var(--k-accent)" opacity={0.1} />}
-      <path d={path} fill="none" stroke="var(--k-accent)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      {area && <path d={area} fill="var(--k-chart)" opacity={0.08} />}
+      <path d={path} fill="none" stroke="var(--k-chart)" strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
       {pts.map((r, i) => (
         <Tip
           key={r.id}

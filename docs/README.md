@@ -10,7 +10,6 @@ Short reads for people building or contributing to Kalibra. Each file takes a fe
 | [data-model.md](data-model.md) | SQLite tables, versioning, blobs, secrets, workspace folder |
 | [users-and-projects.md](users-and-projects.md) | Projects, roles, sign-in (passwords, SSO, GitHub, gateways), tokens, running a team server |
 | [deploy.md](deploy.md) | npx and npm, Docker and Compose, backups and upgrades, how a release is made |
-| [setup-log.md](setup-log.md) | What was set up on GitHub, Google Cloud and npm (sign-in tests, distribution), and how to undo it |
 | [targets-and-checks.md](targets-and-checks.md) | Every target kind and every check type, one line each |
 | [build-and-run.md](build-and-run.md) | Install, dev mode, demo data, builds, CLI, npm publishing |
 | [testing.md](testing.md) | Test layout, running subsets, what the demo apps simulate |

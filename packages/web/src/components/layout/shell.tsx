@@ -7,7 +7,7 @@ import { Activity, BookOpen, Bot, Braces, Crosshair, Database, Eye, FlaskConical
 import { useQueryClient } from '@tanstack/react-query';
 import { authCall, forgetProject, useHubOp, useMeta, useOp } from '../../lib/api';
 import { ProjectProvider, useProject, useSession } from '../../lib/session';
-import { Menu, MenuItem, MenuNote, MenuSeparator, Tip } from '../ui/overlay';
+import { Menu, MenuItem, MenuNote, MenuSeparator, SlowTooltips, Tip } from '../ui/overlay';
 import { toastError } from '../ui/toast';
 import { ProjectSwitcher } from './project-switcher';
 import { SdkDocsDialog } from '../../sdk-docs/picker-dialog';
@@ -131,74 +131,76 @@ function Shell() {
 
   return (
     <div className="flex h-full">
-      <aside className={clsx('flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
-        <div className={clsx('mb-4 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
-          {collapsed ? (
-            // Collapsed: the logo tile is the expand control; hover or focus swaps the K for the icon.
-            <Tip content={'Expand sidebar (⌘\\)'} side="right">
-              <button
-                ref={toggleButton}
-                type="button"
-                onClick={toggleFromButton}
-                aria-label="Expand sidebar"
-                className="group relative grid size-7 shrink-0 place-items-center rounded-lg focus-visible:outline-offset-2"
-              >
-                <Logo className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
-                <span className="absolute inset-0 grid place-items-center rounded-lg bg-hover text-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
-                  <PanelLeftOpen className="size-4" />
-                </span>
-              </button>
-            </Tip>
-          ) : (
-            <>
-              <Logo />
-              <span className="flex-1 text-[1.0625rem] font-bold tracking-tight">Kalibra</span>
-              <Tip content={'Collapse sidebar (⌘\\)'} side="right">
+      <SlowTooltips>
+        <aside className={clsx('flex shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-line bg-sidebar pt-4 pb-3 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[228px] px-3')}>
+          <div className={clsx('mb-4 flex items-center gap-2', collapsed ? 'justify-center' : 'px-1.5')}>
+            {collapsed ? (
+              // Collapsed: the logo tile is the expand control; hover or focus swaps the K for the icon.
+              <Tip content={'Expand sidebar (⌘\\)'} side="right">
                 <button
                   ref={toggleButton}
                   type="button"
                   onClick={toggleFromButton}
-                  aria-label="Collapse sidebar"
-                  className="grid size-7 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-hover hover:text-ink"
+                  aria-label="Expand sidebar"
+                  className="group relative grid size-7 shrink-0 place-items-center rounded-lg focus-visible:outline-offset-2"
                 >
-                  <PanelLeftClose className="size-4" />
+                  <Logo className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+                  <span className="absolute inset-0 grid place-items-center rounded-lg bg-hover text-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                    <PanelLeftOpen className="size-4" />
+                  </span>
                 </button>
               </Tip>
-            </>
-          )}
-        </div>
-        <div className="mb-3">
-          <ProjectSwitcher collapsed={collapsed} />
-        </div>
-        {noProjects ? (
-          !collapsed && (
-            <div className="rounded-lg border border-dashed border-line-strong px-3 py-3 text-[0.8125rem] text-ink-muted">
-              You are not in a project yet.{' '}
-              <NavLink to="/projects" className="font-medium text-accent-ink hover:underline">
-                {session.isServer ? 'Create one or ask to be added' : 'Create one'}
-              </NavLink>
-              .
-            </div>
-          )
-        ) : (
-          <nav className="flex flex-col gap-0.5">
-            {NAV.map((n) => (
-              <NavItem key={n.to} {...n} collapsed={collapsed} count={n.to === '/datasets' ? review : undefined} />
-            ))}
-          </nav>
-        )}
-        {!noProjects && (
-          <>
-            <div className="my-3 h-px bg-line" />
+            ) : (
+              <>
+                <Logo />
+                <span className="flex-1 text-[1.0625rem] font-bold tracking-tight">Kalibra</span>
+                <Tip content={'Collapse sidebar (⌘\\)'} side="right">
+                  <button
+                    ref={toggleButton}
+                    type="button"
+                    onClick={toggleFromButton}
+                    aria-label="Collapse sidebar"
+                    className="grid size-7 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-hover hover:text-ink"
+                  >
+                    <PanelLeftClose className="size-4" />
+                  </button>
+                </Tip>
+              </>
+            )}
+          </div>
+          <div className="mb-3">
+            <ProjectSwitcher collapsed={collapsed} />
+          </div>
+          {noProjects ? (
+            !collapsed && (
+              <div className="rounded-lg border border-dashed border-line-strong px-3 py-3 text-[0.8125rem] text-ink-muted">
+                You are not in a project yet.{' '}
+                <NavLink to="/projects" className="font-medium text-accent-ink hover:underline">
+                  {session.isServer ? 'Create one or ask to be added' : 'Create one'}
+                </NavLink>
+                .
+              </div>
+            )
+          ) : (
             <nav className="flex flex-col gap-0.5">
-              {NAV2.map((n) => (
-                <NavItem key={n.to} {...n} collapsed={collapsed} />
+              {NAV.map((n) => (
+                <NavItem key={n.to} {...n} collapsed={collapsed} count={n.to === '/datasets' ? review : undefined} />
               ))}
             </nav>
-          </>
-        )}
-        <ProfileMenu collapsed={collapsed} />
-      </aside>
+          )}
+          {!noProjects && (
+            <>
+              <div className="my-3 h-px bg-line" />
+              <nav className="flex flex-col gap-0.5">
+                {NAV2.map((n) => (
+                  <NavItem key={n.to} {...n} collapsed={collapsed} />
+                ))}
+              </nav>
+            </>
+          )}
+          <ProfileMenu collapsed={collapsed} />
+        </aside>
+      </SlowTooltips>
       <main className="min-w-0 flex-1 overflow-y-auto">
         {project && !project.canEdit && <ViewOnlyBar />}
         <Outlet />

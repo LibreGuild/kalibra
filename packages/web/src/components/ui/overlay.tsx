@@ -10,6 +10,14 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
   return <T.Provider delayDuration={250} skipDelayDuration={150}>{children}</T.Provider>;
 }
 
+/**
+ * Calmer tooltips for places the pointer passes over all the time (the sidebar): they wait until the
+ * pointer rests on an item, and moving to the next item starts the wait again instead of popping up.
+ */
+export function SlowTooltips({ children }: { children: ReactNode }) {
+  return <T.Provider delayDuration={1200} skipDelayDuration={0}>{children}</T.Provider>;
+}
+
 /*
  * Radix opens a tooltip on any focus of its trigger. Browsers re-focus the last focused element when
  * the window comes back (after switching apps), which used to pop a tooltip with no mouse anywhere

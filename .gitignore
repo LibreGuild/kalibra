@@ -13,3 +13,6 @@ packages/cli/LICENSE
 .env.*
 !.env.example
 
+
+# Notes for the maintainer: deployment logs and messages from coding agents (never committed)
+private-notes/
