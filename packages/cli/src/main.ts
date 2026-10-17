@@ -13,6 +13,7 @@ import { runMcp } from './mcp.js';
 import { backup } from './backup.js';
 import { detectGit, runUrl } from './report.js';
 import { VERSION } from './version.js';
+import { adminFromEnv } from './admin-env.js';
 
 // node:sqlite prints an ExperimentalWarning on load; it is expected and noisy for CLI users.
 const emit = process.emitWarning;
@@ -240,9 +241,8 @@ async function serveTeam(dir: string, values: Flags) {
   const deployment = await openDeployment(dir, values);
   const hub = await openHub(dir, 'server', { ...(folderRoot ? { folderRoot: resolve(folderRoot) } : {}), publicUrl, authProviders: providersFromEnv(), ...deployment.hub });
   await hub.openAll();
-  const adminUser = process.env.KALIBRA_ADMIN_USERNAME;
-  const adminPassword = process.env.KALIBRA_ADMIN_PASSWORD;
-  if (adminUser && adminPassword && await hub.needsSetup()) await hub.ensureAdmin(adminUser, adminPassword);
+  const admin = adminFromEnv();
+  if (admin && await hub.needsSetup()) await hub.ensureAdmin(admin.username, admin.password);
   const host = String(values.host ?? process.env.KALIBRA_HOST ?? '127.0.0.1');
   const srv = await startServer({
     hub,

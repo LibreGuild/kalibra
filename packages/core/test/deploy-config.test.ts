@@ -42,5 +42,8 @@ describe('deployment settings', () => {
     expect(line).not.toMatch(/s3cret|pw@|sslmode/);
     expect(line).toContain('db.internal:5432/kalibra');
     expect(redactUrl('not a url')).toBe('(invalid URL)');
+    // Cloud SQL through its Unix socket (Cloud Run): no host, so WHATWG URL can't parse it.
+    expect(redactUrl('postgres://kal:p%40ss@/kalibra?host=/cloudsql/proj:us-central1:db')).toBe('postgres://socket /cloudsql/proj:us-central1:db/kalibra');
+    expect(redactUrl('rediss://:pw@cache.example:6380/0')).toBe('rediss://cache.example:6380/0');
   });
 });

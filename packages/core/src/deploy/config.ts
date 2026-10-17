@@ -115,10 +115,13 @@ export function describeDeploy(cfg: DeployConfig): string {
 
 /** Drops user name, password and query (which may carry credentials) from a URL for logs. */
 export function redactUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}${u.pathname === '/' ? '' : u.pathname}`;
-  } catch {
-    return '(invalid URL)';
-  }
+  // Postgres URLs for a Unix socket (Cloud SQL on Cloud Run: postgres://user:pw@/db?host=/cloudsql/…)
+  // have no host, which WHATWG URL rejects; take them apart by hand and show the socket folder.
+  const m = /^([a-z][a-z0-9+.-]*):\/\/(?:[^@/?#]*@)?([^/?#]*)([^?#]*)(?:\?([^#]*))?/i.exec(url);
+  if (!m) return '(invalid URL)';
+  const [, scheme, host, path, query] = m;
+  const socket = host ? '' : new URLSearchParams(query ?? '').get('host');
+  const where = host || (socket?.startsWith('/') ? `socket ${socket}` : '');
+  if (!where) return '(invalid URL)';
+  return `${scheme.toLowerCase()}://${where}${path === '/' ? '' : path}`;
 }
