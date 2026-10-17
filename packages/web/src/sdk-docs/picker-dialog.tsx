@@ -1,7 +1,7 @@
 import { ArrowUpRight } from 'lucide-react';
 import { buttonClass } from '../components/ui/button';
 import { Dialog } from '../components/ui/overlay';
-import { SDK_BRIEF } from './content';
+import { SDK_BRIEF } from './brief';
 import { withBase } from '../lib/base';
 import { sdkDocsPath } from './links';
 import type { Lang } from './types';

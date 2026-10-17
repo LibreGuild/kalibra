@@ -114,6 +114,19 @@ export class TraceRepo {
   }
 
   list(q: TraceQuery = {}) {
+    const { clause, params } = this.filter(q);
+    const total = this.db.get(`SELECT COUNT(*) AS n FROM traces ${clause}`, ...params).n as number;
+    const rows = this.db.all(
+      `SELECT t.*, (SELECT COUNT(*) FROM spans s WHERE s.trace_id = t.id) AS span_count FROM traces t ${clause} ORDER BY started_at DESC LIMIT ? OFFSET ?`,
+      ...params,
+      Math.min(q.limit ?? 50, 500),
+      q.offset ?? 0,
+    );
+    return { total, traces: rows.map(toTrace) };
+  }
+
+  /** The WHERE clause for a trace filter. */
+  private filter(q: Omit<TraceQuery, 'limit' | 'offset'>) {
     const where: string[] = [];
     const params: unknown[] = [];
     if (q.name) (where.push('name = ?'), params.push(q.name));
@@ -133,15 +146,7 @@ export class TraceRepo {
       where.push(`json_extract(metadata, '$."${k}"') = ?`);
       params.push(v);
     }
-    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const total = this.db.get(`SELECT COUNT(*) AS n FROM traces ${clause}`, ...params).n as number;
-    const rows = this.db.all(
-      `SELECT t.*, (SELECT COUNT(*) FROM spans s WHERE s.trace_id = t.id) AS span_count FROM traces t ${clause} ORDER BY started_at DESC LIMIT ? OFFSET ?`,
-      ...params,
-      Math.min(q.limit ?? 50, 500),
-      q.offset ?? 0,
-    );
-    return { total, traces: rows.map(toTrace) };
+    return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
   }
 
   get(id: string): Trace & { spans: Span[] } {
@@ -169,8 +174,10 @@ export class TraceRepo {
   /** Deletes traces matching a filter (or all), in chunks so a huge delete doesn't hold the database. */
   deleteWhere(q: Omit<TraceQuery, 'limit' | 'offset'>) {
     let deleted = 0;
+    const { clause, params } = this.filter(q);
     for (;;) {
-      const ids = this.list({ ...q, limit: 500 }).traces.map((t) => t.id);
+      // Ids only: no count or span totals per chunk, so deleting many traces stays linear.
+      const ids = this.db.all(`SELECT id FROM traces ${clause} LIMIT 500`, ...params).map((r) => r.id as string);
       if (!ids.length) return deleted;
       deleted += this.delete(ids);
     }

@@ -98,6 +98,14 @@ describe('run summaries', () => {
   });
 });
 
+describe('traces', () => {
+  it('filters by run with an index instead of reading every trace', async () => {
+    const { engine } = await engineWith(1);
+    const plan = engine.db.all("EXPLAIN QUERY PLAN SELECT * FROM traces WHERE run_id = ? ORDER BY started_at DESC LIMIT 50", 'run_x').map((r: any) => r.detail).join(' ');
+    expect(plan).toMatch(/USING INDEX traces_run/);
+  });
+});
+
 describe('adding rows to a big dataset', () => {
   it('finds duplicates with an index instead of reading every row', async () => {
     const { engine, ds } = await engineWith(5);

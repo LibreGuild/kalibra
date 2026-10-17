@@ -191,6 +191,9 @@ export function useHubMutation<I = any, T = any>(name: string, opts: { invalidat
 
 // ── Live updates ────────────────────────────────────────────────────────────
 
+/** Events that can arrive in bursts refresh their views at most this often. */
+const SLOW: Record<string, number> = { 'traces.ingested': 3000 };
+
 const INVALIDATE: Record<string, string[]> = {
   'dataset.changed': ['list_datasets', 'get_dataset_schema', 'list_dataset_versions', 'dataset_quality', 'get_workspace'],
   'rows.changed': ['list_rows', 'list_datasets', 'get_dataset_schema', 'dataset_quality', 'get_workspace'],
@@ -200,6 +203,7 @@ const INVALIDATE: Record<string, string[]> = {
   // run on every progress event of another run would flood the engine (see BaselineChip).
   'run.updated': ['list_runs', 'get_run', 'list_comparisons', 'get_comparison', 'compare_rows', 'run_breakdown', 'get_failure_themes', 'suite_trend'],
   // A batch of traces from the SDK, OpenTelemetry or the proxy was written (traces don't change after that).
+  // Apps can send many per second, so this one refreshes at most every SLOW_MS (see useLiveEvents).
   'traces.ingested': ['list_traces'],
   'result.updated': ['query_results', 'get_result'],
   activity: ['list_activity'],
@@ -218,6 +222,18 @@ export function useLiveEvents(project: string, enabled = true) {
     let delay = 2000;
     const pending = new Set<string>();
     let flush: ReturnType<typeof setTimeout> | undefined;
+    const slowPending = new Set<string>();
+    let slowFlush: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (keys: Set<string>, bursty = false) => {
+      for (const key of keys)
+        qc.invalidateQueries({
+          queryKey: [key],
+          // For bursty events, a list paged with "Load more" past its first page would refetch every
+          // page each time; the reader is looking further down, so leave it until they reload.
+          predicate: bursty ? (q) => ((q.state.data as { pages?: unknown[] } | undefined)?.pages?.length ?? 0) <= 1 : undefined,
+        });
+      keys.clear();
+    };
 
     const connect = () => {
       es = new EventSource(`${projectBase(project)}/events`, { withCredentials: true });
@@ -225,12 +241,13 @@ export function useLiveEvents(project: string, enabled = true) {
       es.onmessage = (m) => {
         try {
           const e = JSON.parse(m.data);
+          if (SLOW[e.type]) {
+            for (const key of INVALIDATE[e.type] ?? []) slowPending.add(key);
+            slowFlush ??= setTimeout(() => (refresh(slowPending, true), (slowFlush = undefined)), SLOW[e.type]);
+            return;
+          }
           for (const key of INVALIDATE[e.type] ?? []) pending.add(key);
-          flush ??= setTimeout(() => {
-            for (const key of pending) qc.invalidateQueries({ queryKey: [key] });
-            pending.clear();
-            flush = undefined;
-          }, 250);
+          flush ??= setTimeout(() => (refresh(pending), (flush = undefined)), 250);
         } catch {
           /* ignore malformed event */
         }
@@ -248,6 +265,7 @@ export function useLiveEvents(project: string, enabled = true) {
       es?.close();
       clearTimeout(retry);
       clearTimeout(flush);
+      clearTimeout(slowFlush);
     };
   }, [qc, project, enabled]);
 }

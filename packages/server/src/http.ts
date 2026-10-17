@@ -11,6 +11,12 @@ const MIME: Record<string, string> = {
   '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json', '.map': 'application/json',
 };
 
+const COMPRESSIBLE = new Set(['.js', '.css', '.html', '.svg', '.json']);
+const ENCODINGS = [
+  { name: 'br', ext: '.br' },
+  { name: 'gzip', ext: '.gz' },
+];
+
 /** Headers on every response: no MIME sniffing, no framing (clickjacking), no referrer leaks to other sites. */
 export const BASE_HEADERS = {
   'x-content-type-options': 'nosniff',
@@ -120,12 +126,29 @@ export function serveStatic(staticDir: string | undefined, req: IncomingMessage,
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
   const isAsset = file.startsWith(join(root, 'assets') + sep);
   const isHtml = extname(file) === '.html';
-  res.writeHead(200, {
+  const stat = statSync(file);
+  // Hashed assets never change; everything else (index.html, logo, docs images) is revalidated, and
+  // a validator lets the browser keep its copy (304) instead of downloading it again.
+  const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  const headers: Record<string, string> = {
     ...BASE_HEADERS,
     'content-type': MIME[extname(file)] ?? 'application/octet-stream',
     'cache-control': isAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+    etag,
     ...(isHtml ? { 'content-security-policy': UI_CSP } : {}),
-  });
+  };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  // The CLI build writes .br/.gz copies of text files (packages/cli/build.mjs).
+  const accepts = String(req.headers['accept-encoding'] ?? '');
+  const encoded = COMPRESSIBLE.has(extname(file)) ? ENCODINGS.find((e) => accepts.includes(e.name) && existsSync(file + e.ext)) : undefined;
+  if (COMPRESSIBLE.has(extname(file))) headers.vary = 'accept-encoding';
+  if (encoded) headers['content-encoding'] = encoded.name;
+  const body = encoded ? file + encoded.ext : file;
+  headers['content-length'] = String(encoded ? statSync(body).size : stat.size);
+  res.writeHead(200, headers);
   if (req.method === 'HEAD') return res.end();
-  createReadStream(file).pipe(res);
+  createReadStream(body).pipe(res);
 }

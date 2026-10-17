@@ -259,6 +259,10 @@ export const PROJECT_MIGRATIONS: string[] = [
   ALTER TABLE results ADD COLUMN steps TEXT;
   ALTER TABLE runs ADD COLUMN git TEXT;
   `,
+  // 6: the Traces page's run filter (and deleting a run's traces) without scanning every trace
+  `
+  CREATE INDEX traces_run ON traces(run_id, started_at) WHERE run_id IS NOT NULL;
+  `,
 ];
 
 /** Thin synchronous wrapper over node:sqlite with cached statements and transactions. */
