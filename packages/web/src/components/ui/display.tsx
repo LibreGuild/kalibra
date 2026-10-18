@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { Check, Copy, Loader2 } from 'lucide-react';
 import { HelpTip, Tip } from './overlay';
 import { toast, toastError } from './toast';
+import { copyText } from '../../lib/clipboard';
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
   return <div className={clsx('rounded-xl border border-line bg-surface', padded && 'p-5', className)}>{children}</div>;
@@ -153,17 +154,15 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
   return (
     <button
       type="button"
-      onClick={() => {
-        // The clipboard API is missing outside secure contexts (e.g. a LAN address over http).
-        if (!navigator.clipboard) return toast.error('Copy is not available here', 'Select the text and copy it with your keyboard.');
-        navigator.clipboard.writeText(text).then(
+      onClick={() =>
+        copyText(text).then(
           () => {
             setDone(true);
             setTimeout(() => setDone(false), 1200);
           },
           (e) => toastError(e, 'Could not copy'),
-        );
-      }}
+        )
+      }
       className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.78125rem] font-medium text-ink-muted hover:bg-hover hover:text-ink"
     >
       {done ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />}
