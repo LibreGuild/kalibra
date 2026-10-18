@@ -20,7 +20,7 @@
     },
     {
       "type": "required_status_checks",
-      "parameters": { "strict_required_status_checks_policy": true, "required_status_checks": [{ "context": "test" }, { "context": "python-sdk" }] }
+      "parameters": { "strict_required_status_checks_policy": true, "required_status_checks": [{ "context": "test" }, { "context": "test-postgres" }, { "context": "python-sdk" }] }
     }
   ]
 }
