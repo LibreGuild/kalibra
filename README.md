@@ -8,7 +8,9 @@
 
 Build test data, point Kalibra at your real app, score every answer with checks you can trust, and see what got better or worse.
 
+[![CI](https://github.com/LibreGuild/kalibra/actions/workflows/ci.yml/badge.svg)](https://github.com/LibreGuild/kalibra/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/kalibra?label=npm&color=5b4bdb)](https://www.npmjs.com/package/kalibra)
+[![PyPI](https://img.shields.io/pypi/v/kalibra-sdk?label=pypi&color=5b4bdb)](https://pypi.org/project/kalibra-sdk/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5b4bdb)](LICENSE)
 [![Node 22.13+](https://img.shields.io/badge/node-22.13%2B-5b4bdb)](https://nodejs.org)
 
