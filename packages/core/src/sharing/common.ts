@@ -13,7 +13,7 @@ import { invalid, newId, nowIso, parseJson } from '../util.js';
  */
 
 /** Written into bundle manifests (set by scripts/set-version.mjs). */
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.1';
 
 /** JSON with object keys sorted at every level, so the same content always produces the same bytes. */
 export function stableStringify(value: unknown, indent?: number): string {
