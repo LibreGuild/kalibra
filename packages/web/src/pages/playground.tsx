@@ -10,6 +10,7 @@ import { Field, Input, Segmented } from '../components/ui/form';
 import { CodeEditor } from '../components/ui/code';
 import { Dialog, HelpTip, Tip } from '../components/ui/overlay';
 import { toast, toastError } from '../components/ui/toast';
+import { copyText } from '../lib/clipboard';
 import { emptyVariant, templateVars, ValuesEditor, VariantsEditor, type VariantDraft } from '../components/playground/editors';
 import { PlaygroundGrid, type PlaygroundResult } from '../components/playground/results';
 import { useJob } from '../components/datasets/media-dialogs';
@@ -206,7 +207,7 @@ export function PlaygroundPage() {
                     <Tip key={c} content="Click to copy">
                       <button
                         type="button"
-                        onClick={() => navigator.clipboard?.writeText(`{{${c}}}`)}
+                        onClick={() => copyText(`{{${c}}}`).catch((e) => toastError(e, 'Could not copy'))}
                         className={usedVars.includes(c) ? 'rounded bg-accent-soft px-1.5 py-0.5 font-mono text-accent-ink' : 'rounded bg-raised px-1.5 py-0.5 font-mono hover:text-ink'}
                       >
                         {`{{${c}}}`}
