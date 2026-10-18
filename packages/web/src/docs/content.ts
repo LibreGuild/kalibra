@@ -187,7 +187,7 @@ export const GUIDES: Guide[] = [
         items: [
           { term: 'HTTP API', text: 'Paste a cURL from devtools, done. JSON, forms, multipart file uploads, SSE streaming.' },
           { term: 'WebSocket', text: 'Streaming audio and realtime chat, with every knob exposed.' },
-          { term: 'Model + prompt', text: 'Test a prompt (or an image, speech or transcription model) directly.' },
+          { term: 'Model + prompt', text: 'Test a prompt (or an image, speech or transcription model) directly. Image, audio or PDF columns in the prompt (`{{image}}`), or listed under Attachments, are sent to the model too.' },
           { term: 'Custom script', text: 'Write JavaScript that calls your app however it likes. Return `{ output }`.' },
         ],
       },

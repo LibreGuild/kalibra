@@ -160,7 +160,12 @@ export class BucketBlobStore implements BlobStore {
       await this.record(info);
       return info;
     } catch (e) {
-      out.destroy();
+      // Wait for the stream to close first: if it was still opening, the file would appear after rm.
+      if (!out.closed) {
+        const closed = once(out, 'close').catch(() => {});
+        out.destroy();
+        await closed;
+      }
       await rm(tmp, { force: true });
       throw e;
     }

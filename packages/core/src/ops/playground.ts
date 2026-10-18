@@ -6,7 +6,8 @@ import { evaluateChecks } from '../runner/evaluate.js';
 import type { MediaFile } from '../providers/types.js';
 import type { LogEntry } from '../script.js';
 import { SuiteSpec } from '../specs.js';
-import { placeholders, render } from '../template.js';
+import { render } from '../template.js';
+import { attachPromptFiles } from '../targets/common.js';
 import { invalid, mapSeq } from '../util.js';
 
 /*
@@ -50,9 +51,6 @@ interface Cell {
   error?: string;
 }
 
-const isFile = (v: unknown): v is { blob: string; name?: string; mime?: string } =>
-  !!v && typeof v === 'object' && typeof (v as any).blob === 'string' && /^[a-f0-9]{64}$/.test((v as any).blob);
-
 async function collectRows(engine: Engine, i: RunInput) {
   if (i.values?.length && i.dataset) throw invalid('Use either a dataset or typed-in values, not both');
   if (i.values?.length) return i.values.map((v) => ({ rowId: undefined as string | undefined, data: v }));
@@ -68,17 +66,8 @@ async function collectRows(engine: Engine, i: RunInput) {
 /** Renders system + prompt for a row; file values used by the prompt become attachments. */
 async function prepare(engine: Engine, i: RunInput, data: Record<string, unknown>) {
   const env = engine.templateEnv();
-  const used = new Set([...placeholders(i.prompt), ...placeholders(i.system)]);
-  const files: MediaFile[] = [];
-  const scope: Record<string, unknown> = { ...data, row: data };
-  for (const key of used) {
-    const v = data[key];
-    if (!isFile(v)) continue;
-    const bytes = await engine.blobs.get(v.blob);
-    files.push({ data: new Uint8Array(bytes), mime: v.mime || (await engine.blobs.info(v.blob))?.mime || 'application/octet-stream' });
-    scope[key] = `[attached file: ${v.name ?? key}]`;
-  }
-  return { system: await render(i.system, scope, env), prompt: await render(i.prompt, scope, env), files };
+  const { scope, files } = await attachPromptFiles([i.prompt, i.system], { ...data, row: data }, engine.blobs);
+  return { system: await render(i.system, scope, env), prompt: await render(i.prompt, scope, env), files: files.map(({ data: d, mime }): MediaFile => ({ data: d, mime })) };
 }
 
 async function playground(engine: Engine, i: RunInput, onProgress?: (done: number, total: number) => void, signal?: AbortSignal) {

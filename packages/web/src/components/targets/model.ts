@@ -120,6 +120,8 @@ export interface ModelConfig {
   voice?: string;
   instructions?: string;
   audio?: string;
+  /** Text and image tasks: file templates ({{image}}) sent with the prompt without being named in it. */
+  attachments?: string[];
 }
 
 export type TargetConfig = HttpConfig | WsConfig | ScriptConfig | ModelConfig;

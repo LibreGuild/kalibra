@@ -20,6 +20,9 @@ A target is how Kalibra calls your app for one row. All kinds share **Variables*
 
 **Model + prompt** (`kind: model`)
 - Tasks: text (system + prompt template), image (prompt, size, quality), speech (text, voice), transcription (audio column).
+- Files in the prompt: image, audio or PDF columns used in the system or prompt template (`{{image}}`, or a list column of files) are sent as attachments with the text, and the template sees `[attached file: name]` in their place. In the image task they become reference images (edits, image-to-image) where the model supports it.
+- **Attachments** (`attachments`): file templates sent with the prompt without naming them in the text, e.g. `{{image}}` or a list column `{{photos}}`. The same file is sent once; a row without the file sends nothing for it.
+- Calling a provider's API yourself with an **HTTP target** instead: `{{image | base64}}` gives the file as base64 and `{{image | dataurl}}` as `data:image/png;base64,…`, e.g. `"image_url": {"url": "{{image | dataurl}}"}` for OpenAI or `"inline_data": {"mime_type": "image/png", "data": "{{image | base64}}"}` for Gemini.
 
 **Custom script** (`kind: script`)
 - JavaScript with `row`, `vars`, `fetch`, `WebSocket`, `readFile`, `llm`, `log`; return `{ output, … }` or a string.

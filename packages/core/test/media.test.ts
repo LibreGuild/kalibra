@@ -73,7 +73,10 @@ describe('jobs and media ops', () => {
     dir = mkdtempSync(join(tmpdir(), 'kalibra-media-'));
     engine = await Engine.open({ dir });
     const stub: LlmClient = {
-      text: async () => ({ text: 'ok', latencyMs: 1, model: 'stub-text' }),
+      text: async (req) => {
+        calls.push({ kind: 'text', req });
+        return { text: 'ok', latencyMs: 1, model: 'stub-text' };
+      },
       json: async (req) => {
         calls.push({ kind: 'json', req });
         return { value: { reasoning: 'Looks right', verdict: 'pass' } as any, latencyMs: 1, model: 'stub-judge' };
@@ -216,5 +219,76 @@ describe('jobs and media ops', () => {
     const stt = await executeTarget(TargetSpec.parse({ config: { kind: 'model', task: 'transcription', connectionId: 'Stub' } }), ctx({ audio: { blob: info.hash, mime: 'audio/wav' } }));
     expect(stt.outputs.output).toBe(' hello world ');
     expect(stt.metrics.latency_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sends image columns used in a model target\'s prompt to the model (text and image tasks)', async () => {
+    const ctx = (row: Record<string, unknown>) => ({
+      row,
+      rowId: 'r1',
+      vars: {},
+      env: engine.templateEnv(),
+      blobs: engine.blobs,
+      llm: engine.llm,
+      signal: new AbortController().signal,
+      log: () => {},
+      workspaceDir: dir,
+    });
+    const info = await engine.blobs.put(PNG, { mime: 'image/png', name: 'cat.png' });
+    const image = { blob: info.hash, name: 'cat.png', mime: 'image/png' };
+
+    let before = calls.length;
+    const text = await executeTarget(
+      TargetSpec.parse({ config: { kind: 'model', connectionId: 'Stub', system: 'You label photos.', prompt: 'What is in this photo? {{image}} Answer in one word. Hint: {{hint}}' } }),
+      ctx({ image, hint: 'pets' }),
+    );
+    expect(text.ok).toBe(true);
+    let req = calls.slice(before).find((c) => c.kind === 'text')!.req;
+    expect(req.files).toHaveLength(1);
+    expect(req.files[0].mime).toBe('image/png');
+    expect(Buffer.from(req.files[0].data).equals(Buffer.from(PNG))).toBe(true);
+    expect(req.prompt).toBe('What is in this photo? [attached file: cat.png] Answer in one word. Hint: pets');
+    expect((text.request as any).files).toEqual([{ name: 'cat.png', mime: 'image/png', size: PNG.byteLength }]);
+
+    // A list of images, and an image referenced only by the system prompt (the same file is sent once).
+    const other = async (n: number, name: string) => {
+      const i = await engine.blobs.put(Buffer.concat([Buffer.from(PNG), Buffer.from([n])]), { mime: 'image/png', name });
+      return { blob: i.hash, name, mime: 'image/png' };
+    };
+    const [dog, bird] = [await other(1, 'dog.png'), await other(2, 'bird.png')];
+    before = calls.length;
+    await executeTarget(TargetSpec.parse({ config: { kind: 'model', connectionId: 'Stub', system: 'Style guide: {{guide}}', prompt: 'Compare {{photos}}' } }), ctx({ guide: image, photos: [dog, bird, image] }));
+    req = calls.slice(before).find((c) => c.kind === 'text')!.req;
+    expect(req.files).toHaveLength(3);
+    expect(req.prompt).toBe('Compare [attached file: dog.png] [attached file: bird.png] [attached file: cat.png]');
+
+    // No file in the prompt: nothing attached.
+    before = calls.length;
+    await executeTarget(TargetSpec.parse({ config: { kind: 'model', connectionId: 'Stub', prompt: 'Hi {{hint}}' } }), ctx({ image, hint: 'there' }));
+    expect(calls.slice(before).find((c) => c.kind === 'text')!.req.files).toBeUndefined();
+
+    // Explicit attachments: sent without appearing in the text; no duplicates; empty rows send nothing.
+    before = calls.length;
+    await executeTarget(
+      TargetSpec.parse({ config: { kind: 'model', connectionId: 'Stub', prompt: 'Describe the photo. {{image}}', attachments: ['{{image}}', '{{extra}}', '{{missing}}'] } }),
+      ctx({ image, extra: [image] }),
+    );
+    req = calls.slice(before).find((c) => c.kind === 'text')!.req;
+    expect(req.files).toHaveLength(1);
+    before = calls.length;
+    await executeTarget(TargetSpec.parse({ config: { kind: 'model', connectionId: 'Stub', prompt: 'Describe the photo.', attachments: ['{{image}}'] } }), ctx({ image }));
+    req = calls.slice(before).find((c) => c.kind === 'text')!.req;
+    expect(req.files).toHaveLength(1);
+    expect(req.prompt).toBe('Describe the photo.');
+    const bad = await executeTarget(TargetSpec.parse({ config: { kind: 'model', connectionId: 'Stub', prompt: 'x', attachments: ['{{hint}}'] } }), ctx({ hint: 'not a file' }));
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/did not resolve to a file/);
+
+    // Image generation: image columns become reference images.
+    before = calls.length;
+    const edit = await executeTarget(TargetSpec.parse({ config: { kind: 'model', task: 'image', connectionId: 'Stub', prompt: 'Make {{image}} look like a watercolour' } }), ctx({ image }));
+    expect(edit.ok).toBe(true);
+    req = calls.slice(before).find((c) => c.kind === 'image')!.req;
+    expect(req.images).toHaveLength(1);
+    expect(req.prompt).toBe('Make [attached file: cat.png] look like a watercolour');
   });
 });
