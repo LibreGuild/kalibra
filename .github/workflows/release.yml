@@ -62,10 +62,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Image name (lowercase)
+      - name: Image name (lowercase), and is this version already pushed?
         id: img
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "ghcr.io/${GITHUB_REPOSITORY,,}:$VERSION" >/dev/null 2>&1; then
+            echo "Image $VERSION already exists; not rebuilding it"; echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.img.outputs.exists != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
