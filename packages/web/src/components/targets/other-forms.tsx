@@ -2,7 +2,7 @@ import { Link } from '../../lib/nav';
 import { useOp } from '../../lib/api';
 import { ConnectionPicker } from '../pickers';
 import { CodeEditor } from '../ui/code';
-import { Field, Input, Segmented, Select, Textarea } from '../ui/form';
+import { Field, Input, Segmented, Select, TagInput, Textarea } from '../ui/form';
 import { NumberInput, ScriptDocs, Section } from './common';
 import type { ModelConfig, ModelTask, ScriptConfig } from './model';
 
@@ -99,7 +99,13 @@ export function ModelForm({ value, onChange }: { value: ModelConfig; onChange: (
       ) : (
         <Section
           title={task === 'image' ? 'Image prompt' : task === 'speech' ? 'Text to speak' : 'Prompt'}
-          help={task === 'text' ? 'Templates with {{column}} placeholders. The reply becomes the main output.' : 'A template with {{column}} placeholders, rendered for every row.'}
+          help={
+            task === 'text'
+              ? 'Templates with {{column}} placeholders. Image, audio or PDF columns you use, e.g. {{image}}, are sent to the model with the text (for models that accept them). The reply becomes the main output.'
+              : task === 'image'
+                ? 'A template with {{column}} placeholders, rendered for every row. Image columns you use, e.g. {{photo}}, are sent as reference images to edit or restyle (for models that support it).'
+                : 'A template with {{column}} placeholders, rendered for every row.'
+          }
         >
           {task === 'text' && (
             <Field label="System prompt" help="Optional instructions sent as the system message.">
@@ -114,6 +120,18 @@ export function ModelForm({ value, onChange }: { value: ModelConfig; onChange: (
               placeholder={task === 'image' ? 'A product photo of {{item}} on a white background' : task === 'speech' ? '{{reference}}' : '{{input}}'}
             />
           </Field>
+          {(task === 'text' || task === 'image') && (
+            <Field
+              label="Attachments"
+              help={
+                task === 'text'
+                  ? 'Image, audio or PDF columns to send with the prompt as extra message parts, e.g. {{image}} or a list column like {{photos}}, without naming them in the text. Columns used in the prompt itself are attached anyway.'
+                  : 'Image columns to send as reference images, e.g. {{photo}}, without naming them in the prompt.'
+              }
+            >
+              <TagInput value={value.attachments ?? []} onChange={(attachments) => set({ attachments })} placeholder="{{image}}" />
+            </Field>
+          )}
         </Section>
       )}
     </>

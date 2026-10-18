@@ -2,12 +2,14 @@ import { render, renderValue } from '../template.js';
 import type { ModelTargetConfig, TargetSpec } from '../specs.js';
 import type { TargetCallContext, TargetCallResult } from './types.js';
 import type { ChatMessage } from '../providers/types.js';
-import { failure, isFileValue, makeLogger, now, requestScope } from './common.js';
+import { attachPromptFiles, failure, isFileValue, makeLogger, now, requestScope } from './common.js';
 
 /*
  * Model target: test a model connection directly. Tasks:
- *   text          – prompt → text
- *   image         – prompt → generated image (stored as a file output)
+ *   text          – prompt → text; image, audio or PDF columns used in the prompt ({{image}}) are
+ *                   sent to the model as attachments (multimodal)
+ *   image         – prompt → generated image (stored as a file output); image columns used in the
+ *                   prompt are sent as reference images (edits, image-to-image) where the model allows
  *   speech        – prompt (text to speak) → audio file output
  *   transcription – audio column → text, e.g. to compare a provider's STT with your own service
  */
@@ -21,10 +23,14 @@ export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Pr
   const base = { connectionId: cfg.connectionId, model: cfg.model || undefined, signal: ctx.signal };
   try {
     if (task === 'image') {
-      const prompt = await render(cfg.prompt, scope, ctx.env);
+      const attached = await attachPromptFiles([cfg.prompt], scope, ctx.blobs, { extra: cfg.attachments, env: ctx.env });
+      const prompt = await render(cfg.prompt, attached.scope, ctx.env);
+      const references = attached.files.filter((f) => f.mime.startsWith('image/'));
+      if (references.length) log('info', `Sending ${references.length} reference image(s)`);
       const res = await ctx.llm.image({
         ...base,
         prompt,
+        images: references.length ? references.map(({ data, mime }) => ({ data, mime })) : undefined,
         size: cfg.size || undefined,
         aspectRatio: cfg.aspectRatio || undefined,
         options: cfg.quality ? { quality: cfg.quality } : undefined,
@@ -71,7 +77,8 @@ export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Pr
       };
     }
 
-    const system = cfg.system ? await render(cfg.system, scope, ctx.env) : undefined;
+    const attached = await attachPromptFiles([cfg.system, cfg.prompt], scope, ctx.blobs, { extra: cfg.attachments, env: ctx.env });
+    const system = cfg.system ? await render(cfg.system, attached.scope, ctx.env) : undefined;
     // In a conversation run the row carries `history` and the current `message`. Earlier turns are
     // replayed as chat messages; the prompt template is used for the new turn only when it refers
     // to {{message}}, otherwise the user's message is sent as is.
@@ -79,15 +86,24 @@ export async function executeModel(spec: TargetSpec, ctx: TargetCallContext): Pr
     const prompt =
       history && typeof ctx.row.message === 'string' && !/\{\{\s*message\b/.test(cfg.prompt)
         ? (ctx.row.message as string)
-        : await render(cfg.prompt, scope, ctx.env);
-    const res = await ctx.llm.text({ ...base, system, prompt, messages: history, temperature: cfg.temperature, maxOutputTokens: cfg.maxOutputTokens });
+        : await render(cfg.prompt, attached.scope, ctx.env);
+    const files = attached.files.length ? attached.files.map(({ data, mime }) => ({ data, mime })) : undefined;
+    if (files) log('info', `Attached ${files.length} file(s): ${attached.files.map((f) => f.name ?? f.mime).join(', ')}`);
+    const res = await ctx.llm.text({ ...base, system, prompt, files, messages: history, temperature: cfg.temperature, maxOutputTokens: cfg.maxOutputTokens });
     const metrics: Record<string, number> = { latency_ms: Math.round(now() - started) };
     if (res.inputTokens !== undefined) metrics.input_tokens = res.inputTokens;
     if (res.outputTokens !== undefined) metrics.output_tokens = res.outputTokens;
     log('info', `Model ${res.model} answered in ${metrics.latency_ms} ms`);
     return {
       ok: true,
-      request: { connectionId: cfg.connectionId, model: res.model, system, prompt, ...(history ? { history: history.length } : {}) },
+      request: {
+        connectionId: cfg.connectionId,
+        model: res.model,
+        system,
+        prompt,
+        ...(history ? { history: history.length } : {}),
+        ...(attached.files.length ? { files: attached.files.map((f) => ({ name: f.name, mime: f.mime, size: f.data.byteLength })) } : {}),
+      },
       response: { text: res.text },
       outputs: { output: res.text },
       metrics,

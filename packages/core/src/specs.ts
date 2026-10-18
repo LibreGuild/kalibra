@@ -205,6 +205,10 @@ export const ModelTarget = z.object({
   voice: z.string().default('').describe('Speech voice, e.g. alloy'),
   instructions: z.string().default('').describe('Speech instructions (tone, accent, pace)'),
   audio: z.string().default('{{audio}}').describe('Transcription: template resolving to the audio file column'),
+  attachments: z
+    .array(z.string())
+    .default([])
+    .describe('Text and image tasks: templates resolving to files (e.g. {{image}}, {{photos}}) sent to the model with the prompt, without mentioning them in the text. Files used in the prompt itself are attached too.'),
 });
 
 /**

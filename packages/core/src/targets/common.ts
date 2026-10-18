@@ -1,6 +1,8 @@
 import { JSONPath } from 'jsonpath-plus';
 import { evalExpression, type LogEntry } from '../script.js';
-import type { TemplateEnv } from '../template.js';
+import { placeholders, renderValue, type TemplateEnv } from '../template.js';
+import type { BlobStore } from '../storage.js';
+import type { MediaFile } from '../providers/types.js';
 import type { Extractor } from '../specs.js';
 import type { TargetCallContext, TargetCallResult } from './types.js';
 
@@ -52,6 +54,44 @@ export function requestScope(ctx: TargetCallContext, extra: Record<string, unkno
 
 export const isFileValue = (v: unknown): v is { blob: string; name?: string; mime?: string; size?: number } =>
   !!v && typeof v === 'object' && typeof (v as any).blob === 'string' && /^[a-f0-9]{64}$/.test((v as any).blob);
+
+/**
+ * Files (images, audio, PDFs) that a prompt refers to, e.g. `{{image}}` or `{{photos}}` for a list of
+ * files: they are sent to the model as attachments, and the template sees a short note in their
+ * place (`[attached file: cat.png]`), so the text still reads naturally. Returns the scope to render
+ * with and the files in the order they appear.
+ */
+export async function attachPromptFiles(
+  templates: (string | undefined)[],
+  scope: Record<string, unknown>,
+  blobs: BlobStore,
+  opts: { extra?: string[]; env?: TemplateEnv } = {},
+): Promise<{ scope: Record<string, unknown>; files: (MediaFile & { name?: string; blob: string })[] }> {
+  const out = { ...scope };
+  const files: (MediaFile & { name?: string; blob: string })[] = [];
+  const add = async (f: { blob: string; name?: string; mime?: string }) => {
+    if (files.some((x) => x.blob === f.blob)) return;
+    const bytes = await blobs.get(f.blob);
+    files.push({ data: new Uint8Array(bytes), mime: f.mime || (await blobs.info(f.blob))?.mime || 'application/octet-stream', name: f.name, blob: f.blob });
+  };
+  const used = new Set(templates.flatMap((t) => (t ? placeholders(t) : [])));
+  for (const key of used) {
+    const v = scope[key];
+    const list = Array.isArray(v) && v.length && v.every(isFileValue) ? v : isFileValue(v) ? [v] : undefined;
+    if (!list) continue;
+    for (const f of list) await add(f);
+    out[key] = list.map((f, i) => `[attached file: ${f.name ?? (list.length > 1 ? `${key} ${i + 1}` : key)}]`).join(' ');
+  }
+  // Explicit attachments (a mapping of file columns to message parts), not mentioned in the text.
+  for (const tpl of (opts.extra ?? []).map((t) => t.trim()).filter(Boolean)) {
+    const v = await renderValue(tpl, scope, opts.env);
+    // A row without that file (an optional column) simply sends nothing for it.
+    const list = (Array.isArray(v) ? v : [v]).filter((x) => x !== undefined && x !== null && x !== '');
+    if (!list.every(isFileValue)) throw new Error(`Attachment "${tpl}" did not resolve to a file (use a file column, e.g. {{image}})`);
+    for (const f of list) await add(f);
+  }
+  return { scope: out, files };
+}
 
 /** JSONPath that can match several nodes returns an array; a plain path returns the single value. */
 export function jsonPathValue(path: string, json: unknown): unknown {
