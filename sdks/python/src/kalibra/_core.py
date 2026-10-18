@@ -29,7 +29,7 @@ from ._transport import Transport, origin_of, warn_once
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 SPAN_KINDS = ("llm", "tool", "retrieval", "agent", "step")
 MAX_SPANS = 256

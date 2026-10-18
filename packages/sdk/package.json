@@ -1,6 +1,6 @@
 {
   "name": "kalibra-sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Kalibra SDK: trace what happens inside your AI app, link it to Kalibra eval runs, record and replay tools, and run evals as code. Zero dependencies; switch it off for production.",
   "license": "MIT",
   "author": "LibreGuild",
