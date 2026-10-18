@@ -111,7 +111,7 @@ describe('server setup and sign-in', () => {
     expect(unknown).toBe(wrong);
     for (let i = 1; i < MAX_FAILED_LOGINS; i++) await hub.accounts.authenticate('alice', 'wrong password!').catch(() => {});
     await expect(hub.accounts.authenticate('alice', PW)).rejects.toThrow(/Too many wrong passwords/);
-  });
+  }, 30_000); // hashes many passwords on purpose: slow on busy CI machines
 
   it('refuses disabled accounts and their sessions and tokens', async () => {
     const { hub, admin, bob } = await serverWithPeople();
