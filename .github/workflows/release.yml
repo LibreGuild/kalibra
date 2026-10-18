@@ -1,13 +1,17 @@
 # Releases from a version tag:  git tag v0.2.0 && git push origin v0.2.0
 #
 # Kalibra ships as the npm package and the Docker image only (no desktop installers):
-#   npm      the `kalibra` package, STAGED (dist-tag `next` for pre-releases, `latest` otherwise):
-#            a maintainer approves it on npmjs.com (Staged Packages) with 2FA, then it goes live.
+#   npm      the `kalibra` package and the `kalibra-sdk` JavaScript SDK, STAGED (dist-tag `next` for
+#            pre-releases, `latest` otherwise): a maintainer approves each on npmjs.com (Staged
+#            Packages) with 2FA, then it goes live.
+#   pypi     the `kalibra-sdk` Python SDK (pre-releases as 0.3.0b1 etc.).
 #   docker   ghcr.io/libreguild/kalibra:<version> (+ :next for pre-releases, :latest otherwise), amd64 and arm64
 #   github   a GitHub release with notes pointing to npm and Docker, no files (pre-release for -beta/-rc tags)
 #
-# npm uses trusted publishing (OIDC, no token): the package trusts this repo's release.yml for
-# `npm stage publish` only, so a workflow on its own can never put a version live.
+# npm and PyPI use trusted publishing (OIDC, no stored tokens): each package trusts this repo's
+# release.yml. On npm that trust is `npm stage publish` only, so a workflow on its own can never put
+# a version live. Every publish step skips a version that is already there, so a release can be
+# re-run (Actions → Release → Run workflow → tag).
 name: Release
 
 on:
@@ -58,10 +62,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Image name (lowercase)
+      - name: Image name (lowercase), and is this version already pushed?
         id: img
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "ghcr.io/${GITHUB_REPOSITORY,,}:$VERSION" >/dev/null 2>&1; then
+            echo "Image $VERSION already exists; not rebuilding it"; echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.img.outputs.exists != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -103,6 +114,69 @@ jobs:
           npm stage publish . --tag "$CHANNEL" --access public
           echo "::notice::kalibra@$VERSION is staged. Approve it at https://www.npmjs.com (avatar → Staged Packages) to publish it." 
 
+  npm-sdk:
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@11.20.0
+      - run: npm ci
+      - run: node scripts/set-version.mjs ${{ needs.meta.outputs.version }}
+      - run: npm run build -w kalibra-sdk
+      - name: Stage kalibra-sdk on npm (approve on npmjs.com → Staged Packages)
+        working-directory: packages/sdk
+        env:
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          if npm view "kalibra-sdk@$VERSION" version >/dev/null 2>&1; then echo "kalibra-sdk@$VERSION is already on npm"; exit 0; fi
+          npm stage publish . --tag "$CHANNEL" --access public
+          echo "::notice::kalibra-sdk@$VERSION is staged. Approve it at https://www.npmjs.com (avatar → Staged Packages)."
+
+  pypi:
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      # Sets the Python SDK's version from the tag (0.3.0-beta.1 → 0.3.0b1); plain Node, no install.
+      - run: node scripts/set-version.mjs ${{ needs.meta.outputs.version }}
+      - name: Already on PyPI?
+        id: check
+        run: |
+          V=$(python -c "import tomllib; print(tomllib.load(open('sdks/python/pyproject.toml', 'rb'))['project']['version'])")
+          if curl -sf "https://pypi.org/pypi/kalibra-sdk/$V/json" >/dev/null; then echo "kalibra-sdk $V is already on PyPI"; echo "exists=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Build the wheel and sdist
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          python -m pip install build==1.6.1 twine==7.0.0
+          python -m build sdks/python --outdir dist
+          python -m twine check --strict dist/*
+      - name: Publish to PyPI (trusted publishing)
+        if: steps.check.outputs.exists != 'true'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+
   github:
     needs: [meta, npm, docker]
     runs-on: ubuntu-latest
@@ -126,7 +200,10 @@ jobs:
             echo "docker run -p 4317:4317 -v kalibra-data:/data $IMAGE:$VERSION   # then open http://localhost:4317/kalibra/"
             echo '```'
             echo
-            echo "The npm version goes live once a maintainer approves it on npmjs.com (dist-tag \`$CHANNEL\`)."
+            echo
+            echo "SDKs: \`npm i kalibra-sdk@$VERSION\` and \`pip install kalibra-sdk\` (see the SDK docs in the app)."
+            echo
+            echo "The npm versions go live once a maintainer approves them on npmjs.com (dist-tag \`$CHANNEL\`)."
           } > notes.md
           flags=(--repo "$GITHUB_REPOSITORY" --title "Kalibra $TAG" --notes-file notes.md --generate-notes --verify-tag)
           if [ "$PRE" = "true" ]; then flags+=(--prerelease); fi
