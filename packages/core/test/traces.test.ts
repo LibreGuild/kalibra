@@ -140,6 +140,30 @@ describe('trace store', () => {
     await expect(e.traces.repo.get('bad')).rejects.toThrow();
   });
 
+  it('flush() waits for a write already in progress, so reads right after ingest see the trace', async () => {
+    const e = await engine();
+    const [t] = normalizeBatch({ traces: [sample()] }).traces;
+    // A slow database (Postgres over the network): the first flush is still writing when a reader flushes.
+    const write = e.traces.repo.write.bind(e.traces.repo);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    e.traces.repo.write = async (batch) => {
+      await gate;
+      return write(batch);
+    };
+    e.traces.enqueue([t]);
+    const first = e.traces.flush(); // takes the batch, blocks in write
+    const second = e.traces.flush(); // queue is empty now: must still wait for the first
+    let secondDone = false;
+    void second.then(() => (secondDone = true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(secondDone).toBe(false);
+    release();
+    await second;
+    expect((await e.traces.repo.get('trace-1')).name).toBe('answer_question');
+    await first;
+  });
+
   it('refuses new writes when the queue is full instead of growing without bound', async () => {
     const e = await engine();
     const batch = { traces: Array.from({ length: 1000 }, (_, i) => ({ name: `t${i}` })) };

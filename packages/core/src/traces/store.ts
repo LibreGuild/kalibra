@@ -98,10 +98,22 @@ export class TraceStore {
     }
   }
 
-  /** Writes everything queued now (also on engine close). */
-  async flush() {
+  private inflight: Promise<void> = Promise.resolve();
+
+  /**
+   * Writes everything queued now (also on engine close). Flushes run one after another, so once
+   * this resolves, every trace enqueued before the call is stored, even when a timer-started flush
+   * was still writing (reads right after ingest, e.g. list_traces, depend on that).
+   */
+  flush(): Promise<void> {
     clearTimeout(this.timer);
     this.timer = undefined;
+    const run = this.inflight.then(() => this.flushQueued());
+    this.inflight = run.catch(() => {});
+    return run;
+  }
+
+  private async flushQueued() {
     if (!this.queue.length) return;
     const batch = this.queue;
     this.queue = [];
