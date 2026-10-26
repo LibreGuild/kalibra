@@ -17,7 +17,7 @@
 
 # ── Build: the web UI and the single-file CLI (engine, server and UI inlined) ─────────────────
 # Platform-independent JavaScript, so it is built once on the build machine, not per platform.
-FROM --platform=$BUILDPLATFORM node:22-trixie-slim@sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa AS build
+FROM --platform=$BUILDPLATFORM node:22-trixie-slim@sha256:8eb619e402eaede1748a3c8173bffab391592812e85136452f781741c7242ddf AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
@@ -34,7 +34,7 @@ RUN npm run build -w @kalibra/web && npm run build -w kalibra \
 # ── Local embedding model, for the target platform (its ONNX runtime is native code) ───────────
 # Same files, versions and ready-markers as the in-app download (packages/core/src/providers/
 # embeddings.ts); the check at the end asks the built Kalibra itself whether the model is ready.
-FROM node:22-trixie-slim@sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa AS models
+FROM node:22-trixie-slim@sha256:8eb619e402eaede1748a3c8173bffab391592812e85136452f781741c7242ddf AS models
 ARG LOCAL_EMBEDDINGS=1
 ENV KALIBRA_MODELS_DIR=/opt/kalibra/models
 COPY --from=build /src/packages/core/src/providers/embeddings.ts /tmp/embeddings.ts
