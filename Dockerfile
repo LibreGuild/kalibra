@@ -69,7 +69,7 @@ RUN set -eu; mkdir -p "$KALIBRA_MODELS_DIR"; \
   rm -rf /tmp/check
 
 # ── Run: Node and one bundle, as an unprivileged user ─────────────────────────────────────────
-FROM gcr.io/distroless/nodejs22-debian13:nonroot@sha256:ec2313763dd43931543bd03830466e0c409ce73a487e8d46f10db72d3b816c1c
+FROM gcr.io/distroless/nodejs22-debian13:nonroot@sha256:10747a1323be68f206aed893599d43e6697ad67257e7c42703553f99fbce3d33
 LABEL org.opencontainers.image.title="Kalibra" \
       org.opencontainers.image.description="Local-first, open-source evaluation for AI applications (team server)" \
       org.opencontainers.image.source="https://github.com/LibreGuild/kalibra" \
