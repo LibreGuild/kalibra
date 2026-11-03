@@ -23,7 +23,7 @@
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "fflate": "^0.8.3",
-    "ioredis": "5.11.1",
+    "ioredis": "6.0.0",
     "jose": "6.2.12",
     "jpeg-js": "0.4.4",
     "jsonpath-plus": "^11.2.1",
